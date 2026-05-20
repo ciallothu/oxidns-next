@@ -213,6 +213,8 @@ pub enum ServiceCommand {
     Start,
     /// Stop the installed service.
     Stop,
+    /// Restart the installed service.
+    Restart,
     /// Uninstall the installed service.
     Uninstall,
 }
@@ -459,6 +461,19 @@ mod tests {
             cli.command,
             Command::Service(ServiceOptions {
                 command: ServiceCommand::Stop,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_service_restart_command() {
+        let args = ["oxidns", "service", "restart"];
+
+        let cli = Cli::parse_from(args);
+        assert_eq!(
+            cli.command,
+            Command::Service(ServiceOptions {
+                command: ServiceCommand::Restart,
             })
         );
     }

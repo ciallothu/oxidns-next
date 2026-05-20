@@ -216,6 +216,7 @@ oxidns export-dat \
 - `service install`
 - `service start`
 - `service stop`
+- `service restart`
 - `service uninstall`
 
 ### `service install`
@@ -248,6 +249,14 @@ sudo oxidns service start
 
 ```bash
 sudo oxidns service stop
+```
+
+### `service restart`
+
+重启已安装的系统服务。
+
+```bash
+sudo oxidns service restart
 ```
 
 ### `service uninstall`

@@ -3,9 +3,10 @@
 
 //! Operating-system service management commands.
 //!
-//! This module wraps the `service-manager` crate to install, start, stop, and
-//! uninstall OxiDNS as a system service. It keeps platform-specific service
-//! manager details outside the normal foreground application runner.
+//! This module wraps the `service-manager` crate to install, start, stop,
+//! restart, and uninstall OxiDNS as a system service. It keeps
+//! platform-specific service manager details outside the normal foreground
+//! application runner.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,7 @@ pub fn run(options: ServiceOptions) -> Result<()> {
         ServiceCommand::Install(install) => install_service(install),
         ServiceCommand::Start => start_service(),
         ServiceCommand::Stop => stop_service(),
+        ServiceCommand::Restart => restart_installed_service(),
         ServiceCommand::Uninstall => uninstall_service(),
     }
 }

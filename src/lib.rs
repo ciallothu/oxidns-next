@@ -21,7 +21,7 @@
 //! - [`plugin`]: plugin registry plus server, executor, matcher, and provider
 //!   extension points.
 //! - [`proto`]: owned DNS protocol model and wire codec.
-//! - [`service`]: operating-system service install/start/stop helpers.
+//! - [`service`]: operating-system service install/start/stop/restart helpers.
 
 pub mod api;
 pub mod app;

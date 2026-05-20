@@ -216,6 +216,7 @@ Supported subcommands:
 - `service install`
 - `service start`
 - `service stop`
+- `service restart`
 - `service uninstall`
 
 ### `service install`
@@ -248,6 +249,14 @@ Stops the installed system service.
 
 ```bash
 sudo oxidns service stop
+```
+
+### `service restart`
+
+Restarts the installed system service.
+
+```bash
+sudo oxidns service restart
 ```
 
 ### `service uninstall`
