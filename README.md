@@ -210,6 +210,21 @@ Windows 可在 PowerShell 中执行：
 - [常见场景](https://oxidns.org/scenarios)
 - [架构与设计](https://oxidns.org/architecture-and-design)
 - [性能与基准](https://oxidns.org/benchmarks)
+- [路线图](https://oxidns.org/roadmap)
+
+---
+
+## 路线图
+
+以下是当前规划中的开发方向，按顺序排列。详细说明请参考[文档路线图](https://oxidns.org/roadmap)。
+
+1. **编译定制化**：按功能模块拆分编译，用户 fork 后可自由组合插件，构建精简的定制版本，并通过自定义仓库实现自动更新
+2. **IP 优选**：对 DNS 响应中的多个 A/AAAA 地址并行测速，自动选出延迟最低的 IP 返回给客户端
+3. **MikroTik 深度集成**：新增从 RouterOS 拉取地址列表作为数据源，以及将本地 IP 集主动推送到 RouterOS 的能力
+4. **OpenWrt 支持**：通过 opkg 一键安装、服务自动托管，为 OpenWrt 用户提供原生部署体验
+5. **WebUI 与指标增强**：为各新增插件补充管理界面，扩展 Prometheus 指标覆盖范围
+
+长期来看，计划探索 WebAssembly 插件和动态链接库插件两种扩展机制，支持第三方开发者独立开发和分发插件。
 
 ---
 

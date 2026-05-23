@@ -210,6 +210,21 @@ For the full installation flow, see [Quick Start](https://oxidns.org/en/quicksta
 - [Common Scenarios](https://oxidns.org/en/scenarios)
 - [Architecture and Design](https://oxidns.org/en/architecture-and-design)
 - [Performance and Benchmarks](https://oxidns.org/en/benchmarks)
+- [Roadmap](https://oxidns.org/en/roadmap)
+
+---
+
+## Roadmap
+
+The following outlines the planned development directions in delivery order. See the [documentation roadmap](https://oxidns.org/en/roadmap) for full details.
+
+1. **Custom builds**: Split compilation by plugin module so users can fork, select only the plugins they need, and auto-update from a custom repository
+2. **IP optimization**: Probe multiple A/AAAA addresses from a DNS response in parallel and return the lowest-latency IP to the client
+3. **MikroTik deep integration**: Add the ability to pull RouterOS address lists as a data source and to actively push local IP sets to RouterOS
+4. **OpenWrt support**: One-command install via opkg with automatic service management — a native deployment experience for OpenWrt users
+5. **WebUI and metrics improvements**: Add management interfaces for new plugins and expand Prometheus metric coverage
+
+Looking further ahead, two plugin extension mechanisms are planned: WebAssembly plugins and dynamic library plugins, enabling third-party developers to build and distribute plugins independently.
 
 ---
 

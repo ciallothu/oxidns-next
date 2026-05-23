@@ -5,6 +5,7 @@ const sidebars = {
     'cli',
     'configuration',
     'releases',
+    'roadmap',
     'webui',
     {
       type: 'category',
