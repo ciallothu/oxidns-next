@@ -88,9 +88,9 @@ export function useConfigSyncStatus(): ConfigSyncStatus {
   // pending diff touches any of them, the apply pill must offer a restart.
   const requiresRestart = Boolean(
     current &&
-      lastGood &&
-      current.content !== lastGood.content &&
-      topLevelConfigChanged(current.content, lastGood.content),
+    lastGood &&
+    current.content !== lastGood.content &&
+    topLevelConfigChanged(current.content, lastGood.content),
   );
 
   let state: SyncState = "in-sync";
@@ -114,7 +114,9 @@ export function useConfigSyncStatus(): ConfigSyncStatus {
   } else if (configVersion && current?.applyStatus === "apply-failed") {
     state = "apply-failed";
     tone = "destructive";
-    label = `应用失败：${current.applyError ?? "热重载未成功"}`;
+    label = requiresRestart
+      ? `重启失败或未完成：${current.applyError ?? "需重启服务才能生效"}`
+      : `应用失败：${current.applyError ?? "热重载未成功"}`;
   } else if (configVersion) {
     state = "not-applied";
     tone = "warning";
@@ -142,6 +144,7 @@ export function ConfigSyncControl() {
   const applyConfig = useAppStore((s) => s.applyConfig);
   const restartApp = useAppStore((s) => s.restartApp);
   const isRestarting = useAppStore((s) => s.isRestarting);
+  const isConfigSaving = useAppStore((s) => s.isConfigSaving);
   const restoreSnapshot = useAppStore((s) => s.restoreSnapshot);
   const saveConfig = useAppStore((s) => s.saveConfig);
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
@@ -155,7 +158,16 @@ export function ConfigSyncControl() {
 
   if (!isConnected) return null;
 
+  const hasLoadedConfig = Boolean(configVersion);
+  const pendingRestartOnlyChange =
+    requiresRestart && (state === "not-applied" || state === "apply-failed");
+
   const handleApply = async () => {
+    if (!hasLoadedConfig) return;
+    if (pendingRestartOnlyChange) {
+      setRestartConfirmOpen(true);
+      return;
+    }
     try {
       await applyConfig();
     } catch {
@@ -164,11 +176,12 @@ export function ConfigSyncControl() {
   };
 
   const handleRestart = async () => {
+    if (!hasLoadedConfig) return;
     try {
       await restartApp();
     } catch {
-      // The store surfaces failures via toast/console; UI state recovers via
-      // pollReconnect timing out.
+      // Restart failures are annotated on the current config snapshot, so the
+      // header pill stays red and offers another restart attempt.
     }
   };
 
@@ -235,16 +248,16 @@ export function ConfigSyncControl() {
             size="sm"
             className={`h-7 gap-1.5 rounded-md px-2.5 ${pillClass}`}
             onClick={() => {
-              if (state === "not-applied" && requiresRestart) {
+              if (pendingRestartOnlyChange) {
                 setRestartConfirmOpen(true);
               } else {
                 void handleApply();
               }
             }}
-            disabled={state === "error"}
+            disabled={state === "error" || isConfigSaving}
           >
-            {state === "not-applied" ? (
-              requiresRestart ? (
+            {state === "not-applied" || state === "apply-failed" ? (
+              pendingRestartOnlyChange ? (
                 <RotateCw className="h-3.5 w-3.5" />
               ) : (
                 <Rocket className="h-3.5 w-3.5" />
@@ -257,7 +270,9 @@ export function ConfigSyncControl() {
                 ? "需要重启"
                 : "应用更改"
               : state === "apply-failed"
-                ? "应用失败·重试"
+                ? pendingRestartOnlyChange
+                  ? "需要重启"
+                  : "应用失败·重试"
                 : "配置有误"}
           </Button>
         </TooltipTrigger>
@@ -301,14 +316,27 @@ export function ConfigSyncControl() {
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={state === "applying" || state === "error" || isRestarting}
+              disabled={
+                state === "applying" ||
+                state === "error" ||
+                isRestarting ||
+                isConfigSaving ||
+                pendingRestartOnlyChange ||
+                !hasLoadedConfig
+              }
               onClick={handleApply}
             >
               <RefreshCw className="h-4 w-4" />
               重载当前配置
             </DropdownMenuItem>
             <DropdownMenuItem
-              disabled={state === "applying" || isRestarting}
+              disabled={
+                state === "applying" ||
+                state === "error" ||
+                isRestarting ||
+                isConfigSaving ||
+                !hasLoadedConfig
+              }
               onClick={(event) => {
                 // Prevent the menu's default focus-restore so the AlertDialog
                 // can take focus cleanly after the menu closes.
@@ -342,7 +370,8 @@ export function ConfigSyncControl() {
           <AlertDialogHeader>
             <AlertDialogTitle>重启 OxiDNS 服务？</AlertDialogTitle>
             <AlertDialogDescription>
-              将以新进程替换正在运行的服务。期间 DNS 解析会短暂中断，所有内存中的状态（如缓存）将被清空。配置会先保存到磁盘再触发重启。
+              将以新进程替换正在运行的服务。期间 DNS
+              解析会短暂中断，所有内存中的状态（如缓存）将被清空。配置会先保存到磁盘再触发重启。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

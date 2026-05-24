@@ -55,7 +55,6 @@ export default function SettingsPage() {
   const reloadStatus = useAppStore((s) => s.reloadStatus);
   const setYamlConfig = useAppStore((s) => s.setYamlConfig);
   const saveConfig = useAppStore((s) => s.saveConfig);
-  const applyConfig = useAppStore((s) => s.applyConfig);
   const loadConfig = useAppStore((s) => s.loadConfig);
   const isConfigSaving = useAppStore((s) => s.isConfigSaving);
   const isRestarting = useAppStore((s) => s.isRestarting);
@@ -145,7 +144,7 @@ export default function SettingsPage() {
     if (ok) await loadConfig();
   };
 
-  const handleSaveTopLevelConfig = async (reload: boolean) => {
+  const buildTopLevelConfig = (): OxiDnsConfig => {
     const nextRuntime: Record<string, unknown> = {
       ...asRecord(configModel.runtime),
     };
@@ -162,10 +161,9 @@ export default function SettingsPage() {
       delete nextApi.http;
     }
 
-    const nextConfig: OxiDnsConfig = {
+    return {
       ...configModel,
-      runtime:
-        Object.keys(nextRuntime).length > 0 ? nextRuntime : undefined,
+      runtime: Object.keys(nextRuntime).length > 0 ? nextRuntime : undefined,
       api: Object.keys(nextApi).length > 0 ? nextApi : undefined,
       log: {
         ...asRecord(configModel.log),
@@ -182,9 +180,16 @@ export default function SettingsPage() {
               },
       },
     };
-    setYamlConfig(stringifyOxiDnsConfig(nextConfig));
+  };
+
+  const handleSaveTopLevelConfig = async () => {
+    setYamlConfig(stringifyOxiDnsConfig(buildTopLevelConfig()));
     await saveConfig();
-    if (reload) await applyConfig();
+  };
+
+  const handleRestartTopLevelConfig = async () => {
+    setYamlConfig(stringifyOxiDnsConfig(buildTopLevelConfig()));
+    await restartApp();
   };
 
   const buildApiHttpConfig = (): unknown => {
@@ -418,17 +423,14 @@ export default function SettingsPage() {
               </Field>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() => handleSaveTopLevelConfig(false)}
+                  onClick={handleSaveTopLevelConfig}
                   disabled={isConfigSaving || isRestarting || !isConnected}
                 >
                   保存配置
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={async () => {
-                    await handleSaveTopLevelConfig(false);
-                    await restartApp();
-                  }}
+                  onClick={handleRestartTopLevelConfig}
                   disabled={isConfigSaving || isRestarting || !isConnected}
                 >
                   <RefreshCw className="h-4 w-4 mr-1.5" />
@@ -639,17 +641,14 @@ export default function SettingsPage() {
 
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() => handleSaveTopLevelConfig(false)}
+                  onClick={handleSaveTopLevelConfig}
                   disabled={isConfigSaving || isRestarting || !isConnected}
                 >
                   保存配置
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={async () => {
-                    await handleSaveTopLevelConfig(false);
-                    await restartApp();
-                  }}
+                  onClick={handleRestartTopLevelConfig}
                   disabled={isConfigSaving || isRestarting || !isConnected}
                 >
                   <RefreshCw className="h-4 w-4 mr-1.5" />
@@ -742,17 +741,14 @@ export default function SettingsPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() => handleSaveTopLevelConfig(false)}
+                  onClick={handleSaveTopLevelConfig}
                   disabled={isConfigSaving || isRestarting || !isConnected}
                 >
                   保存配置
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={async () => {
-                    await handleSaveTopLevelConfig(false);
-                    await restartApp();
-                  }}
+                  onClick={handleRestartTopLevelConfig}
                   disabled={isConfigSaving || isRestarting || !isConnected}
                 >
                   <RefreshCw className="h-4 w-4 mr-1.5" />
