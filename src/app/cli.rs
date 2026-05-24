@@ -343,6 +343,8 @@ mod tests {
             "--socks5",
             "127.0.0.1:1080",
             "--insecure-skip-verify",
+            "--github-token",
+            "ghp_test_token",
         ];
 
         let cli = Cli::parse_from(args);
@@ -363,7 +365,7 @@ mod tests {
                 timeout: Duration::from_secs(120),
                 socks5: Some("127.0.0.1:1080".to_string()),
                 insecure_skip_verify: true,
-                github_token: None,
+                github_token: Some("ghp_test_token".to_string()),
             })
         );
     }

@@ -2076,6 +2076,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
   args:
       repository: svenshi/oxidns
       asset: auto
+      github_token: ghp_xxx
       cache_dir: ./upgrade/cache
       backup_dir: ./upgrade/backups
       webui_dir: ./webui
@@ -2100,6 +2101,9 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
     - GitHub repository. Default: `svenshi/oxidns`.
 - `asset`
     - Release asset name. `auto` selects the current platform archive.
+- `github_token`
+    - GitHub personal access token for API requests, used to raise the rate limit or access private repositories.
+    - The value is sent as a Bearer token on GitHub API requests.
 - `cache_dir` / `backup_dir`
     - Download cache and pre-replacement backup directories.
 - `webui_dir`
@@ -2110,7 +2114,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
     - When `true`, only the binary is replaced and the WebUI directory upgrade is skipped.
 - `no_restart`
     - Boolean. Default: `false`.
-    - Matches the CLI `--no-restart` flag. When `true`, a successful upgrade does not trigger an automatic restart.
+    - When `true`, a successful upgrade does not trigger an automatic restart.
     - The default `false` restarts automatically after a successful upgrade: CLI `apply` restarts the installed service through the system service manager, while the executor requests a graceful in-process restart through the application control channel so the new binary is loaded.
 - `timeout`, `socks5`, `insecure_skip_verify`
     - Same meaning as the CLI `upgrade` flags.

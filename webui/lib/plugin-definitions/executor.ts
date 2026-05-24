@@ -1510,6 +1510,13 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         default: "auto",
       },
       {
+        key: "github_token",
+        description:
+          "GitHub 个人访问令牌，用于提高 API 速率限制或访问私有仓库。",
+        label: "GitHub Token",
+        type: "text",
+      },
+      {
         key: "cache_dir",
         description: "下载缓存目录。",
         label: "下载缓存目录",
@@ -1540,7 +1547,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       {
         key: "no_restart",
         description:
-          "与 CLI --no-restart 语义一致，启用后升级成功也不会触发自动重启。",
+          "启用后升级成功也不会触发自动重启。",
         label: "跳过自动重启",
         type: "switch",
         default: false,

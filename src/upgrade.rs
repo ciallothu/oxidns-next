@@ -843,7 +843,7 @@ async fn fetch_release(config: &UpgradeConfig) -> Result<GitHubRelease> {
 
 fn github_request_headers(token: Option<&str>) -> Vec<(http::header::HeaderName, HeaderValue)> {
     let mut headers = vec![(USER_AGENT, HeaderValue::from_static(GITHUB_USER_AGENT))];
-    if let Some(token) = token
+    if let Some(token) = token.map(str::trim).filter(|token| !token.is_empty())
         && let Ok(value) = HeaderValue::try_from(format!("Bearer {token}"))
     {
         headers.push((AUTHORIZATION, value));
@@ -1219,6 +1219,20 @@ mod tests {
     }
 
     #[test]
+    fn github_request_headers_include_authorization_when_token_is_set() {
+        let headers = github_request_headers(Some(" ghp_test "));
+        assert!(headers.iter().any(|(name, value)| {
+            *name == AUTHORIZATION && value.to_str().unwrap() == "Bearer ghp_test"
+        }));
+    }
+
+    #[test]
+    fn github_request_headers_skip_authorization_when_token_is_empty() {
+        let headers = github_request_headers(Some("   "));
+        assert!(!headers.iter().any(|(name, _)| *name == AUTHORIZATION));
+    }
+
+    #[test]
     fn config_default_has_webui_defaults() {
         let config = UpgradeConfig::default();
         assert_eq!(config.webui_dir, PathBuf::from("./webui"));
@@ -1246,6 +1260,20 @@ mod tests {
         let config = UpgradeConfig::from_cli(&opts);
         assert_eq!(config.webui_dir, PathBuf::from("/tmp/oxidns-webui"));
         assert!(config.skip_webui);
+    }
+
+    #[test]
+    fn from_cli_maps_github_token() {
+        use clap::Parser;
+
+        use crate::app::cli::{Cli, Command};
+
+        let cli = Cli::parse_from(["oxidns", "upgrade", "check", "--github-token", "ghp_test"]);
+        let Command::Upgrade(opts) = cli.command else {
+            panic!("expected upgrade command");
+        };
+        let config = UpgradeConfig::from_cli(&opts);
+        assert_eq!(config.github_token.as_deref(), Some("ghp_test"));
     }
 
     #[test]
