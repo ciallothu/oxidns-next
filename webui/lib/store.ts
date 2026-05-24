@@ -630,18 +630,28 @@ function delay(ms: number): Promise<void> {
 // look identical to a normal healthy response from the unchanged old process.
 //
 // Phase 1 (max 30s): poll until health fails (down transition observed).
-// Phase 2 (max 60s): poll until health succeeds AND uptime_ms is lower than
-//   the pre-restart baseline (uptime reset proves a new process).
-// Either an observed down transition OR a uptime decrease is sufficient
-// evidence — between them they cover both "slow restart" (phase 1 sees the
-// gap) and "fast restart" (phase 1 misses the gap but uptime confirms it).
-// If phase 2 deadline passes without either signal, throw — this surfaces
+// Phase 2 (max 60s): poll until health succeeds AND we can prove the
+//   responding process is new. Three independent signals count as proof:
+//     1. sawDown        — phase 1 observed the old process going away.
+//     2. uptimeReset    — uptime_ms is strictly lower than the pre-restart
+//                         baseline (only possible across a process restart).
+//     3. freshProcess   — uptime_ms is smaller than the elapsed time since
+//                         pollReconnect started (plus a small clock-skew
+//                         buffer). The new process cannot have existed
+//                         before we began polling, so a tiny uptime relative
+//                         to our own wall-clock proves freshness even when
+//                         baselineUptimeMs was unavailable and the down
+//                         window was shorter than the phase-1 interval.
+// If phase 2 deadline passes without any signal, throw — this surfaces
 // "restart never happened" instead of silently returning success.
+const FRESH_PROCESS_BUFFER_MS = 2_000;
+
 async function pollReconnect(baselineUptimeMs?: number): Promise<void> {
+  const startTime = Date.now();
   let sawDown = false;
 
   // Phase 1: wait for the old process to shut down
-  const downDeadline = Date.now() + 30_000;
+  const downDeadline = startTime + 30_000;
   while (Date.now() < downDeadline) {
     await delay(800);
     try {
@@ -664,13 +674,13 @@ async function pollReconnect(baselineUptimeMs?: number): Promise<void> {
       // Not yet up, keep polling
       continue;
     }
-    // Healthy. Verify this is the *new* process — either we already saw a
-    // down transition, or the uptime is strictly lower than the baseline
-    // (the only way the same process could report a lower uptime is the
-    // monotonic-clock semantics, which oxidns does not violate).
+    // Healthy. Verify this is the *new* process via any of three signals
+    // (see the function-level comment for the full rationale).
     const uptimeReset =
       baselineUptimeMs !== undefined && health.uptime_ms < baselineUptimeMs;
-    if (sawDown || uptimeReset) {
+    const freshProcess =
+      health.uptime_ms < Date.now() - startTime + FRESH_PROCESS_BUFFER_MS;
+    if (sawDown || uptimeReset || freshProcess) {
       return;
     }
     // Same process as before — restart request likely ignored/failed.
