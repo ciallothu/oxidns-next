@@ -100,7 +100,7 @@ zoneparser = { package = "oxidns-zoneparser", version = "0.1.0", path = "crates/
 ripset = { package = "oxidns-ripset", version = "0.1.0", path = "crates/ripset" }
 
 [target.'cfg(windows)'.dependencies]
-zip = "2"
+zip = "8"
 
 
 [features]
