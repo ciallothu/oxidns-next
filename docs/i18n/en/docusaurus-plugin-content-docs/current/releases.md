@@ -10,7 +10,39 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 ## 2026-05
 
 <div className="release-stack">
-   <ReleaseCard version="v1.0.2" badge="Patch Release" date="2026-05-21" defaultOpen>
+   <ReleaseCard version="v1.1.0" badge="Minor Release" date="2026-05-25" defaultOpen>
+       **Release Scope**
+
+       - Minor Release focused on safer configuration loading, upgrade and restart handling, `query_recorder` analytics, WebUI operations, and refreshed plugin documentation/navigation. This release includes a breaking `upgrade` configuration change; review related configs or automation before upgrading.
+
+       **Breaking Change**
+
+       - `upgrade` restart configuration changed from enum-style `restart: none|service` and CLI `--restart <none|service>` to boolean `no_restart: true` and `--no-restart`.
+       - The default behavior changed as well: successful `upgrade apply` now restarts the service automatically. To keep the old “do not restart after upgrade” behavior, explicitly set `no_restart: true` or pass `--no-restart`.
+
+       **Changes**
+
+       - Configuration loading now supports YAML environment placeholders: `${VAR}`, `${VAR:-default}`, and `$${...}`. Expansion runs during startup, `oxidns check`, management API validation, and save-time validation, includes `include` paths, and reports missing variables or syntax errors with variable name, line, and column.
+       - Reworked `upgrade apply` into a cross-platform flow. Windows now supports `.zip` archive extraction, binary replacement, and WebUI directory upgrades; zip extraction rejects unsafe paths to prevent zip-slip.
+       - Added GitHub token support for upgrades, useful for higher API rate limits or private repositories. CLI uses `--github-token`; plugin configuration uses `github_token`.
+       - Successful upgrades now restart by default. CLI upgrades restart the installed service through the platform service manager, while plugin-triggered upgrades request a graceful in-process restart that loads the new binary. To skip restart, use CLI `--no-restart` or plugin config `no_restart: true`.
+       - Added management control `POST /restart`. On Unix the process restarts in place with `exec`; on Windows service deployments it cooperates with SCM restart behavior. OxiDNS also captures the original executable path before binary replacement so Linux restarts do not fail on `/proc/self/exe (deleted)`.
+       - `query_recorder` gained aggregate stats APIs and WebUI charts: top clients, top qnames, qtype / rcode distributions, latency histogram, slow-query ranking, and minute/hour query trends. SQLite read/write settings were tuned for these aggregation queries.
+       - WebUI config lifecycle is clearer: top-level `runtime` / `api` / `log` changes now prompt for restart instead of hot reload; config rollback chooses hot reload or restart based on the changed fields, and restart progress is shown while the console waits for reconnection.
+       - WebUI plugin management now checks references before deletion, can replace references, remove safely removable references, or jump to the editor for manual repair. Plugin renames update references and ask for confirmation when other plugins are affected.
+       - Documentation refreshed the plugin overview and sidebar navigation, added the roadmap page, and clarified `redirect` rule forms, `qname` / `cname` domain rules, README roadmap, and disclaimers.
+
+       **Compatibility and Upgrade Notes**
+
+       - Root crate version bumped to `1.1.0`; release tag should use `v1.1.0`.
+       - `v1.0.2` DNS resolution configs generally upgrade directly to `v1.1.0`; environment placeholders are additive and do not affect configs that do not use them.
+       - Breaking Change: old `restart: none|service` and CLI `--restart <none|service>` are no longer accepted. Use `no_restart: true` / `--no-restart` instead. To preserve the old “do not restart after upgrade” behavior, set `no_restart: true` or pass `--no-restart`.
+       - Missing `${VAR}` placeholders now fail config parsing. Use `$${...}` for literal `${...}`, and quote placeholders when environment values may contain YAML-special characters.
+       - New `github_token` / `--github-token` support is optional and does not affect existing public-repository upgrade configs.
+       - Existing `query_recorder` deployments can use the new stats APIs and WebUI charts without config changes. The stats endpoints read SQLite history, so large databases should be monitored for disk and query latency.
+   </ReleaseCard>
+
+   <ReleaseCard version="v1.0.2" badge="Patch Release" date="2026-05-21">
        **Release Scope**
 
        - Patch Release fixing domain-based upstreams depending on local DNS during startup and config validation, and clarifying `bootstrap` versus `dial_addr` resolution precedence.

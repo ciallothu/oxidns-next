@@ -10,7 +10,39 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 ## 2026-05
 
 <div className="release-stack">
-   <ReleaseCard version="v1.0.2" badge="Patch Release" date="2026-05-21" defaultOpen>
+   <ReleaseCard version="v1.1.0" badge="Minor Release" date="2026-05-25" defaultOpen>
+       **版本定位**
+
+       - Minor Release，重点增强配置安全性、升级与重启流程、`query_recorder` 统计分析和 WebUI 运维体验，同时补齐插件文档导航与路线图。本版本包含 `upgrade` 配置的破坏性变更，请升级前检查相关配置或自动化脚本。
+
+       **破坏性变更**
+
+       - `upgrade` 的重启配置已从枚举型 `restart: none|service` 和 CLI 参数 `--restart <none|service>` 改为布尔型 `no_restart: true` 与 `--no-restart`。
+       - 默认行为也同步变化：`upgrade apply` 成功后现在会自动重启服务；需要保持旧版本“不自动重启”行为时，必须显式设置 `no_restart: true` 或传入 `--no-restart`。
+
+       **主要变更**
+
+       - 配置加载链路支持 YAML 环境变量占位符：`${VAR}`、`${VAR:-default}` 和 `$${...}`。占位符会在启动、`oxidns check`、管理 API 校验和保存前校验时展开，支持 `include` 路径，并在变量缺失或语法错误时报告变量名、行号和列号。
+       - `upgrade` 流程重构为跨平台 apply：Windows 现在支持 `.zip` archive 解包、二进制替换和 WebUI 目录升级；zip 解包会拒绝不安全路径，避免 zip-slip。
+       - `upgrade` 新增 GitHub token 支持，可用于提高 API 速率限制或访问私有仓库；CLI 使用 `--github-token`，插件配置使用 `github_token`。
+       - `upgrade` 成功后默认重启服务：CLI 通过系统服务管理器重启已安装服务，插件内升级通过应用控制通道触发优雅重启并加载新二进制。需要跳过重启时，CLI 使用 `--no-restart`，插件配置使用 `no_restart: true`。
+       - 应用控制面新增 `POST /restart`，进程在 Unix 上通过 `exec` 原地重启，在 Windows 服务场景下配合 SCM 重启，并在二进制替换前捕获原始可执行文件路径，避免 Linux 上 `/proc/self/exe (deleted)` 导致重启失败。
+       - `query_recorder` 新增聚合统计 API 和 WebUI 图表：Top clients、Top qnames、qtype / rcode 分布、延迟直方图、慢查询排行和按分钟/小时聚合的查询趋势；SQLite 读写参数也针对统计查询做了优化。
+       - WebUI 配置应用生命周期更清晰：顶层 `runtime` / `api` / `log` 等变更会提示重启而不是热重载；配置回滚会根据变更类型自动选择热重载或重启，并在重启过程中展示连接恢复状态。
+       - WebUI 插件管理增强：删除插件前会检查依赖引用，可选择替换引用、移除可安全删除的引用，或进入编辑器手动修复；插件重命名会同步更新引用并在有影响时要求确认。
+       - 文档更新插件总览和侧边栏导航，新增路线图页面，并补充 `redirect` 规则形式、`qname` / `cname` 域名规则说明、README 路线图与免责声明。
+
+       **配置与升级说明**
+
+       - 根 crate 版本号升级为 `1.1.0`；release tag 应使用 `v1.1.0`。
+       - `v1.0.2` 的 DNS 解析配置通常可直接升级到 `v1.1.0`；环境变量占位符是新增能力，不使用占位符的配置行为保持不变。
+       - Breaking Change：旧的 `restart: none|service` 和 CLI `--restart <none|service>` 已不再接受；请改用 `no_restart: true` / `--no-restart`。如果希望保持旧版本“升级后不自动重启”的行为，需要显式设置 `no_restart: true` 或传入 `--no-restart`。
+       - `${VAR}` 占位符缺失会阻止配置解析；需要保留字面量 `${...}` 时写作 `$${...}`，环境变量值包含 YAML 特殊字符时建议给占位符加引号。
+       - 新增 `github_token` / `--github-token` 为可选字段，不影响现有公开仓库升级配置。
+       - 已启用 `query_recorder` 的部署无需修改配置即可使用新增统计 API 和 WebUI 图表；统计查询会读取 SQLite 历史数据，数据库较大时建议关注磁盘与查询延迟。
+   </ReleaseCard>
+
+   <ReleaseCard version="v1.0.2" badge="Patch Release" date="2026-05-21">
        **版本定位**
 
        - Patch Release，修复域名型 upstream 在启动和配置校验阶段依赖本机 DNS 的问题，并明确 `bootstrap` 与 `dial_addr` 的解析优先级。
