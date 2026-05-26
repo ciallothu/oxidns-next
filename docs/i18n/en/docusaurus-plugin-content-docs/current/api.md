@@ -549,6 +549,56 @@ Response fields:
 * `query_total`
 * `query_share`
 
+#### `GET /api/plugins/<tag>/stats/top_clients`
+
+Aggregates query counts by client IP.
+
+Query parameters:
+
+* `limit=<n>`
+  * Number of buckets to return. Defaults to `20`. The backend no longer enforces a `200` cap; large values increase SQLite sorting and response-size cost.
+* Same as `/records`, supports `since_ms`, `until_ms`, `qname`, `client_ip`, `qtype`, `rcode`, `status`, and `matcher_tag` filters.
+
+Response fields:
+
+* `sample_size`
+* `rows[].key`
+* `rows[].count`
+* `rows[].share`
+
+#### `GET /api/plugins/<tag>/stats/top_qnames`
+
+Aggregates query counts by question name. Query parameters and response fields match `/stats/top_clients`.
+
+#### `GET /api/plugins/<tag>/stats/qtype`
+
+Aggregates distribution by QTYPE. Supports the same time range and filter parameters as `/records`, and returns `sample_size` plus `rows[].key/count/share`.
+
+#### `GET /api/plugins/<tag>/stats/rcode`
+
+Aggregates distribution by response code or special status bucket. Supports the same time range and filter parameters as `/records`, and returns `sample_size` plus `rows[].key/count/share`.
+
+#### `GET /api/plugins/<tag>/stats/latency`
+
+Returns latency summary values, histogram buckets, and slow-query ranking.
+
+Query parameters:
+
+* `slow_limit=<n>` or `limit=<n>`
+  * Number of slow-query rows to return. Defaults to `20`. The backend no longer enforces a `200` cap.
+* Same as `/records`, supports time range and filter parameters.
+
+#### `GET /api/plugins/<tag>/stats/timeseries`
+
+Aggregates query trends into time buckets.
+
+Query parameters:
+
+* `bucket=minute|hour`
+* `buckets=<n>`
+  * Number of buckets to return. Defaults to `60`, maximum `720`.
+* Same as `/records`, supports time range and filter parameters.
+
 #### `GET /api/plugins/<tag>/stream`
 
 Streams newly written records over SSE.

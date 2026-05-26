@@ -1380,6 +1380,19 @@ Persists the entry request, the post-`next` response, and `sequence` execution-p
 - `GET /plugins/<tag>/stats/plugins`
   - Returns hit stats grouped by `matcher / executor / builtin`.
   - Supports `since_ms`, `until_ms`, `kind=matcher|executor|builtin|all`, and the record filters.
+- `GET /plugins/<tag>/stats/top_clients` / `stats/top_qnames`
+  - Returns client IP or QNAME rankings.
+  - Supports `limit=<n>`, default `20`; the backend no longer enforces a `200` cap.
+  - Supports the same time range and filter parameters as records.
+- `GET /plugins/<tag>/stats/qtype` / `stats/rcode`
+  - Returns QTYPE or RCODE distribution.
+  - Supports the same time range and filter parameters as records.
+- `GET /plugins/<tag>/stats/latency`
+  - Returns latency summary values, histogram buckets, and slow-query rankings.
+  - Supports `slow_limit=<n>` or `limit=<n>`, default `20`; the backend no longer enforces a `200` cap.
+- `GET /plugins/<tag>/stats/timeseries`
+  - Returns query trends aggregated by minute or hour.
+  - Supports `bucket=minute|hour` and `buckets=<n>` (default `60`, maximum `720`).
 - `GET /plugins/<tag>/stream`
   - Streams newly written records over SSE.
   - Supports `tail=<n>` to replay the in-memory tail.

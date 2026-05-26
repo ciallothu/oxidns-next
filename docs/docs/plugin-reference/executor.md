@@ -1469,6 +1469,19 @@ old-static.example.com static.example.net
 - `GET /plugins/<tag>/stats/plugins`
   - 返回按 `matcher / executor / builtin` 聚合的命中统计。
   - 支持 `since_ms`、`until_ms`、`kind=matcher|executor|builtin|all` 和 records 的过滤参数。
+- `GET /plugins/<tag>/stats/top_clients` / `stats/top_qnames`
+  - 返回客户端 IP 或 QNAME 排行。
+  - 支持 `limit=<n>`，默认 `20`；后端不再强制 `200` 上限。
+  - 支持 records 的时间范围与过滤参数。
+- `GET /plugins/<tag>/stats/qtype` / `stats/rcode`
+  - 返回 QTYPE 或 RCODE 分布。
+  - 支持 records 的时间范围与过滤参数。
+- `GET /plugins/<tag>/stats/latency`
+  - 返回延迟摘要、直方图和慢查询排行。
+  - 支持 `slow_limit=<n>` 或 `limit=<n>`，默认 `20`；后端不再强制 `200` 上限。
+- `GET /plugins/<tag>/stats/timeseries`
+  - 返回按分钟或小时聚合的查询趋势。
+  - 支持 `bucket=minute|hour` 和 `buckets=<n>`（默认 `60`，最大 `720`）。
 - `GET /plugins/<tag>/stream`
   - 以 SSE 实时推送新写入记录。
   - 支持 `tail=<n>` 回放最近 `n` 条内存 tail。

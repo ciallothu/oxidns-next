@@ -549,6 +549,56 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
 * `query_total`
 * `query_share`
 
+#### `GET /api/plugins/<tag>/stats/top_clients`
+
+按客户端 IP 聚合查询次数。
+
+查询参数：
+
+* `limit=<n>`
+  * 返回桶数，默认 `20`。后端不再强制 `200` 上限；过大的值会增加 SQLite 排序和响应体成本。
+* 同 `/records` 支持 `since_ms`、`until_ms`、`qname`、`client_ip`、`qtype`、`rcode`、`status`、`matcher_tag` 过滤。
+
+返回字段：
+
+* `sample_size`
+* `rows[].key`
+* `rows[].count`
+* `rows[].share`
+
+#### `GET /api/plugins/<tag>/stats/top_qnames`
+
+按查询问题名聚合查询次数。查询参数和返回字段同 `/stats/top_clients`。
+
+#### `GET /api/plugins/<tag>/stats/qtype`
+
+按 QTYPE 聚合分布。支持 `/records` 的时间范围与过滤参数，返回 `sample_size` 和 `rows[].key/count/share`。
+
+#### `GET /api/plugins/<tag>/stats/rcode`
+
+按响应码或特殊状态桶聚合分布。支持 `/records` 的时间范围与过滤参数，返回 `sample_size` 和 `rows[].key/count/share`。
+
+#### `GET /api/plugins/<tag>/stats/latency`
+
+返回延迟摘要、直方图和慢查询排行。
+
+查询参数：
+
+* `slow_limit=<n>` 或 `limit=<n>`
+  * 慢查询排行返回数量，默认 `20`。后端不再强制 `200` 上限。
+* 同 `/records` 支持时间范围与过滤参数。
+
+#### `GET /api/plugins/<tag>/stats/timeseries`
+
+按时间桶聚合查询趋势。
+
+查询参数：
+
+* `bucket=minute|hour`
+* `buckets=<n>`
+  * 返回桶数，默认 `60`，最大 `720`。
+* 同 `/records` 支持时间范围与过滤参数。
+
 #### `GET /api/plugins/<tag>/stream`
 
 通过 SSE 推送新写入的完整记录。
