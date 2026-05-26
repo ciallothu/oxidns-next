@@ -10,7 +10,33 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 ## 2026-05
 
 <div className="release-stack">
-   <ReleaseCard version="v1.1.1" badge="Patch Release" date="2026-05-25" defaultOpen>
+   <ReleaseCard version="v1.1.2" badge="Patch Release" date="2026-05-27" defaultOpen>
+       **Release Scope**
+
+       - Patch Release fixing a Linux `nftset` write failure on `flags interval` sets, repairing the Windows service installer, and polishing systemd working-directory semantics, the WebUI run log viewer, and `query_recorder` ranking views. This release does not introduce breaking configuration changes.
+
+       **Changes**
+
+       - Fixed `nftset` decoding set flags with native byte order, which left `is_interval` always false on little-endian hosts and caused every CIDR add against a `flags interval` set to fail with `Unsupported entry for set type`. Flags are now decoded as big-endian, with a byte-order regression test.
+       - The `nftset` writer now processes each prefix independently, treats `IpSetError::ElementExists` as a skipped no-op, and aggregates ok / skipped / failed counts into a structured warn log instead of disabling the plugin on a single EEXIST.
+       - Fixed the packaged Debian `systemd` unit failing pre-start because of an unwritable `WorkingDirectory`; runtime-relative paths (including WebUI assets) now use `-d/--working-dir` as the single base.
+       - Fixed Windows install/uninstall scripts: reworked service management, binary path handling, and uninstall ordering to avoid orphaned processes or stale paths.
+       - WebUI run log viewer adds a wrap toggle, and `LogEntry.timestamp` now carries millisecond precision so the UI can show local `HH:MM:SS.mmm` alongside the existing `T+elapsed` column for easier correlation with external timelines.
+       - WebUI JSON responses and `query_recorder` SSE streams now tolerate non-JSON errors, heartbeat frames, empty payloads, and malformed events, so transient network hiccups no longer surface console errors.
+       - `query_recorder` removes the fixed 200-row cap on top-client, top-qname, and slow-query stats endpoints; the WebUI rankings and slow-query list gain a “load more” control to navigate larger result sets.
+       - WebUI plugin field documentation is resynced with the Rust plugin configuration.
+       - Documentation site adds a Hero component, refreshes installation steps and the Docker run command, and adds multi-platform quickstart guidance; also documents the Debian `/etc/oxidns` and `/var/lib/oxidns` layout, WebUI symlink behavior, and `client_ip` troubleshooting.
+
+       **Compatibility and Upgrade Notes**
+
+       - Root crate version bumped to `1.1.2`; `oxidns-ripset` bumped to `0.1.1`; release tag should use `v1.1.2`.
+       - `v1.1.1` configs upgrade directly to `v1.1.2` with no new required fields.
+       - Linux deployments using the `nftset` plugin against `flags interval` sets should upgrade promptly; without this fix, those sets cannot accept any add on little-endian architectures.
+       - Deb-package upgrades no longer set systemd `WorkingDirectory`. If you relied on that value to resolve relative paths, set `-d/--working-dir` explicitly instead.
+       - Clients of `query_recorder` ranking APIs can now request larger `limit` values; existing 200-row responses parse unchanged, so behavior remains compatible.
+   </ReleaseCard>
+
+   <ReleaseCard version="v1.1.1" badge="Patch Release" date="2026-05-25">
        **Release Scope**
 
        - Patch Release adding `query_recorder` history clearing and tightening the WebUI plugin-deletion workflow. This release does not introduce breaking configuration changes.

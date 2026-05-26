@@ -10,7 +10,33 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 ## 2026-05
 
 <div className="release-stack">
-   <ReleaseCard version="v1.1.1" badge="Patch Release" date="2026-05-25" defaultOpen>
+   <ReleaseCard version="v1.1.2" badge="Patch Release" date="2026-05-27" defaultOpen>
+       **版本定位**
+
+       - Patch Release，重点修复 Linux `nftset` 在 `flags interval` 集合上的写入失败、Windows 服务安装脚本问题，并完善 systemd 部署的工作目录语义、WebUI 运行日志与 `query_recorder` 排行查看体验。本版本不引入破坏性配置变更。
+
+       **主要变更**
+
+       - 修复 `nftset` 执行器在小端主机上读取集合 flags 时使用本机字节序，导致 `flags interval` 集合的 `is_interval` 永远为 false，所有 CIDR 写入均以 `Unsupported entry for set type` 失败的问题；改为按大端解码并新增字节序回归测试。
+       - `nftset` 写入器现在按前缀独立处理：将 `IpSetError::ElementExists` 视为可跳过的 no-op，仅在结构化 warn 日志中聚合 ok / skipped / failed 计数，不再因为单次 EEXIST 整体禁用插件。
+       - 修复 Debian 打包的 `systemd` 单元因 `WorkingDirectory` 预启动 CHDIR 失败的问题；现以 `-d/--working-dir` 作为运行时相对路径（包含 WebUI 资源）的唯一基准。
+       - 修复 Windows 安装/卸载脚本：调整服务管理流程、二进制路径处理与卸载顺序，避免残留进程或路径异常。
+       - WebUI 运行日志查看器新增整行换行开关；同时后端 `LogEntry.timestamp` 升级到毫秒精度，UI 在 `T+elapsed` 旁补充本地 `HH:MM:SS.mmm`，方便与外部时间线对齐。
+       - WebUI 的 JSON 响应与 `query_recorder` SSE 流现在能容忍非 JSON 错误、心跳帧、空载与异常事件，避免控制台在偶发网络抖动时报错。
+       - `query_recorder` 移除 top client / top qname / slow-query 排行接口固定的 200 行上限，WebUI 排行榜和慢查询列表新增“加载更多”按钮以支持更大的结果集。
+       - WebUI 插件字段说明文档与 Rust 插件配置同步刷新。
+       - 文档站点新增 Hero 组件、改进安装步骤与 Docker 运行命令展示，新增多平台快速上手指引；补齐 Debian `/etc/oxidns` 与 `/var/lib/oxidns` 目录约定、WebUI 符号链接说明与 `client_ip` 排错章节。
+
+       **配置与升级说明**
+
+       - 根 crate 版本号升级为 `1.1.2`；`oxidns-ripset` 同步升级到 `0.1.1`；release tag 应使用 `v1.1.2`。
+       - `v1.1.1` 配置可直接升级到 `v1.1.2`，未引入新的必填配置字段。
+       - 在 Linux 上使用 `nftset` 插件、且集合声明了 `flags interval` 时强烈建议升级，否则该集合在小端架构上完全无法写入。
+       - 通过 deb 包升级的部署，新版本不会再设置 systemd `WorkingDirectory`；如果此前依赖该值改写相对路径，请改用 `-d/--working-dir` 显式指定。
+       - 已使用 `query_recorder` 排行接口的客户端可以传入更大的 `limit`；旧的 200 行响应仍能按原方式解析，行为兼容。
+   </ReleaseCard>
+
+   <ReleaseCard version="v1.1.1" badge="Patch Release" date="2026-05-25">
        **版本定位**
 
        - Patch Release，重点补齐 `query_recorder` 历史记录清理能力，并修复 WebUI 插件删除流程中的交互闭环问题。本版本不引入破坏性配置变更。
