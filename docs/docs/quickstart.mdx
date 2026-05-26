@@ -379,7 +379,9 @@ sudo systemctl enable --now oxidns
 ```bash
 docker pull svenshi/oxidns:latest
 
-docker run --rm \
+docker run -d \
+  --name oxidns \
+  --restart unless-stopped \
   -p 53:53/udp \
   -p 53:53/tcp \
   -p 9199:9199/tcp \

@@ -45,14 +45,21 @@ type HeroProps = { locale?: Locale };
 const INSTALL_TABS: InstallTab[] = [
   { label: 'Linux / macOS', prompt: '$', code: 'curl -fsSL https://oxidns.org/install.sh | sudo sh' },
   { label: 'Windows', prompt: 'PS>', code: 'irm https://oxidns.org/install.ps1 | iex' },
-  { label: 'Docker', prompt: '$', code: 'docker pull svenshi/oxidns:latest' },
-  { label: 'Cargo', prompt: '$', code: 'cargo install --git https://github.com/svenshi/oxidns' },
+  { label: 'Docker', prompt: '$', code: 'docker run -d \\\n' +
+          '  --name oxidns \\\n' +
+          '  --restart unless-stopped \\\n' +
+          '  -p 53:53/udp \\\n' +
+          '  -p 53:53/tcp \\\n' +
+          '  -p 9199:9199/tcp \\\n' +
+          '  -v "$(pwd)/config.yaml:/etc/oxidns/config.yaml:ro" \\\n' +
+          '  svenshi/oxidns:latest' },
+  { label: 'Cargo', prompt: '$', code: 'cargo install oxidns' },
 ];
 
 const COPY = {
   zh: {
     eyebrow: 'Rust · DNS Engine · v1.x',
-    titleAccent: '可编排的 DNS 策略引擎',
+    titleAccent: '面向复杂网络的高性能 DNS 策略编排引擎',
     tagline: '用 Rust 重写的高性能 DNS 服务，灵感来自 MosDNS，为复杂策略、加密上游和系统联动而设计。',
     quickstart: '快速开始',
     github: 'GitHub',
@@ -95,7 +102,7 @@ const COPY = {
   },
   en: {
     eyebrow: 'Rust · DNS Engine · v1.x',
-    titleAccent: 'Composable DNS policy engine',
+    titleAccent: 'A high-performance DNS policy orchestration engine for complex networks',
     tagline: 'A high-performance DNS service built with Rust, inspired by MosDNS, and designed for complex policy, encrypted upstreams, and system integrations.',
     quickstart: 'Quick Start',
     github: 'GitHub',

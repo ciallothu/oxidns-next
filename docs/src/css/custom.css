@@ -1064,9 +1064,10 @@ div[class*='codeBlockContainer'] {
 
 .oxi-hero__install-body {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   padding: 0.5rem 0.55rem 0.5rem 1.1rem;
 }
+
 
 .oxi-hero__install-prompt {
   font-family: var(--ifm-font-family-monospace);
@@ -1074,6 +1075,10 @@ div[class*='codeBlockContainer'] {
   margin-right: 0.6rem;
   user-select: none;
   font-size: 0.95rem;
+
+  align-self: flex-start;
+  padding-top: 0.55rem;
+  line-height: 1.5;
 }
 
 .oxi-hero__install-code {
@@ -1081,6 +1086,7 @@ div[class*='codeBlockContainer'] {
   min-width: 0;
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.92rem;
+  line-height: 1.5;
   color: #e2e8f0;
   background: transparent;
   padding: 0.55rem 0;
