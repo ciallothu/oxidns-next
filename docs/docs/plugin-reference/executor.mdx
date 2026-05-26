@@ -3,6 +3,8 @@ title: 执行器插件
 sidebar_position: 3
 ---
 
+import Admonition from "@theme/Admonition";
+
 执行器是 OxiDNS 的核心动作层。它们可以读写请求、设置响应、调用上游、缓存结果、做回退、记录日志，或触发系统联动。
 
 阅读本章时，应重点关注以下两个问题：
@@ -135,10 +137,12 @@ sidebar_position: 3
 - 把缓存、本地应答、转发、联动拆分成可读的策略层。
 - 通过 marks、matchers 做复杂分支。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 被引用的插件必须已经定义。
 - `sequence` 至少需要一条规则。
+
+</Admonition>
 
 ---
 
@@ -401,10 +405,12 @@ sidebar_position: 3
 - 多上游容错。
 - 多协议混合上游。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 需要更细的并发、代理、引导解析、HTTP/3 参数时，使用完整 `upstreams` 配置。
 - 多上游越多并不一定越好，先保证上游分组语义清晰。
+
+</Admonition>
 
 ---
 
@@ -556,10 +562,12 @@ sidebar_position: 3
 - 构建高命中率低时延策略。
 - 在可控场景中持久化缓存，加快重启后恢复。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 如果前面有会直接生成本地应答的插件，放置位置会决定这些结果是否进入缓存。
 - `ecs_in_key` 开启后，缓存碎片会明显增加。
+
+</Admonition>
 
 ---
 
@@ -634,10 +642,12 @@ sidebar_position: 3
 - 快速上游 + 稳定上游的双层回退。
 - 不同协议上游之间的故障兜底。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 这是“路径级”回退，不是“记录级”合并。
 - `always_standby` 可以降低尾延迟，但会放大上游开销。
+
+</Admonition>
 
 ---
 
@@ -783,10 +793,12 @@ sidebar_position: 3
 - 本地 TXT / MX / PTR / CNAME 数据。
 - 测试或实验环境的本地响应。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 这是“静态响应生成器”，不负责 zone 传送、动态更新或权威服务器完整语义。
 - 解析器能力比 mosdns `arbitrary` 使用的 zone parser 更宽，但命中行为仍是静态记录的精确匹配。
+
+</Admonition>
 
 ---
 
@@ -871,11 +883,13 @@ old-static.example.com static.example.net
 - 统一入口域名指向另一套记录。
 - 对特定域名做别名跳转而不改客户端配置。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 通常应把 `redirect` 放在 `forward` 之前；如果后续链路没有产生 response，`redirect` 不会凭空生成目标记录。
 - 更适合 A/AAAA/TXT 这类简单请求。
 - 对复杂记录和某些扩展场景不保证完全语义透明。
+
+</Admonition>
 
 ---
 
@@ -961,9 +975,11 @@ old-static.example.com static.example.net
 - 面向策略上游携带客户端网段信息。
 - 在网关场景下根据访问来源做更细粒度结果优化。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - `mask4` 最大 `32`，`mask6` 最大 `128`。
+
+</Admonition>
 
 ---
 
@@ -1131,9 +1147,11 @@ old-static.example.com static.example.net
 - 客户端双栈策略收敛。
 - 某些网络环境下优先收敛到更稳定的一类地址。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 该插件与 `forward` 联动最为紧密，通常放置在 `forward` 之前并通过 continuation 生效。
+
+</Admonition>
 
 ---
 
@@ -1288,9 +1306,11 @@ old-static.example.com static.example.net
 - 本地快速 IP 反查。
 - 策略排障、日志联动、资产可视化。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 推荐放置在 `cache` 之前，否则缓存命中可能绕过该插件，导致反查表不更新。
+
+</Admonition>
 
 ---
 
@@ -1494,13 +1514,15 @@ old-static.example.com static.example.net
 - 分析 `sequence` 执行路径、插件命中率和异常分支。
 - 给控制面或外部面板提供实时查询日志流。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 想要拿到完整主链路路径，推荐把 recorder 放在入口附近。
 - 如果前置分支在 recorder 之前就短路返回，该请求不会被当前 recorder 记录。
 - 若 `next` 报错而 `server` 后续补发了兜底响应，数据库里仍只记录插件视角下的 `error` 和空 response。
 - 若未启用管理 API，recorder 仍会写库，但不会暴露查询与 SSE 路由。
 - 若需要真实终端 IP，请让客户端直连 OxiDNS，或在 HTTP/DoH 反向代理场景配置可信的 `src_ip_header`。
+
+</Admonition>
 
 ---
 
@@ -1776,12 +1798,14 @@ old-static.example.com static.example.net
 - 插件会读取并丢弃 HTTP 响应体，以便连接复用，但不会把响应内容写回 `DnsContext`。
 - 如果请求头里已经显式设置 `Content-Type`，插件不会再覆盖它。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - `args.body`、`args.json`、`args.form` 三者互斥。
 - 这是副作用执行器，v1 不支持根据 HTTP 返回结果改写 DNS 请求、响应、marks 或 attrs。
 - v1 不支持 multipart 上传，也不支持 quick setup 语法。
 - 同时需要 `before` 和 `after` 两种时机时，请配置两个独立的 `http_request` 插件实例。
+
+</Admonition>
 
 ---
 
@@ -1870,12 +1894,14 @@ old-static.example.com static.example.net
 - 参数和环境变量在每次执行时基于当前 `DnsContext` 渲染。
 - 超时后会终止子进程，并按 `error_mode` 决定后续控制流。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - v1 不支持 quick setup 语法。
 - `command` 不能为空。
 - `${key}` 中只允许使用文档列出的稳定内建字段；未知占位符会在初始化时报错。
 - 这是副作用执行器，不支持通过 stdout 回写 `attrs`、`marks` 或直接生成 DNS 响应。
+
+</Admonition>
 
 ---
 
@@ -1948,10 +1974,12 @@ old-static.example.com static.example.net
 - 基于 DNS 结果驱动后续流量策略。
 - DNS 到防火墙名单的联动。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - Linux 以外平台会退化为 no-op。
 - 队列满时会丢 side effect，不阻塞 DNS 主路径。
+
+</Admonition>
 
 ---
 
@@ -2064,9 +2092,11 @@ old-static.example.com static.example.net
 
 - 与 `nftables` 集合联动的分类、路由或防火墙策略。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - Linux 以外平台退化为 no-op。
+
+</Admonition>
 
 ---
 
@@ -2225,11 +2255,13 @@ old-static.example.com static.example.net
 - DNS 驱动动态策略名单。
 - 通过 RouterOS address-list 把域名解析结果外溢到网络设备策略层。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 至少需要 `address_list4` 或 `address_list6` 之一。
 - `comment_prefix` 与插件 `tag` 不能包含 `;` 或 `=`。
 - 同步模式不会改变 DNS 应答本身，即使 RouterOS 写入失败也会保留 DNS 结果。
+
+</Admonition>
 
 ## `upgrade`
 
@@ -2354,13 +2386,15 @@ old-static.example.com static.example.net
 - 默认会在启动时检查目标文件；缺失项会在其它插件初始化前自动下载，失败会直接中止启动。
 - 如需关闭该行为，可显式配置 `startup_if_missing: false`。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 只支持 `http` / `https`。
 - `socks5` 支持 `host:port` 和 `username:password@host:port`，IPv6 需写成 `"[::1]:1080"`。
 - `startup_if_missing` 只会补齐缺失文件，不会在每次启动时强制覆盖已有文件。
 - 放进普通 `sequence` 时会直接占用该次请求的执行时间。
 - 覆盖本地文件后不会自动触发生效；如果只是让文件型 provider 立即读取新内容，优先串联 `reload_provider`；如果连 `config.yaml`、依赖拓扑或插件列表也一起变化，再使用 `reload`。
+
+</Admonition>
 
 ### 推荐搭配
 
@@ -2504,11 +2538,13 @@ plugins:
 - 在 `download` 后只刷新受影响的 `domain_set`、`ip_set`、`geosite`、`geoip`、`adguard_rule` provider。
 - 在后台维护链路里降低全量 `reload` 的开销和影响面。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - `args` 只接受 provider 引用，例如 `"$geoip_cn"`；不接受内联规则或文件引用。
 - 如果更新涉及 `config.yaml`、provider 依赖拓扑、插件列表或其它非 provider 数据结构变化，仍然需要使用 `reload`。
 - 放进实时请求路径时，provider reload 可能触发文件读取和重新编译，通常更适合后台 `cron` / `sequence` 任务。
+
+</Admonition>
 
 ---
 
@@ -2543,11 +2579,13 @@ plugins:
 - 在 `cron` 任务中配合 `download`，周期性刷新本地规则文件后立即让新配置生效。
 - 在后台维护 `sequence` 中统一触发一次全量配置重载。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 需要运行在带有应用控制上下文的正常 OxiDNS 进程中。
 - 如果已有 reload 处于 `pending` 或 `in_progress`，本次执行会返回错误。
 - 放进普通请求 `sequence` 时会触发全量应用 reload，通常不建议在实时请求路径上使用。
+
+</Admonition>
 
 ---
 
@@ -2650,9 +2688,11 @@ plugins:
 - 定时执行一个专门的 `sequence` 编排。
 - 为未来的 `reload` 之类后台动作提供统一调度入口。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 不允许引用另一个 `cron` executor。
 - 依赖真实 DNS 请求内容的 executor 在空上下文任务中通常没有意义。
+
+</Admonition>
 
 ---

@@ -3,30 +3,41 @@ title: Quick Start
 sidebar_position: 2
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import Admonition from '@theme/Admonition';
+
 This page describes the OxiDNS installation paths and the shortest path from download to first successful start.
 
-For quick evaluation, prefer:
+<Admonition type="tip" title="Which install path should I choose?">
 
-- Linux servers: the one-command installer, release archives, or `.deb` packages
-- Containerized environments: the GHCR Docker image
-- Local development or debugging: build from source with Cargo
-- macOS / Windows: the one-command installer or release archives
+* **Linux servers**: the one-command installer, release archives, or `.deb` packages
+* **Containerized environments**: the GHCR Docker image
+* **Local development or debugging**: build from source with Cargo
+* **macOS / Windows**: the one-command installer or release archives
+
+</Admonition>
 
 ## 1. One-Command Install
 
 The installer detects the current platform, downloads the matching GitHub Release archive, extracts `oxidns` / `oxidns.exe`, `config.yaml`, and `webui/`, then installs and starts OxiDNS as a system service by default.
 
-Linux / macOS:
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/install.sh | sudo sh
 ```
 
-Elevated Windows PowerShell:
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 irm https://oxidns.org/install.ps1 | iex
 ```
+
+  </TabItem>
+</Tabs>
 
 Default install locations:
 
@@ -39,15 +50,24 @@ Default install locations:
 
 Running the installer again updates the binary and `webui/`. If `config.yaml` already exists in the install directory, the installer keeps it and writes the release default config as `config.yaml.example`.
 
-Install a specific version:
+### Install A Specific Version
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/install.sh | sudo env OXIDNS_VERSION=v1.0.1 sh
 ```
 
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
 ```powershell
 $env:OXIDNS_VERSION = "v1.0.1"; irm https://oxidns.org/install.ps1 | iex
 ```
+
+  </TabItem>
+</Tabs>
 
 Common environment variables:
 
@@ -61,59 +81,97 @@ Common environment variables:
 | `OXIDNS_INSTALL_SERVICE=0` | Skip system service installation and use portable install mode |
 | `OXIDNS_START_SERVICE=0` | Install the service but do not start it immediately |
 
-Portable install on Linux / macOS:
+Portable install:
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/install.sh | env OXIDNS_INSTALL_SERVICE=0 sh
 ```
 
-Portable install on Windows:
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 $env:OXIDNS_INSTALL_SERVICE = "0"; irm https://oxidns.org/install.ps1 | iex
 ```
 
+  </TabItem>
+</Tabs>
+
 After a portable install, start OxiDNS with:
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 oxidns start -c ~/.oxidns/config.yaml -d ~/.oxidns
 ```
 
-Windows:
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 oxidns.exe start -c "$env:LOCALAPPDATA\OxiDNS\config.yaml" -d "$env:LOCALAPPDATA\OxiDNS"
 ```
 
+  </TabItem>
+</Tabs>
+
+<Admonition type="note" title="Port permissions">
+
 The default config includes a `:53` listener. On Linux / macOS, portable installs run by regular users usually cannot bind port 53; for local evaluation, remove `udp_server_53` first or use the default system service install.
+
+</Admonition>
 
 ### Uninstall
 
 The uninstall script removes the binary, `webui/`, and PATH entry while keeping `config.yaml` by default.
 
-Linux / macOS:
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/uninstall.sh | sudo sh
 ```
 
-Elevated Windows PowerShell:
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 irm https://oxidns.org/uninstall.ps1 | iex
 ```
 
+  </TabItem>
+</Tabs>
+
 If you installed with `sudo` or a custom `OXIDNS_INSTALL_DIR`, use the same privilege level and directory variable when uninstalling.
 
 Remove the install directory and config too:
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/uninstall.sh | sudo env OXIDNS_PURGE=1 sh
 ```
 
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
 ```powershell
 $env:OXIDNS_PURGE = "1"; irm https://oxidns.org/uninstall.ps1 | iex
 ```
+
+  </TabItem>
+</Tabs>
+
+<Admonition type="warning" title="Purge removes configuration">
+
+Setting `OXIDNS_PURGE=1` deletes the entire install directory, including the configuration file. Back up `config.yaml` before running it.
+
+</Admonition>
 
 Common uninstall variables:
 
@@ -224,7 +282,7 @@ Common output mapping:
 On Windows PowerShell, run:
 
 ```powershell
-[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+(Get-CimInstance Win32_OperatingSystem).OSArchitecture
 ```
 
 Map `X64`, `Arm64`, and `X86` to the `x86_64`, `aarch64`, and `i686` Windows assets respectively.
@@ -321,13 +379,21 @@ Pull and run:
 ```bash
 docker pull svenshi/oxidns:latest
 
-docker run --rm \
+docker run -d \
+  --name oxidns \
+  --restart unless-stopped \
   -p 53:53/udp \
   -p 53:53/tcp \
   -p 9199:9199/tcp \
   -v "$(pwd)/config.yaml:/etc/oxidns/config.yaml:ro" \
   svenshi/oxidns:latest
 ```
+
+<Admonition type="note" title="Port binding">
+
+On Linux, port 53 is privileged. Regular users usually get the needed permission through the Docker daemon. Portable non-root installs should use `:5353`.
+
+</Admonition>
 
 When the default-branch image is published, the `latest` tag is also available.
 

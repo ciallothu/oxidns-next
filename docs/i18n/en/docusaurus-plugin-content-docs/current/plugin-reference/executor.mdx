@@ -3,6 +3,8 @@ title: Executor Plugins
 sidebar_position: 3
 ---
 
+import Admonition from "@theme/Admonition";
+
 Executors are the core action layer in OxiDNS. They can read or write requests, set responses, query upstreams, cache results, perform fallback logic, emit logs, or trigger system integrations.
 
 When reading this chapter, keep two questions in mind:
@@ -127,10 +129,12 @@ Besides plugin calls, `sequence.args[].exec` can also use built-in control flow:
 - Split cache, local answers, forwarding, and integrations into understandable policy layers.
 - Build complex branches with marks and matchers.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Referenced plugins must already exist.
 - A `sequence` needs at least one rule.
+
+</Admonition>
 
 ---
 
@@ -345,9 +349,11 @@ Per-upstream series are also exported with an `upstream` label (the upstream tag
 - Multi-upstream resilience
 - Mixed-protocol upstream groups
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - More upstreams are not automatically better. Keep upstream groups semantically clear.
+
+</Admonition>
 
 ---
 
@@ -489,9 +495,11 @@ Exported through the global `GET /api/metrics` endpoint. The cache plugin does n
 - Protect upstreams from repeated identical traffic
 - Preserve warm cache state across restarts
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Decide carefully whether ECS should be part of the cache key. It improves correctness for ECS-aware policies but reduces hit ratio.
+
+</Admonition>
 
 ---
 
@@ -564,9 +572,11 @@ Exported through the global `GET /api/metrics` endpoint:
 - Low-latency primary plus stable backup
 - Tail-latency protection
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - A too-aggressive threshold can turn the secondary into a routine dependency.
+
+</Admonition>
 
 ---
 
@@ -718,11 +728,13 @@ Injects arbitrary DNS records from zone-style rule strings.
 - TXT test records
 - Local authority-style data
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Keep rule files readable. Arbitrary records become hard to audit faster than `hosts` entries.
 - This is still a static answer generator, not a full authoritative server with transfer or dynamic update support.
 - The parser is broader than the zone parser used by mosdns `arbitrary`, but matching remains an exact static lookup.
+
+</Admonition>
 
 ---
 
@@ -813,13 +825,15 @@ Common `sequence` usage:
 - Point a unified entry domain to another set of records.
 - Perform alias redirection for specific domains without changing client configuration.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Put `redirect` before `forward` in the usual case. If the remaining chain does
   not produce a response, `redirect` will not synthesize target records by
   itself.
 - It is better suited for simple queries such as `A` / `AAAA` / `TXT`.
 - Full semantic transparency is not guaranteed for complex records and some extension scenarios.
+
+</Admonition>
 
 ---
 
@@ -899,9 +913,11 @@ Controls EDNS Client Subnet forwarding or injection.
 - Geo-sensitive upstream policies
 - Client-network-aware answers
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Keep ECS handling and cache-key policy aligned.
+
+</Admonition>
 
 ---
 
@@ -1042,10 +1058,12 @@ Biases dual-stack results toward one address family.
 - exec: "prefer_ipv6"
 ```
 
-Notes:
+<Admonition type="note" title="Notes">
 
 - Quick setup uses the default configuration: `cache: true` and `cache_ttl: 3600`.
 - Use the full plugin configuration when disabling the cache or changing its TTL.
+
+</Admonition>
 
 ### Behavior
 
@@ -1058,9 +1076,11 @@ Notes:
 - Prefer the family that works better on a given network
 - Reduce dual-stack instability
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Preference is not a substitute for fixing broken transport paths.
+
+</Admonition>
 
 ---
 
@@ -1207,9 +1227,11 @@ Maintains a reverse IP-to-name cache and optionally handles PTR requests.
 - Debugging resolved destinations
 - Supporting PTR-like introspection for learned answers
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - This is an auxiliary index, not a replacement for authoritative PTR data.
+
+</Admonition>
 
 ---
 
@@ -1405,13 +1427,15 @@ Persists the entry request, the post-`next` response, and `sequence` execution-p
 - `sequence` path analysis and plugin hit-rate reporting
 - Real-time query log feeds for dashboards or control planes
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Place the recorder close to the entry point when the full main-path trace is required.
 - If an earlier branch short-circuits before the recorder, that request will not be recorded.
 - If `next` fails and the server later emits a fallback response, the database still reflects the plugin's point of view: `error` plus an empty response.
 - If the management API is disabled, the recorder still writes SQLite data but does not expose query or SSE routes.
 - To preserve real client IPs, point clients directly at OxiDNS or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
+
+</Admonition>
 
 ---
 
@@ -1675,12 +1699,14 @@ Sends callback requests to external `http/https` services. It can trigger before
 - The plugin drains and discards the HTTP response body so connections remain reusable, but it does not write that body back into `DnsContext`.
 - If `Content-Type` is already set explicitly in `args.headers`, the plugin does not overwrite it.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - `args.body`, `args.json`, and `args.form` are mutually exclusive.
 - This is a side-effect executor. In v1 it cannot rewrite DNS requests, responses, marks, or attrs based on the HTTP result.
 - v1 does not support multipart uploads or quick setup syntax.
 - Configure two separate `http_request` plugin instances when both trigger moments are required.
+
+</Admonition>
 
 ---
 
@@ -1769,12 +1795,14 @@ Runs an explicitly configured external command and injects a stable subset of th
 - Arguments and environment variables are rendered from the current `DnsContext` on each execution.
 - On timeout the child process is terminated, then `error_mode` decides how the sequence continues.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - v1 does not support quick setup syntax.
 - `command` must not be empty.
 - Only the documented built-in placeholders are accepted; unknown placeholders fail plugin initialization.
 - This is a side-effect executor. It does not support writing attrs, marks, or DNS responses back through stdout.
+
+</Admonition>
 
 ---
 
@@ -1847,10 +1875,12 @@ Here, `family` is `inet` or `inet6`.
 - Policy routing
 - Firewall integration
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - On non-Linux platforms it degrades to a no-op.
 - When the queue is full, the side effect is dropped and does not block the DNS hot path.
+
+</Admonition>
 
 ---
 
@@ -1963,9 +1993,11 @@ Format:
 
 - nftables-driven routing or firewall policies
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - On non-Linux platforms it degrades to a no-op.
+
+</Admonition>
 
 ---
 
@@ -2108,11 +2140,13 @@ Writes response IPs into MikroTik RouterOS address lists, with dynamic entries, 
 - DNS-driven policy routing on RouterOS
 - Maintaining dynamic destination groups from DNS answers
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - At least one of `address_list4` or `address_list6` is required.
 - `comment_prefix` and the plugin `tag` must not contain `;` or `=`.
 - Synchronous mode does not change the DNS response itself. Even if the RouterOS write fails, the DNS result is still preserved.
+
+</Admonition>
 
 ## `upgrade`
 
@@ -2232,13 +2266,15 @@ Downloads one or more `http/https` files into a local directory and overwrites t
 - By default, OxiDNS checks target files during startup and downloads any missing ones before other plugins initialize. A bootstrap failure aborts startup.
 - Set `startup_if_missing: false` to disable that bootstrap behavior.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Only `http` and `https` are supported.
 - `socks5` accepts `host:port` and `username:password@host:port`; bracket IPv6 addresses such as `"[::1]:1080"` are supported too.
 - `startup_if_missing` only fills missing files; it does not overwrite existing targets on every startup.
 - When used inside a normal `sequence`, the download time is paid directly by that request.
 - Overwriting a local file does not apply automatically. For file-backed providers that only need to pick up new data, prefer chaining `reload_provider`; if `config.yaml`, dependency topology, or the plugin list changed too, use `reload`.
+
+</Admonition>
 
 ### Recommended Pairing
 
@@ -2324,7 +2360,7 @@ plugins:
       file: "/etc/oxidns/rules/geoip.dat"
 ```
 
-Notes:
+<Admonition type="note" title="Notes">
 
 - `download` writes the subscription content to local files.
 - `reload_provider` refreshes only the affected provider snapshots without rebuilding unrelated plugins.
@@ -2332,6 +2368,8 @@ Notes:
 - If the subscription source requires a proxy, set a SOCKS5 proxy on `subscription_download.args.socks5`.
 - To avoid overwriting existing files at startup, keep the default behavior and only bootstrap missing files.
 - If the update also changes `config.yaml`, provider topology, or the plugin list, use a full `reload` instead.
+
+</Admonition>
 
 ### Full Reload Still Fits Config Changes
 
@@ -2382,11 +2420,13 @@ Reloads one or more providers in place by tag, rebuilding their internal snapsho
 - Refreshing only the affected `domain_set`, `ip_set`, `geosite`, `geoip`, or `adguard_rule` providers after `download`.
 - Reducing the blast radius and cost of a full application reload in background maintenance flows.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - `args` only accepts provider references such as `"$geoip_cn"`; inline rules and file references are rejected.
 - If the update changes `config.yaml`, provider topology, the plugin list, or other non-provider structures, `reload` is still required.
 - Running this on a live request path may trigger file reads and recompilation, so it is usually a better fit for background `cron` or maintenance `sequence` flows.
+
+</Admonition>
 
 ---
 
@@ -2421,11 +2461,13 @@ Triggers the same application-level full reload as the management API `POST /rel
 - Pairing with `download` in a `cron` job so refreshed rule files take effect immediately.
 - Triggering a full configuration reload from a dedicated background `sequence`.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - It must run inside a normal OxiDNS process with application control context attached.
 - Execution fails when another reload is already `pending` or `in_progress`.
 - Using it in a live request `sequence` triggers a full application reload and is usually not appropriate for latency-sensitive request paths.
+
+</Admonition>
 
 ---
 
@@ -2529,9 +2571,11 @@ Schedules a list of executors in the background. It does not participate in the 
 - Scheduling a dedicated background `sequence`.
 - Providing a common trigger surface for future executors such as `reload`.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - A `cron` job cannot reference another `cron` executor.
 - Executors that require a real DNS request usually do not make sense in an empty background context.
+
+</Admonition>
 
 ---

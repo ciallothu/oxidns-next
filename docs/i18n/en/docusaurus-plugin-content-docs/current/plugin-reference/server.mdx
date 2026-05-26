@@ -3,6 +3,8 @@ title: Server Plugins
 sidebar_position: 2
 ---
 
+import Admonition from "@theme/Admonition";
+
 Server plugins receive client requests and hand them off to an entry executor. They do not implement complex policy logic themselves. Their main concerns are the listening protocol, bind address, TLS parameters, and the `entry` executor.
 
 ## General Notes
@@ -104,10 +106,12 @@ Listens for DNS over UDP and forwards requests to `entry`.
 - The main listener for local networks.
 - Multi-protocol setups alongside `tcp_server` or `http_server`.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - UDP and QUIC both consume UDP ports. Avoid conflicts.
 - Prefer a shared `sequence` entry instead of duplicating policy logic in multiple server instances.
+
+</Admonition>
 
 ---
 
@@ -214,10 +218,12 @@ Listens for DNS over TCP. If `cert` and `key` are both configured, it can also s
 - DoT deployments.
 - Clients that benefit from long-lived connections.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - `cert` and `key` must be configured together.
 - Define two separate plugin instances when both plaintext TCP and DoT are required.
+
+</Admonition>
 
 ---
 
@@ -348,10 +354,13 @@ Provides DNS over HTTPS and can serve HTTP/2 plus optional HTTP/3.
 - Multiple DNS policy entry points on one listener.
 - Deployments behind a reverse proxy that preserve the original client IP with `src_ip_header`.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - `enable_http3: true` requires both `cert` and `key`.
 - If a reverse proxy is involved, define a trusted boundary for `src_ip_header` to avoid spoofed source IPs.
+
+</Admonition>
+
 ## `quic_server`
 
 ### Purpose
@@ -431,9 +440,11 @@ Provides DNS over QUIC.
 - Encrypted DNS ingress with low latency.
 - Modern clients that benefit from QUIC transport behavior.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - The listener still consumes a UDP port underneath.
 - Do not bind the same address and port as `udp_server`.
+
+</Admonition>
 
 ---

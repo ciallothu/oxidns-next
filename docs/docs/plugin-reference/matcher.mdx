@@ -3,6 +3,8 @@ title: 匹配器插件
 sidebar_position: 4
 ---
 
+import Admonition from "@theme/Admonition";
+
 匹配器插件返回 `true` 或 `false`，主要供 `sequence` 的 `matches` 使用。
 
 ## 匹配表达式规则
@@ -807,11 +809,13 @@ args:
 
 - 按 DoH 路径、SNI、mark 集合、响应 IP 字符串做灵活判断。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 可使用专用 matcher 的场景，宜优先采用专用 matcher。
 - `string_exp` 提供更高灵活性，但表达式的可读性与可维护性通常低于专用插件。
 <span id="true"></span>
+
+</Admonition>
 
 ## `_true`
 

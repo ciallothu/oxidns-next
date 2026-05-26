@@ -3,6 +3,8 @@ title: Matcher Plugins
 sidebar_position: 4
 ---
 
+import Admonition from "@theme/Admonition";
+
 Matcher plugins return `true` or `false`. They are mainly used by `sequence.matches`.
 
 ## Matcher Expression Rules
@@ -755,10 +757,12 @@ Supported `op` values:
 - `regexp`
 - `zl`
 
-Notes:
+<Admonition type="note" title="Notes">
 
 - `zl` means zero length and is used to determine whether a string is empty.
 - `regexp` supports one or more regex arguments.
+
+</Admonition>
 
 ### quick setup
 
@@ -770,11 +774,13 @@ Notes:
 
 - Perform flexible matching on DoH paths, SNI, mark sets, and response IP strings.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - In scenarios where a dedicated matcher can be used, prefer the dedicated matcher.
 - `string_exp` provides greater flexibility, but the readability and maintainability of the expression are usually lower than those of dedicated plugins.
 <span id="true"></span>
+
+</Admonition>
 
 ## `_true`
 

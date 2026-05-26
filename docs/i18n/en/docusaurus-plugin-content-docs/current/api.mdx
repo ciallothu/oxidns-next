@@ -3,6 +3,8 @@ title: Management API
 sidebar_position: 4
 ---
 
+import Admonition from "@theme/Admonition";
+
 OxiDNS exposes a standalone control plane for:
 
 * Process and startup health checks
@@ -82,12 +84,14 @@ Encoding rules:
 
 In the example above, the Base64 value for `admin:secret` is `YWRtaW46c2VjcmV0`.
 
-Notes:
+<Admonition type="note" title="Notes">
 
 * This uses standard Base64, not URL-safe Base64.
 * Do not encode `username` and `password` separately.
 * Do not percent-encode or URL-encode first.
 * The server compares the fully decoded value directly against `username:password`.
+
+</Admonition>
 
 Examples:
 
@@ -348,9 +352,11 @@ Good fit:
 /api/plugins/<plugin_tag>/<route>
 ```
 
-Notes:
+<Admonition type="note" title="Notes">
 
 * A few plugins also expose prefix routes. For example, `query_recorder` uses `/api/plugins/<tag>/records/<id>`.
+
+</Admonition>
 
 ### cache
 
@@ -389,9 +395,11 @@ Good fit:
 * Refreshing only the affected `domain_set`, `ip_set`, `geosite`, `geoip`, or `adguard_rule` provider after downloading new rule files.
 * Avoiding the blast radius of an application-wide `POST /api/reload`.
 
-Notes:
+<Admonition type="note" title="Notes">
 
 * When the change also updates `config.yaml`, provider topology, the plugin list, or other non-provider structures, `POST /api/reload` is still required.
+
+</Admonition>
 
 #### `GET /api/plugins/<cache_tag>/dump`
 
@@ -610,11 +618,13 @@ Query parameters:
 * `tail=<n>`
   * Replay the most recent `n` records from the in-memory tail first, then continue streaming.
 
-Notes:
+<Admonition type="note" title="Notes">
 
 * `event: record` uses the full `RecordDetail` JSON as `data`.
 * Heartbeat comment frames are sent periodically to keep the connection alive.
 * Clients should send `Accept: text/event-stream` and tolerate heartbeat frames, error events, empty payloads, and brief reconnects.
+
+</Admonition>
 
 ## Prometheus Metrics
 

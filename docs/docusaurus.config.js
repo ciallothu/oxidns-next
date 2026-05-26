@@ -1,4 +1,23 @@
+import {createRequire} from 'node:module';
 import {themes as prismThemes} from 'prism-react-renderer';
+
+const require = createRequire(import.meta.url);
+
+// Enable Algolia DocSearch after approval by setting these env vars.
+// Without them, the docs keep the existing local search plugin as a fallback.
+const docSearchAppId = process.env.DOCSEARCH_APP_ID ?? process.env.ALGOLIA_APP_ID;
+const docSearchApiKey = process.env.DOCSEARCH_API_KEY ?? process.env.ALGOLIA_API_KEY;
+const docSearchIndexName = process.env.DOCSEARCH_INDEX_NAME ?? process.env.ALGOLIA_INDEX_NAME;
+
+const algoliaConfig = docSearchAppId && docSearchApiKey && docSearchIndexName
+  ? {
+      appId: docSearchAppId,
+      apiKey: docSearchApiKey,
+      indexName: docSearchIndexName,
+      contextualSearch: true,
+      searchParameters: {},
+    }
+  : undefined;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -48,7 +67,7 @@ const config = {
   themes: ['@docusaurus/theme-mermaid'],
 
   plugins: [
-    [
+    !algoliaConfig && [
       require.resolve('@easyops-cn/docusaurus-search-local'),
       {
         hashed: true,
@@ -64,7 +83,7 @@ const config = {
         explicitSearchResultPath: true,
       },
     ],
-  ],
+  ].filter(Boolean),
 
   presets: [
     [
@@ -123,9 +142,11 @@ const config = {
         copyright: `Copyright © ${new Date().getFullYear()} OxiDNS`,
       },
       prism: {
-        theme: prismThemes.github,
-        darkTheme: prismThemes.vsDark,
+        theme: prismThemes.oneDark,
+        darkTheme: prismThemes.oneDark,
+        additionalLanguages: ['shell-session', 'powershell', 'bash'],
       },
+      ...(algoliaConfig ? {algolia: algoliaConfig} : {}),
     }),
 };
 

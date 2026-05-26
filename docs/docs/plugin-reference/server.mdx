@@ -3,6 +3,8 @@ title: 服务端插件
 sidebar_position: 2
 ---
 
+import Admonition from "@theme/Admonition";
+
 服务端插件负责接收客户端请求，并把请求交给某个入口执行器。它们本身不承担复杂策略逻辑，核心关注点是监听协议、监听地址、TLS 参数和入口 `entry`。
 
 ## 通用说明
@@ -104,10 +106,12 @@ sidebar_position: 2
 - 本地网络的主监听器。
 - 与 `tcp_server` / `http_server` 并存，构成多协议接入。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - UDP 与 QUIC 都基于 UDP 端口，避免端口冲突。
 - 推荐将入口统一交给 `sequence`，避免在不同 server 实例中重复维护策略。
+
+</Admonition>
 
 ---
 
@@ -215,10 +219,12 @@ sidebar_position: 2
 - 提供加密 DNS 的 DoT 接入。
 - 需要长连接复用的客户端场景。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - `cert` 和 `key` 需要一起配置。
 - 如需同时提供明文 TCP 与 DoT，推荐定义两个独立的插件实例。
+
+</Admonition>
 
 ---
 
@@ -349,10 +355,13 @@ sidebar_position: 2
 - 在同一个监听地址下提供多条 DNS 策略入口。
 - 部署在反向代理后，使用 `src_ip_header` 保留真实来源地址。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - `enable_http3: true` 时必须提供 `cert` 和 `key`。
 - 若后面有反代，请确认 `src_ip_header` 的可信边界，避免伪造来源 IP。
+
+</Admonition>
+
 ## `quic_server`
 
 ### 作用
@@ -432,9 +441,11 @@ sidebar_position: 2
 - 低时延加密 DNS 入口。
 - 需要结合 QUIC 优势的现代客户端接入。
 
-### 注意事项
+<Admonition type="note" title="注意事项">
 
 - 监听端口底层仍然占用 UDP。
 - 与 `udp_server` 不应绑定同一地址端口。
+
+</Admonition>
 
 ---

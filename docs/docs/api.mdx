@@ -3,6 +3,8 @@ title: 管理 API
 sidebar_position: 4
 ---
 
+import Admonition from "@theme/Admonition";
+
 OxiDNS 的管理 API 是独立控制平面，负责：
 
 * 进程与启动健康检查
@@ -82,12 +84,14 @@ Authorization: Basic YWRtaW46c2VjcmV0
 
 以上示例中，`admin:secret` 对应的 Base64 结果为 `YWRtaW46c2VjcmV0`。
 
-注意事项：
+<Admonition type="note" title="注意事项">
 
 * 这里使用的是标准 Base64，不是 URL-safe Base64。
 * 不需要分别对 `username` 和 `password` 单独编码。
 * 不使用百分号编码，也不应先做 URL encode。
 * 服务端按解码后的完整结果与 `username:password` 做直接比较。
+
+</Admonition>
 
 示例：
 

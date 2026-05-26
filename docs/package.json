@@ -5,15 +5,16 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "sync-installers": "node scripts/sync-installers.mjs",
-    "start": "node scripts/sync-installers.mjs && docusaurus start",
-    "start:zh": "node scripts/sync-installers.mjs && docusaurus start --locale zh-Hans",
-    "start:en": "node scripts/sync-installers.mjs && docusaurus start --locale en",
+    "start": "node scripts/sync-installers.mjs && dotenv -e .env.local -- docusaurus start",
+    "start:zh": "node scripts/sync-installers.mjs && dotenv -e .env.local -- docusaurus start --locale zh-Hans",
+    "start:en": "node scripts/sync-installers.mjs && dotenv -e .env.local -- docusaurus start --locale en",
     "build": "node scripts/sync-installers.mjs && docusaurus build",
+    "build-env": "node scripts/sync-installers.mjs && dotenv -e .env.local -- docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",
     "serve": "docusaurus serve",
-    "preview": "node scripts/sync-installers.mjs && docusaurus build && docusaurus serve",
+    "preview": "node scripts/sync-installers.mjs && dotenv -e .env.local -- docusaurus build && docusaurus serve",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids"
   },
@@ -29,11 +30,13 @@
     "clsx": "^2.0.0",
     "prism-react-renderer": "^2.3.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "typed.js": "^3.0.0"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.10.0",
-    "@docusaurus/types": "^3.10.0"
+    "@docusaurus/types": "^3.10.0",
+    "dotenv-cli": "^11.0.0"
   },
   "browserslist": {
     "production": [

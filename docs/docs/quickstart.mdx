@@ -3,30 +3,41 @@ title: 快速开始
 sidebar_position: 2
 ---
 
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import Admonition from '@theme/Admonition';
+
 本页介绍 OxiDNS 的安装方式，并给出从下载到首次启动的最短路径。
 
-仅需快速验证时，优先使用以下方式：
+<Admonition type="tip" title="选哪种安装方式？">
 
-- Linux 服务器：优先使用一条命令安装脚本、release 压缩包或 `.deb`
-- 容器环境：优先使用 GHCR Docker 镜像
-- 需要自行改代码或调试：使用 Cargo 从源码构建
-- macOS / Windows：优先使用一条命令安装脚本或 release 压缩包
+* **Linux 服务器**：优先使用一条命令安装脚本、release 压缩包或 `.deb`
+* **容器环境**：优先使用 GHCR Docker 镜像
+* **需要自行改代码或调试**：使用 Cargo 从源码构建
+* **macOS / Windows**：优先使用一条命令安装脚本或 release 压缩包
+
+</Admonition>
 
 ## 1. 一条命令安装
 
 安装脚本会自动识别当前平台，下载匹配的 GitHub Release archive，解压 `oxidns` / `oxidns.exe`、`config.yaml` 和 `webui/`，并默认安装、启动为系统服务。
 
-Linux / macOS：
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/install.sh | sudo sh
 ```
 
-Windows 管理员 PowerShell：
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 irm https://oxidns.org/install.ps1 | iex
 ```
+
+  </TabItem>
+</Tabs>
 
 默认安装位置：
 
@@ -39,15 +50,24 @@ irm https://oxidns.org/install.ps1 | iex
 
 重复运行安装脚本会更新二进制和 `webui/`。如果安装目录中已经有 `config.yaml`，脚本会保留现有配置，并把 release 内置配置写成 `config.yaml.example`。
 
-安装指定版本：
+### 安装指定版本
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/install.sh | sudo env OXIDNS_VERSION=v1.0.1 sh
 ```
 
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
 ```powershell
 $env:OXIDNS_VERSION = "v1.0.1"; irm https://oxidns.org/install.ps1 | iex
 ```
+
+  </TabItem>
+</Tabs>
 
 常用环境变量：
 
@@ -61,59 +81,97 @@ $env:OXIDNS_VERSION = "v1.0.1"; irm https://oxidns.org/install.ps1 | iex
 | `OXIDNS_INSTALL_SERVICE=0` | 不安装系统服务，改为便携安装 |
 | `OXIDNS_START_SERVICE=0` | 安装服务但不立即启动 |
 
-Linux / macOS 便携安装：
+便携安装：
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/install.sh | env OXIDNS_INSTALL_SERVICE=0 sh
 ```
 
-Windows 便携安装：
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 $env:OXIDNS_INSTALL_SERVICE = "0"; irm https://oxidns.org/install.ps1 | iex
 ```
 
+  </TabItem>
+</Tabs>
+
 便携安装完成后可直接运行：
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 oxidns start -c ~/.oxidns/config.yaml -d ~/.oxidns
 ```
 
-Windows：
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 oxidns.exe start -c "$env:LOCALAPPDATA\OxiDNS\config.yaml" -d "$env:LOCALAPPDATA\OxiDNS"
 ```
 
+  </TabItem>
+</Tabs>
+
+<Admonition type="note" title="端口权限">
+
 默认配置包含 `:53` 监听。在 Linux / macOS 上，便携安装的普通用户通常不能绑定 53 端口；仅做本地验证时可先移除 `udp_server_53`，或使用默认的系统服务安装。
+
+</Admonition>
 
 ### 卸载
 
 卸载脚本会移除二进制、`webui/` 和 PATH 入口，默认保留 `config.yaml`。
 
-Linux / macOS：
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/uninstall.sh | sudo sh
 ```
 
-Windows 管理员 PowerShell：
+  </TabItem>
+  <TabItem value="windows" label="Windows">
 
 ```powershell
 irm https://oxidns.org/uninstall.ps1 | iex
 ```
 
+  </TabItem>
+</Tabs>
+
 如果安装时使用了 `sudo` 或自定义 `OXIDNS_INSTALL_DIR`，卸载时也请保持相同权限和目录变量。
 
 彻底清理安装目录和配置：
+
+<Tabs groupId="os">
+  <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
 curl -fsSL https://oxidns.org/uninstall.sh | sudo env OXIDNS_PURGE=1 sh
 ```
 
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
 ```powershell
 $env:OXIDNS_PURGE = "1"; irm https://oxidns.org/uninstall.ps1 | iex
 ```
+
+  </TabItem>
+</Tabs>
+
+<Admonition type="warning" title="彻底清理">
+
+设置 `OXIDNS_PURGE=1` 会删除整个安装目录，包括配置文件本身。请确认 `config.yaml` 已备份后再执行。
+
+</Admonition>
 
 常用卸载变量：
 
@@ -224,7 +282,7 @@ uname -m
 Windows 可在 PowerShell 中执行：
 
 ```powershell
-[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+(Get-CimInstance Win32_OperatingSystem).OSArchitecture
 ```
 
 输出为 `X64`、`Arm64` 或 `X86` 时，分别对应下载 `x86_64`、`aarch64`、`i686` 的 Windows release。
@@ -321,13 +379,21 @@ sudo systemctl enable --now oxidns
 ```bash
 docker pull svenshi/oxidns:latest
 
-docker run --rm \
+docker run -d \
+  --name oxidns \
+  --restart unless-stopped \
   -p 53:53/udp \
   -p 53:53/tcp \
   -p 9199:9199/tcp \
   -v "$(pwd)/config.yaml:/etc/oxidns/config.yaml:ro" \
   svenshi/oxidns:latest
 ```
+
+<Admonition type="note" title="端口绑定">
+
+Linux 上 53 是特权端口；普通用户运行 Docker 时一般通过 Docker 守护进程拿到权限。便携安装非 root 用户应使用 `:5353`。
+
+</Admonition>
 
 如果默认分支镜像已发布，也可以使用 `latest` 标签。
 

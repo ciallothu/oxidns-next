@@ -3,6 +3,8 @@ title: Provider Plugins
 sidebar_position: 5
 ---
 
+import Admonition from "@theme/Admonition";
+
 Providers turn rule sets from one-off literals into reusable data assets. In larger configurations they reduce duplication, centralize shared datasets, and keep policies maintainable.
 
 Providers with domain or IP match capability can be referenced directly by matchers through `"$tag"` and can also be composed by `domain_set` or `ip_set`. Those composite providers compile only their own local rules and then consult referenced providers at runtime instead of copying downstream rule data into a merged matcher.
@@ -106,10 +108,12 @@ Provides a high-performance domain rule set that can be referenced by plugins su
 - Share a core domain list across multiple policies.
 - Combine local rules with shared providers behind one reusable entrypoint.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - `sets` may reference any provider with domain match capability.
 - Changing provider topology, tags, or config structure still requires a full `reload`; `reload_provider` only refreshes the current provider's existing config and external data files.
+
+</Admonition>
 
 ---
 
@@ -202,10 +206,12 @@ This provider exposes two semantics:
 - Reuse AdGuard rule files through the `question` matcher.
 - Centralize complex AdGuard-style blocking semantics at the provider layer.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - Name-only matchers such as `qname` and `cname` use `contains_name`, so `dnstype`-only rules are ignored there.
 - `adguard_rule` can be referenced from `domain_set.sets`; because evaluation stays dynamic, exception precedence and request-scoped modifiers such as `dnstype` remain intact.
+
+</Admonition>
 
 ---
 
@@ -298,10 +304,12 @@ Provides IP and CIDR rule sets that can be referenced by matchers such as `clien
 - Build allowlists, bypass lists, or target network sets.
 - Combine local CIDRs with shared `geoip` or `ip_set` providers behind one reusable entrypoint.
 
-### Notes
+<Admonition type="note" title="Notes">
 
 - `sets` may reference any provider with IP match capability.
 - Changing provider topology, tags, or config structure still requires a full `reload`; `reload_provider` only refreshes the current provider's existing config and external data files.
+
+</Admonition>
 
 ---
 
