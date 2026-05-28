@@ -1,0 +1,162 @@
+---
+title: Migrating from mosdns
+sidebar_position: 7
+---
+
+import Admonition from '@theme/Admonition';
+
+<Admonition type="tip" title="Highly Compatible">
+
+Most mosdns v5 configuration files can be **copied and used directly**. If errors appear on startup, fix the affected fields based on the error messages.
+
+</Admonition>
+
+OxiDNS and mosdns v5 share almost the same plugin model and configuration structure: the `plugins` array, `sequence` orchestration, `jump` / `goto` / `accept` / `return` / `reject` control flow, and plugins such as `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` — including their field names — are all highly compatible.
+
+## Feature Overview
+
+Once migration is complete, the following capabilities are available to enable on demand.
+
+| Feature | Description |
+| --- | --- |
+| [`short_circuit`](#short_circuit-stop-on-match) | Stop the sequence immediately on a plugin hit |
+| [Log Rotation](#log-rotation) | Built-in daily/hourly splitting and cleanup, no logrotate needed |
+| [WebUI Console](#webui-console) | Browser-based config editing, query history, and live stream |
+| [HTTP Management API](#http-management-api) | REST API with hot reload, auth, and metrics scraping |
+| [`query_recorder`](#query_recorder-query-history-and-live-streaming) | Persist queries to SQLite + SSE live push |
+| [`ros_address_list`](#ros_address_list-routeros-route-sync) | Sync resolved IPs to RouterOS address-list |
+| [`reload_provider`](#reload_provider-targeted-reload) | Reload specific provider snapshots without a full restart |
+| [`download` + `cron`](#download--cron-subscription-auto-update) | Auto-download rule files and schedule background tasks |
+| [Environment Variables](#environment-variable-substitution) | `${VAR}` / `${VAR:-default}` placeholders for sensitive fields |
+| [Performance](#performance) | Rust + Tokio: lower memory, lower tail latency, zero GC pauses |
+
+---
+
+## Observability & Debugging
+
+### WebUI Console
+
+A built-in web management interface for viewing and editing configuration, inspecting plugin state, streaming real-time queries, and browsing query history — all from a browser, no extra tools required. See [WebUI](webui.md).
+
+### HTTP Management API
+
+`api.http` exposes a REST API for hot reload, health checks, Prometheus metrics scraping, and plugin status queries, with Basic Auth and TLS support. See [Management API](api.mdx).
+
+```yaml
+api:
+  http:
+    listen: "127.0.0.1:9088"
+    auth:
+      type: basic
+      username: "admin"
+      password: "secret"
+```
+
+### `query_recorder`: Query History and Live Streaming
+
+Persists every request, response, and sequence execution path to SQLite. Provides a history query API and SSE live-push endpoint, powering the WebUI real-time query stream panel.
+
+```yaml
+- tag: recorder_main
+  type: query_recorder
+  args:
+    path: ./query-recorder.sqlite
+    memory_tail: 1024
+    retention_days: 7
+```
+
+---
+
+## Configuration & Runtime
+
+### `short_circuit`: Stop on Match
+
+Executor plugins including `forward`, `cache`, `hosts`, `fallback`, `black_hole`, and `dual_selector` all support a `short_circuit` option. When enabled, the plugin immediately ends the current sequence's remaining steps upon a hit — no extra `has_resp` + `accept` needed.
+
+```yaml
+- tag: cache_main
+  type: cache
+  args:
+    size: 8192
+    short_circuit: true    # return immediately on cache hit, skip remaining steps
+    cache_negative: true
+```
+
+### Log Rotation
+
+`log.rotation` provides built-in log splitting by minute, hour, day, or week, with automatic cleanup of old files — no external tools like logrotate required.
+
+```yaml
+log:
+  level: info
+  file: ./oxidns.log
+  rotation:
+    type: daily       # minutely / hourly / daily / weekly / never
+    max_files: 7      # max historical files to keep; 0 disables auto-cleanup
+```
+
+### Environment Variable Substitution
+
+Configuration files support `${VAR}` and `${VAR:-default}` placeholders so sensitive fields like passwords and certificate paths can be injected from environment variables instead of being hardcoded.
+
+---
+
+## System Integration
+
+### `ros_address_list`: RouterOS Route Sync
+
+Syncs resolved IPs to a MikroTik RouterOS address-list in real time, enabling DNS-driven traffic routing alongside routing policy rules. See [MikroTik Policy Routing](mikrotik-policy-routing.md).
+
+---
+
+## Rule Maintenance
+
+### `reload_provider`: Targeted Reload
+
+Refreshes the internal data snapshot of specific providers only, without triggering a full global reload. Ideal for rule subscription updates that only need to rebuild the rule set without interrupting in-flight requests.
+
+```yaml
+- tag: reload_ad_rules
+  type: reload_provider
+  args:
+    - "$ad_rules"
+```
+
+### `download` + `cron`: Subscription Auto-Update
+
+`download` fetches files over HTTP/HTTPS and atomically replaces local copies. `cron` schedules tasks in the background on a fixed interval or cron expression. Together they enable fully automatic rule subscription updates without restarting the process.
+
+```yaml
+- tag: rules_cron
+  type: cron
+  args:
+    timezone: "America/New_York"
+    jobs:
+      - name: refresh_rules
+        interval: 12h
+        executors:
+          - "$download_rules"
+          - "$reload_ad_rules"
+```
+
+---
+
+## Performance
+
+OxiDNS is built on Rust + Tokio and has no GC pauses. Performance relative to mosdns varies by scenario:
+
+- **Rule set matching (`domain set`, `composite provider chain`)**: OxiDNS has a significant advantage — several times higher QPS and much lower latency under load.
+- **Concurrent upstream queries**: OxiDNS leads in both throughput and latency.
+- **Latency jitter**: OxiDNS produces more stable latency in most scenarios.
+- **Local answers, basic sequence, ip set filtering**: mosdns is on par or slightly faster.
+- **Basic forwarding**: QPS is comparable; the gap is small.
+
+See [Benchmarks](benchmarks.md) for details.
+
+---
+
+## Next Steps
+
+- [Configuration Overview](configuration.md) — Top-level fields and runtime parameters
+- [Plugin Overview](plugin-reference/overview.md) — Full list of built-in plugins
+- [Common Policy Scenarios](scenarios.md) — Typical deployment configuration examples

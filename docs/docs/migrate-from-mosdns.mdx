@@ -1,0 +1,163 @@
+---
+title: 从 mosdns 迁移
+sidebar_position: 7
+---
+
+import Admonition from '@theme/Admonition';
+
+<Admonition type="tip" title="配置高度兼容">
+
+大多数 mosdns v5 配置文件可以**直接复制使用**。如果启动时出现报错，根据错误信息调整对应字段即可。
+
+</Admonition>
+
+OxiDNS 与 mosdns v5 共享几乎相同的插件模型和配置结构：`plugins` 数组、`sequence` 编排、`jump` / `goto` / `accept` / `return` / `reject` 控制流，以及 `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` 等插件及其字段名，均高度兼容。
+
+## 新增能力速览
+
+迁移完成后，以下能力可以按需启用。
+
+| 功能 | 说明 |
+| --- | --- |
+| [`short_circuit`](#short_circuit命中即短路) | 命中时立即结束 sequence 后续步骤 |
+| [日志轮转](#日志轮转) | 内置按天/时切割和旧文件清理，无需 logrotate |
+| [WebUI 管理控制台](#webui-管理控制台) | 浏览器内查看配置、查询历史和实时流 |
+| [HTTP 管理 API](#http-管理-api) | REST 接口，支持热重载、认证和指标拉取 |
+| [`query_recorder`](#query_recorder查询记录与实时推送) | 查询历史持久化到 SQLite + SSE 实时推送 |
+| [`ros_address_list`](#ros_address_listrouteros-路由联动) | DNS 解析结果同步到 RouterOS address-list |
+| [`reload_provider`](#reload_provider定向重载) | 定向刷新 provider 快照，不触发全量 reload |
+| [`download` + `cron`](#download--cron规则订阅自动更新) | 规则文件自动下载与后台定时调度 |
+| [环境变量替换](#环境变量替换) | `${VAR}` / `${VAR:-default}` 占位符注入敏感字段 |
+| [性能](#性能) | Rust + Tokio：低内存、低尾延迟、零 GC 暂停 |
+
+---
+
+## 可观测与调试
+
+### WebUI 管理控制台
+
+内置 Web 管理界面，可在浏览器中查看和编辑配置、浏览插件状态、分析实时查询流和历史查询记录，无需额外部署任何工具。详见 [WebUI](webui.md)。
+
+### HTTP 管理 API
+
+`api.http` 提供配置热重载、健康检查、Prometheus 指标拉取和插件状态查询接口，支持 Basic Auth 和 TLS。详见 [管理 API](api.mdx)。
+
+```yaml
+api:
+  http:
+    listen: "127.0.0.1:9088"
+    auth:
+      type: basic
+      username: "admin"
+      password: "secret"
+```
+
+### `query_recorder`：查询记录与实时推送
+
+把每次请求、响应和 sequence 执行路径持久化到 SQLite，提供历史查询 API 和 SSE 实时推送接口，支持 WebUI 实时查询流面板。
+
+```yaml
+- tag: recorder_main
+  type: query_recorder
+  args:
+    path: ./query-recorder.sqlite
+    memory_tail: 1024
+    retention_days: 7
+```
+
+---
+
+## 配置与运行时
+
+### `short_circuit`：命中即短路
+
+`forward`、`cache`、`hosts`、`fallback`、`black_hole`、`dual_selector` 等执行器插件均支持 `short_circuit` 选项。开启后，命中时立即结束当前 sequence 的后续步骤，无需额外写 `has_resp` + `accept`。
+
+```yaml
+- tag: cache_main
+  type: cache
+  args:
+    size: 8192
+    short_circuit: true    # 命中缓存直接返回，跳过后续步骤
+    cache_negative: true
+```
+
+### 日志轮转
+
+`log.rotation` 内置按分钟、小时、天、周切割，并可自动清理旧文件，无需 logrotate 等外部工具。
+
+```yaml
+log:
+  level: info
+  file: ./oxidns.log
+  rotation:
+    type: daily       # minutely / hourly / daily / weekly / never
+    max_files: 7      # 最多保留文件数，0 表示不自动清理
+```
+
+### 环境变量替换
+
+配置文件支持 `${VAR}` 和 `${VAR:-default}` 占位符，敏感字段（密码、证书路径等）可从环境变量注入，无需写死在文件里。
+
+---
+
+## 系统联动
+
+### `ros_address_list`：RouterOS 路由联动
+
+把解析结果实时同步到 MikroTik RouterOS 的 address-list，配合路由规则实现 DNS 驱动的流量分流。详见 [MikroTik 策略路由](mikrotik-policy-routing.md)。
+
+---
+
+## 规则维护
+
+### `reload_provider`：定向重载
+
+不触发全局 reload，仅刷新指定 provider 的内部数据快照，适合规则订阅更新后只重建规则集，不中断正在处理的请求。
+
+```yaml
+- tag: reload_ad_rules
+  type: reload_provider
+  args:
+    - "$ad_rules"
+```
+
+### `download` + `cron`：规则订阅自动更新
+
+`download` 从 HTTP/HTTPS 下载文件后原子覆盖到本地，`cron` 按固定间隔或 cron 表达式在后台调度任务。两者配合可实现规则订阅全自动更新，无需重启进程。
+
+```yaml
+- tag: rules_cron
+  type: cron
+  args:
+    timezone: "Asia/Shanghai"
+    jobs:
+      - name: refresh_rules
+        interval: 12h
+        executors:
+          - "$download_rules"
+          - "$reload_ad_rules"
+```
+
+
+---
+
+## 性能
+
+OxiDNS 基于 Rust + Tokio 构建，没有 GC 暂停。在各场景下与 mosdns 的表现各有胜负，差异较大的地方体现在：
+
+- **规则集匹配（`domain set`、`composite provider chain`）**：OxiDNS 有显著优势，高并发下 QPS 可达 mosdns 的数倍，延迟也明显更低。
+- **多上游并发竞争（`concurrent upstreams`）**：OxiDNS 吞吐和延迟均领先。
+- **延迟抖动**：OxiDNS 在大多数场景下抖动更小，响应更稳定。
+- **本地应答、基础 sequence、ip set 过滤**：mosdns 在这些场景下持平或略优。
+- **基础转发**：两者 QPS 接近，差距较小。
+
+详见 [性能基准](benchmarks.md)。
+
+---
+
+## 下一步
+
+- [配置总览](configuration.md) — 顶层字段和运行时参数
+- [插件总览](plugin-reference/overview.md) — 全部内置插件列表
+- [常见策略场景](scenarios.md) — 典型部署配置参考
