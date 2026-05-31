@@ -63,6 +63,13 @@ fn canonicalize_rule_normalizes_plain_full_domain() {
 }
 
 #[test]
+fn canonicalize_rule_rejects_invalid_regexp() {
+    let err = canonicalize_rule("regexp:[bad", DynamicDomainRuleKind::Full, "test")
+        .expect_err("invalid regexp should be rejected before staging");
+    assert!(err.to_string().contains("invalid regexp expression"));
+}
+
+#[test]
 fn read_file_ignores_empty_comments_and_deduplicates() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("rules.txt");
@@ -99,6 +106,40 @@ async fn dynamic_domain_set_appends_and_matches() {
         fs::read_to_string(&path).expect("file should exist"),
         "full:example.com\n"
     );
+
+    backend.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn dynamic_domain_set_invalid_regexp_append_does_not_poison_file() {
+    AppClock::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("learned.txt");
+    fs::write(&path, "full:stable.example\n").expect("write initial");
+    let backend = Arc::new(DynamicDomainSetBackend::new(
+        "learned".to_string(),
+        test_config(path.clone()),
+    ));
+    backend.start().await.expect("backend should start");
+
+    backend
+        .append_rules_sync(
+            vec!["regexp:[bad".to_string()],
+            DynamicDomainRuleKind::Full,
+            Duration::from_secs(1),
+        )
+        .await
+        .expect_err("invalid regexp should fail before file append");
+
+    assert_eq!(
+        fs::read_to_string(&path).expect("file should stay readable"),
+        "full:stable.example\n"
+    );
+    let listed = serde_json::to_value(backend.list_rules(0, 10).expect("list rules"))
+        .expect("serialize list");
+    assert_eq!(listed["rules"], serde_json::json!(["full:stable.example"]));
+    assert!(backend.contains_name(&test_name("stable.example.")));
+    backend.reload_sync().await.expect("reload remains healthy");
 
     backend.shutdown().await.expect("shutdown");
 }

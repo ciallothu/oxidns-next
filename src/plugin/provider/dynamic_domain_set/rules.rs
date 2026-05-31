@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 
+use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 
 use crate::core::error::{DnsError, Result as DnsResult};
@@ -108,6 +109,14 @@ pub(super) fn canonicalize_rule(
                     "dynamic_domain_set {source} has empty regexp expression"
                 )));
             }
+            RegexBuilder::new(value)
+                .case_insensitive(true)
+                .build()
+                .map_err(|err| {
+                    DnsError::plugin(format!(
+                        "dynamic_domain_set {source} has invalid regexp expression '{value}': {err}"
+                    ))
+                })?;
             Ok(format!("regexp:{value}"))
         }
     }

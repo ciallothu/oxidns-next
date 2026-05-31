@@ -457,18 +457,28 @@ impl DynamicDomainSetBackend {
         if pending.is_empty() {
             return;
         }
-        // All pending append batches are physically appended in one lock scope,
-        // then a fresh matcher snapshot is compiled from the in-memory rule
-        // list. That gives learned domains near-real-time matching without a
-        // full plugin reload.
+        // Compile the replacement snapshot before touching the managed file.
+        // Regex syntax errors and other matcher validation failures must not
+        // poison the file with a rule that would later break reload/startup.
         let appended_rules = pending
             .iter()
             .flat_map(|item| item.rules.iter().cloned())
             .collect::<Vec<_>>();
-        let result = append_rule_file(&self.config.path, &appended_rules)
-            .and_then(|_| self.rebuild_snapshot_from_state());
+        let result: DnsResult<(usize, DynamicDomainSetSnapshot)> = (|| {
+            let rules = self
+                .state
+                .lock()
+                .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?
+                .rules
+                .clone();
+            let total = rules.len();
+            let snapshot = build_snapshot(&rules)?;
+            append_rule_file(&self.config.path, &appended_rules)?;
+            Ok((total, snapshot))
+        })();
         match result {
-            Ok(total) => {
+            Ok((total, snapshot)) => {
+                self.snapshot.store(Arc::new(snapshot));
                 info!(
                     plugin = %self.tag,
                     added = appended_rules.len(),
@@ -584,23 +594,6 @@ impl DynamicDomainSetBackend {
             removed: 0,
             total,
         })
-    }
-
-    fn rebuild_snapshot_from_state(&self) -> DnsResult<usize> {
-        let rules = self
-            .state
-            .lock()
-            .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?
-            .rules
-            .clone();
-        self.rebuild_snapshot_from_rules(&rules)?;
-        Ok(rules.len())
-    }
-
-    fn rebuild_snapshot_from_rules(&self, rules: &[String]) -> DnsResult<()> {
-        let snapshot = build_snapshot(rules)?;
-        self.snapshot.store(Arc::new(snapshot));
-        Ok(())
     }
 
     async fn run_worker(self: Arc<Self>, mut rx: mpsc::Receiver<WorkerCommand>) {
