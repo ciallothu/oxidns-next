@@ -506,23 +506,45 @@ impl DynamicDomainSetBackend {
     }
 
     fn remove_rules(&self, rules: Vec<String>) -> DnsResult<DynamicDomainMutation> {
-        let (removed, total, current_rules) = {
+        // Hold the state lock until the rewrite succeeds. Append staging also
+        // uses this lock, so this prevents a concurrently learned rule from
+        // being inserted into state between the delete's read and commit.
+        let (removed, total, snapshot) = {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?;
             let before = state.rules.len();
-            for rule in &rules {
-                state.known.remove(rule);
+            let remove_set = rules.iter().map(String::as_str).collect::<HashSet<_>>();
+            let current_rules = state
+                .rules
+                .iter()
+                .filter(|rule| !remove_set.contains(rule.as_str()))
+                .cloned()
+                .collect::<Vec<_>>();
+            let removed = before.saturating_sub(current_rules.len());
+            let total = current_rules.len();
+            if removed == 0 {
+                return Ok(DynamicDomainMutation {
+                    added: 0,
+                    removed,
+                    total,
+                });
             }
-            state.rules.retain(|rule| !rules.iter().any(|v| v == rule));
-            let removed = before.saturating_sub(state.rules.len());
-            (removed, state.rules.len(), state.rules.clone())
+
+            // Build the replacement snapshot before touching disk. If rule
+            // compilation ever fails, the file, list API, and hot matcher all
+            // keep serving the previous consistent state.
+            let snapshot = build_snapshot(&current_rules)?;
+            // Deletes rewrite the machine-managed file so removed rules cannot
+            // reappear on the next provider reload. State is committed only
+            // after this durable step succeeds.
+            rewrite_rule_file(&self.config.path, &current_rules)?;
+            state.known = current_rules.iter().cloned().collect();
+            state.rules = current_rules;
+            (removed, total, snapshot)
         };
-        // Deletes rewrite the machine-managed file so removed rules cannot
-        // reappear on the next provider reload.
-        rewrite_rule_file(&self.config.path, &current_rules)?;
-        self.rebuild_snapshot_from_rules(&current_rules)?;
+        self.snapshot.store(Arc::new(snapshot));
         Ok(DynamicDomainMutation {
             added: 0,
             removed,
@@ -531,18 +553,21 @@ impl DynamicDomainSetBackend {
     }
 
     fn clear_rules(&self) -> DnsResult<DynamicDomainMutation> {
-        let removed = {
+        let (removed, snapshot) = {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?;
             let removed = state.rules.len();
+            let snapshot = build_snapshot(&[])?;
+            // Clear has the same consistency requirement as remove: keep the
+            // old state and snapshot visible if the file rewrite fails.
+            rewrite_rule_file(&self.config.path, &[])?;
             state.rules.clear();
             state.known.clear();
-            removed
+            (removed, snapshot)
         };
-        rewrite_rule_file(&self.config.path, &[])?;
-        self.rebuild_snapshot_from_rules(&[])?;
+        self.snapshot.store(Arc::new(snapshot));
         Ok(DynamicDomainMutation {
             added: 0,
             removed,
@@ -597,9 +622,10 @@ impl DynamicDomainSetBackend {
                     };
                     match command {
                         WorkerCommand::Append { rules, wait } => {
+                            let flush_now = wait.is_some();
                             pending.push(PendingAppend { rules, wait });
                             let pending_count: usize = pending.iter().map(|item| item.rules.len()).sum();
-                            if pending_count >= self.config.batch_size {
+                            if flush_now || pending_count >= self.config.batch_size {
                                 self.flush_appends(&mut pending);
                             }
                         }

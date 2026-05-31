@@ -41,6 +41,20 @@ fn test_config(path: PathBuf) -> DynamicDomainSetConfig {
     }
 }
 
+fn test_config_with_flush(
+    path: PathBuf,
+    batch_size: usize,
+    flush_interval_ms: u64,
+) -> DynamicDomainSetConfig {
+    DynamicDomainSetConfig {
+        path,
+        bootstrap_rules: Vec::new(),
+        queue_size: 8,
+        batch_size,
+        flush_interval_ms,
+    }
+}
+
 #[test]
 fn canonicalize_rule_normalizes_plain_full_domain() {
     let rule = canonicalize_rule(" WWW.Example.COM. ", DynamicDomainRuleKind::Full, "test")
@@ -90,6 +104,39 @@ async fn dynamic_domain_set_appends_and_matches() {
 }
 
 #[tokio::test]
+async fn dynamic_domain_set_sync_append_flushes_without_batch_or_tick() {
+    AppClock::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("learned.txt");
+    let backend = Arc::new(DynamicDomainSetBackend::new(
+        "learned".to_string(),
+        test_config_with_flush(path.clone(), 64, 60_000),
+    ));
+    backend.start().await.expect("backend should start");
+
+    // Give the worker time to consume Tokio interval's immediate first tick.
+    // Without an explicit flush for waited appends, this request would then sit
+    // in the pending batch until the 60s interval and exceed the caller timeout.
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    backend
+        .append_rules_sync(
+            vec!["Sync.Example.".to_string()],
+            DynamicDomainRuleKind::Full,
+            Duration::from_millis(250),
+        )
+        .await
+        .expect("sync append should flush immediately");
+
+    assert!(backend.contains_name(&test_name("sync.example.")));
+    assert_eq!(
+        fs::read_to_string(&path).expect("file should exist"),
+        "full:sync.example\n"
+    );
+
+    backend.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
 async fn dynamic_domain_set_remove_clear_and_reload() {
     AppClock::start();
     let dir = tempfile::tempdir().expect("tempdir");
@@ -118,6 +165,67 @@ async fn dynamic_domain_set_remove_clear_and_reload() {
     backend.clear_sync().await.expect("clear");
     assert!(!backend.contains_name(&test_name("two.example.")));
     assert_eq!(fs::read_to_string(&path).expect("file"), "");
+    backend.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn dynamic_domain_set_remove_failure_keeps_state_and_snapshot() {
+    AppClock::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("learned.txt");
+    fs::write(&path, "full:one.example\nfull:two.example\n").expect("write initial");
+    let backend = Arc::new(DynamicDomainSetBackend::new(
+        "learned".to_string(),
+        test_config(path.clone()),
+    ));
+    backend.start().await.expect("backend should start");
+
+    fs::remove_file(&path).expect("remove file");
+    fs::create_dir(&path).expect("replace rule file with directory");
+    let _err = backend
+        .remove_rules_sync(
+            vec!["full:one.example".to_string()],
+            DynamicDomainRuleKind::Full,
+        )
+        .await
+        .expect_err("remove should fail when rewrite cannot replace directory");
+
+    let listed = serde_json::to_value(backend.list_rules(0, 10).expect("list rules"))
+        .expect("serialize list");
+    assert_eq!(
+        listed["rules"],
+        serde_json::json!(["full:one.example", "full:two.example"])
+    );
+    assert!(backend.contains_name(&test_name("one.example.")));
+    assert!(backend.contains_name(&test_name("two.example.")));
+
+    backend.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn dynamic_domain_set_clear_failure_keeps_state_and_snapshot() {
+    AppClock::start();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("learned.txt");
+    fs::write(&path, "full:one.example\n").expect("write initial");
+    let backend = Arc::new(DynamicDomainSetBackend::new(
+        "learned".to_string(),
+        test_config(path.clone()),
+    ));
+    backend.start().await.expect("backend should start");
+
+    fs::remove_file(&path).expect("remove file");
+    fs::create_dir(&path).expect("replace rule file with directory");
+    let _err = backend
+        .clear_sync()
+        .await
+        .expect_err("clear should fail when rewrite cannot replace directory");
+
+    let listed = serde_json::to_value(backend.list_rules(0, 10).expect("list rules"))
+        .expect("serialize list");
+    assert_eq!(listed["rules"], serde_json::json!(["full:one.example"]));
+    assert!(backend.contains_name(&test_name("one.example.")));
+
     backend.shutdown().await.expect("shutdown");
 }
 
