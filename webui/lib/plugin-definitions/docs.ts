@@ -158,6 +158,34 @@ export const pluginFieldDocs = {
     min: "- 类型：`integer`；必填：否；默认值：无\n- 作用：定义 TTL 下限。",
     max: "- 类型：`integer`；必填：否；默认值：无\n- 作用：定义 TTL 上限。",
   },
+  ip_selector: {
+    selection_mode:
+      "- 类型：`string`；必填：否；默认值：`first_success`\n- 可选值：\n  - `first_success`：在总等待预算内，第一个成功探测的地址优先\n  - `best_within_budget`：在总等待预算内收集成功探测结果，选择延迟最低的地址\n  - `background`：本次响应保持原始顺序，后台异步预热探测评分缓存\n- 作用：定义已有 A / AAAA 响应中的地址优选策略。\n- 运行影响：\n  - 插件只处理已有 DNS response，不负责上游竞速。\n  - 探测失败、超时或无评分时会保留原始响应作为兜底。\n- 配置要求：只接受 OxiDNS 原生命名，不提供兼容别名。",
+    probe_methods:
+      '- 类型：`array<string>` 或逗号分隔 `string`；必填：否；默认值：`["tcp:443", "tcp:80"]`\n- 支持值：\n  - `tcp:<port>`：对目标 IP 的指定端口做 TCP connect 探测\n  - `ping`：best-effort ICMP 探测，受平台与权限影响\n  - `none`：不主动探测，只使用已有缓存评分或原始顺序\n- 作用：定义用于给响应 IP 评分的探测方式。\n- 配置要求：\n  - `none` 不能与其它探测方式组合。\n  - `tcp:<port>` 的端口必须大于 0。\n  - 方法顺序会影响错峰启动顺序。',
+    probe_stagger:
+      "- 类型：`integer`；必填：否；默认值：`200`\n- 单位：毫秒\n- 作用：定义多种探测方式之间的错峰启动间隔。\n- 运行影响：\n  - 较小值会让多种方法更快并发启动。\n  - 较大值会让靠前方法获得更明显的优先机会，尤其影响 `first_success`。",
+    probe_timeout:
+      "- 类型：`integer`；必填：否；默认值：`600`\n- 单位：毫秒\n- 作用：定义单次 IP 探测的超时时间。\n- 配置要求：必须大于 0。\n- 运行影响：超时会被记录为失败评分，不会清空或中断 DNS response。",
+    max_wait:
+      "- 类型：`integer`；必填：否；默认值：`1000`\n- 单位：毫秒\n- 作用：定义本次响应优选允许等待探测结果的总预算。\n- 配置要求：必须大于 0。\n- 运行影响：预算耗尽时会基于已获得的成功评分排序；没有成功评分时保留原始响应。",
+    top_n:
+      "- 类型：`integer`；必填：否；默认值：`1`\n- 作用：保留排序后的前 N 个目标地址。\n- 特殊值：`0` 表示只重排，不删除任何 A / AAAA 记录。\n- 运行影响：\n  - 仅裁剪当前查询类型对应的地址记录。\n  - CNAME 与非目标地址记录会被保留。",
+    dnssec_policy:
+      "- 类型：`string`；必填：否；默认值：`reorder_only`\n- 可选值：\n  - `reorder_only`：DNSSEC 敏感响应只重排，不删除记录\n  - `skip`：DNSSEC 敏感响应完全跳过优选处理\n- 作用：控制请求带 DO bit 或响应中存在覆盖当前 A / AAAA 的 RRSIG 时如何处理。\n- 运行影响：默认避免裁剪可能被签名覆盖的 RRset。",
+    max_parallel_probes:
+      "- 类型：`integer`；必填：否；默认值：`256`\n- 作用：限制当前插件实例同时进行的主动探测数量。\n- 配置要求：必须大于 0。\n- 运行影响：达到上限时新增探测会按失败处理，并保留原始 DNS response 兜底。",
+    cache:
+      "- 类型：`object`；必填：否；默认值：启用，容量 `4096`\n- 作用：配置 IP 探测评分缓存。\n- 运行影响：\n  - 缓存命中可避免在请求热路径重复主动探测。\n  - 成功与失败评分使用不同 TTL。\n  - 后台模式依赖该缓存为后续请求提供排序依据。",
+    "cache.enabled":
+      "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否启用探测评分缓存。\n- 运行影响：关闭后，每次需要评分时都只能依赖本次探测或原始顺序。",
+    "cache.size":
+      "- 类型：`integer`；必填：否；默认值：`4096`\n- 作用：定义探测评分缓存的目标容量。\n- 配置要求：启用缓存时必须大于 0。\n- 运行影响：超过目标容量后会优先淘汰较少访问的缓存项。",
+    "cache.ttl":
+      "- 类型：`integer`；必填：否；默认值：`3600`\n- 单位：秒\n- 作用：定义成功探测评分的保留时间。\n- 配置要求：启用缓存时必须大于 0。",
+    "cache.failure_ttl":
+      "- 类型：`integer`；必填：否；默认值：`60`\n- 单位：秒\n- 作用：定义失败探测评分的保留时间。\n- 配置要求：启用缓存时必须大于 0。\n- 运行影响：失败缓存可避免不可达地址在短时间内被反复探测，同时允许较快恢复。",
+  },
   prefer_ipv4: {
     cache:
       "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否缓存 preferred 类型存在状态。",
@@ -323,7 +351,9 @@ export const pluginFieldDocs = {
     repository:
       "- 类型：`string`；必填：否；默认值：`svenshi/oxidns`\n- 作用：GitHub 仓库。",
     asset:
-      "- 类型：`string`；必填：否；默认值：`auto`\n- 作用：Release asset 名称；`auto` 会按当前平台选择 archive。",
+      "- 类型：`string`；必填：否；默认值：`auto`\n- 作用：Release asset 名称；`auto` 会根据当前平台和编译版本选择 archive。\n- 优先级：显式填写 asset 时会跳过 `bundle` 推导。",
+    bundle:
+      "- 类型：`auto | full | standard | minimal`；必填：否；默认值：`auto`\n- 作用：当 `asset: auto` 时选择 release 编译版本。`full` 使用旧资产名，`standard` / `minimal` 使用带 bundle 前缀的 slim 资产名。",
     github_token:
       "- 类型：`string`；必填：否；默认值：无\n- 作用：GitHub 个人访问令牌，用于提高 API 速率限制或访问私有仓库。\n- 说明：会作为 GitHub API 请求的 Bearer token 使用。",
     cache_dir: "- 类型：`path`；必填：否；默认值：无\n- 作用：下载缓存目录。",
@@ -417,7 +447,7 @@ export const pluginFieldDocs = {
     args: "`mark` 的 `args` 为 mark 列表。\n\n- 类型：`array`；必填：是；默认值：无\n- 作用：定义可命中的上下文标记集合。\n- 支持取值：\n  - 无符号整数形式的 mark 值\n- 运行影响：\n  - 只要上下文 marks 与配置 marks 存在交集，即返回 `true`。",
   },
   env: {
-    args: "`env` 的 `args` 为一到两个元素。\n\n- 类型：`array`；必填：是；默认值：无\n- 元素定义：\n  - 第一个元素：环境变量名\n  - 第二个元素：可选，期望值\n- 运行影响：\n  - 仅配置变量名时，环境变量存在即返回 `true`。\n  - 同时配置变量名和值时，需完全匹配才返回 `true`。",
+    args: "`env` 的 `args` 为环境变量条件列表。\n\n- 类型：`array`；必填：是；默认值：无\n- 支持形式：\n  - `KEY=VALUE`：变量存在且值完全匹配，推荐用于环境变量等值匹配\n  - `KEY:VALUE`：与 `KEY=VALUE` 等价，作为规则表达式风格的别名保留\n  - `KEY`、`KEY:` 或 `KEY=`：变量存在即命中\n- 注意：数组中的每个字符串都是完整表达式，不会按逗号或空白继续拆分；`PROFILE`、`prod` 这样的两个裸参数表示两个存在性检查，不表示 `PROFILE == prod`。\n- 运行影响：所有条件都满足时才返回 `true`；变量值在插件初始化时缓存。",
   },
   random: {
     args: "`random` 的 `args` 只接受一个概率值。\n\n- 类型：`array`；必填：是；默认值：无\n- 取值范围：`0.0` 到 `1.0`\n- 作用：定义本次匹配返回 `true` 的概率。\n- 运行影响：\n  - `0.0` 表示始终不命中。\n  - `1.0` 表示始终命中。",
