@@ -1,0 +1,381 @@
+name: Custom Build (reusable)
+
+# 给"自定义编译模版仓库"用的可复用 workflow。
+#
+# 模版仓库的 build.yml 通过下面这种方式调用:
+#
+#   jobs:
+#     build:
+#       uses: svenshi/oxidns/.github/workflows/custom-build.yml@main
+#       with:
+#         tag: v1.2.0
+#         bundle: custom
+#         features: api,webui,server-doh,...
+#         targets: '["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]'
+#         upx: true
+#         make_deb: false
+#       secrets: inherit
+#
+# Reusable workflow 运行时:
+#   - github.repository = 调用方仓库 (例如 user-A/oxidns-build)
+#   - secrets.GITHUB_TOKEN = 调用方 token,可以写入调用方仓库 release
+#   - runner 计费在调用方账户
+# 所以 release 会自动发布到调用方仓库,与上游 oxidns 隔离。
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: '上游 oxidns 的 release tag (例: v1.2.0)'
+        required: true
+        type: string
+      bundle:
+        description: 'full | standard | minimal | custom'
+        required: true
+        type: string
+      features:
+        description: '逗号分隔的 Cargo features。bundle != custom 时忽略,改用 bundle 名'
+        required: false
+        default: ''
+        type: string
+      targets:
+        description: 'JSON array of target triples'
+        required: true
+        type: string
+      upx:
+        description: '是否对 Linux/Windows 二进制运行 UPX'
+        required: false
+        default: true
+        type: boolean
+      make_deb:
+        description: '是否为 x86_64/aarch64 unknown-linux-gnu 生成 .deb'
+        required: false
+        default: false
+        type: boolean
+      release_name_suffix:
+        description: 'GitHub release 名称后缀 (例: "(custom build)")'
+        required: false
+        default: '(custom build)'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # -------------------------------------------------------------------------
+  # 校验输入 + 把 targets JSON 展开成 matrix,带上 runner / 工具链信息。
+  # -------------------------------------------------------------------------
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      features: ${{ steps.gen.outputs.features }}
+    steps:
+      - id: gen
+        env:
+          BUNDLE: ${{ inputs.bundle }}
+          FEATURES_IN: ${{ inputs.features }}
+          TARGETS_IN: ${{ inputs.targets }}
+        run: |
+          set -euo pipefail
+
+          case "$BUNDLE" in
+            full|standard|minimal|custom) ;;
+            *) echo "::error::invalid bundle '$BUNDLE'"; exit 1 ;;
+          esac
+
+          if [ "$BUNDLE" = "custom" ]; then
+            if [ -z "$FEATURES_IN" ]; then
+              echo "::error::bundle=custom requires non-empty features"
+              exit 1
+            fi
+            if ! [[ "$FEATURES_IN" =~ ^[a-zA-Z0-9,_-]+$ ]]; then
+              echo "::error::features 只能包含字母数字下划线和连字符: '$FEATURES_IN'"
+              exit 1
+            fi
+            FEATURES="$FEATURES_IN"
+          else
+            FEATURES="$BUNDLE"
+          fi
+
+          # targets 是 JSON array,扩展成 matrix include。runner/build_tool/upx_kind
+          # 的映射必须与上游 release.yml 完全对齐 —— 改这张表前去对一下。
+          MATRIX=$(jq -c -n --argjson t "$TARGETS_IN" '
+            $t | map({
+              "target": .,
+              "os": (
+                if test("apple-darwin") then "macos-latest"
+                elif test("windows") then "windows-latest"
+                else "ubuntu-latest" end
+              ),
+              "exe": (if test("windows") then "oxidns.exe" else "oxidns" end),
+              "archive_ext": (if test("windows") then "zip" else "tar.gz" end),
+              "build_tool": (
+                if test("apple-darwin") or test("windows") or . == "x86_64-unknown-linux-gnu"
+                then "cargo" else "cross" end
+              ),
+              "upx_kind": (
+                if test("windows") then "windows"
+                elif test("linux-(gnu|musl)") then "linux"
+                else "none" end
+              ),
+              "deb_eligible": (. == "x86_64-unknown-linux-gnu" or . == "aarch64-unknown-linux-gnu")
+            })
+          ')
+
+          {
+            echo "matrix={\"include\":$MATRIX}"
+            echo "features=$FEATURES"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved matrix:"
+          echo "$MATRIX" | jq .
+
+  # -------------------------------------------------------------------------
+  # WebUI 编译一次,所有 target 复用。minimal bundle 跳过。
+  # -------------------------------------------------------------------------
+  webui:
+    needs: plan
+    if: inputs.bundle != 'minimal'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout oxidns source
+        uses: actions/checkout@v6
+        with:
+          repository: svenshi/oxidns
+          ref: ${{ inputs.tag }}
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+
+      - name: Build WebUI
+        working-directory: webui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webui-dist
+          path: webui/out
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # 主编译矩阵。命名 / 打包逻辑严格对齐上游 release.yml。
+  # -------------------------------------------------------------------------
+  build:
+    needs: [plan, webui]
+    if: always() && needs.plan.result == 'success' && (needs.webui.result == 'success' || needs.webui.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout oxidns source
+        uses: actions/checkout@v6
+        with:
+          repository: svenshi/oxidns
+          ref: ${{ inputs.tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Download WebUI artifact
+        if: inputs.bundle != 'minimal'
+        uses: actions/download-artifact@v8
+        with:
+          name: webui-dist
+          path: webui/out
+
+      - name: Install cross
+        if: matrix.build_tool == 'cross'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install aarch64 GNU toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Install cargo-deb
+        if: inputs.make_deb && matrix.deb_eligible
+        run: cargo install cargo-deb --locked
+
+      - name: Build (cargo)
+        if: matrix.build_tool == 'cargo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release \
+            --target "${{ matrix.target }}" \
+            --no-default-features \
+            --features "${{ needs.plan.outputs.features }}"
+
+      - name: Build (cross)
+        if: matrix.build_tool == 'cross'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cross build --locked --release \
+            --target "${{ matrix.target }}" \
+            --no-default-features \
+            --features "${{ needs.plan.outputs.features }}"
+
+      # .deb 必须在 UPX 之前,这样 cargo-deb 处理的是原始符号表。
+      - name: Generate .deb
+        if: inputs.make_deb && matrix.deb_eligible
+        run: cargo deb --no-build --target ${{ matrix.target }}
+
+      - name: Upload .deb artifact
+        if: inputs.make_deb && matrix.deb_eligible
+        uses: actions/upload-artifact@v7
+        with:
+          name: oxidns-${{ matrix.target }}.deb
+          path: target/debian/*.deb
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Run UPX (Linux)
+        if: inputs.upx && matrix.upx_kind == 'linux'
+        continue-on-error: true
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          version: v5.0.2
+          files: target/${{ matrix.target }}/release/${{ matrix.exe }}
+          args: -q --best --lzma
+
+      - name: Run UPX (Windows)
+        if: inputs.upx && matrix.upx_kind == 'windows'
+        continue-on-error: true
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          version: v5.0.2
+          files: target/${{ matrix.target }}/release/${{ matrix.exe }}
+          args: -q --best --lzma
+
+      # ---------------------------------------------------------------------
+      # 文件名 / 打包内容必须 1:1 对齐上游 release.yml,
+      # 否则 `oxidns upgrade` 找不到 asset 或解压后找不到 oxidns 二进制。
+      # ---------------------------------------------------------------------
+      - name: Determine archive name
+        id: name
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          TARGET="${{ matrix.target }}"
+          EXT="${{ matrix.archive_ext }}"
+          case "$BUNDLE" in
+            full|custom)
+              echo "archive=oxidns-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
+              ;;
+            standard|minimal)
+              echo "archive=oxidns-${BUNDLE}-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          TARGET="${{ matrix.target }}"
+          EXE="${{ matrix.exe }}"
+          DIR="target/${TARGET}/release"
+          ARCHIVE="${{ steps.name.outputs.archive }}"
+
+          ls -lah "$DIR"
+          cp LICENSE "$DIR/"
+
+          if [ "$BUNDLE" = "minimal" ]; then
+            # minimal 走专用 config,不带 api/webui section
+            cp config.minimal.yaml "$DIR/config.yaml"
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" "$EXE" config.yaml LICENSE
+          else
+            cp config.yaml "$DIR/"
+            rm -rf "$DIR/webui"
+            cp -R webui/out "$DIR/webui"
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" "$EXE" config.yaml LICENSE webui
+          fi
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $TARGET = '${{ matrix.target }}'
+          $EXE = '${{ matrix.exe }}'
+          $DIR = "target/${TARGET}/release"
+          $ARCHIVE = '${{ steps.name.outputs.archive }}'
+
+          Copy-Item -Path "config.yaml" -Destination "$DIR/"
+          Copy-Item -Path "LICENSE" -Destination "$DIR/"
+          if (Test-Path "$DIR/webui") { Remove-Item "$DIR/webui" -Recurse -Force }
+          Copy-Item -Path "webui/out" -Destination "$DIR/webui" -Recurse
+
+          Compress-Archive `
+            -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE", "$DIR/webui" `
+            -DestinationPath "$DIR/$ARCHIVE" `
+            -Force
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.name.outputs.archive }}
+          path: target/${{ matrix.target }}/release/${{ steps.name.outputs.archive }}
+          compression-level: 0
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # 发布到调用方仓库的 release。github.repository / GITHUB_TOKEN 都属于调用方,
+  # 所以这里 softprops/action-gh-release 自动写到正确的位置。
+  # -------------------------------------------------------------------------
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" \) | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }} ${{ inputs.release_name_suffix }}
+          body: |
+            自定义编译 svenshi/oxidns ${{ inputs.tag }}
+
+            - Bundle: `${{ inputs.bundle }}`
+            - Features: `${{ needs.plan.outputs.features }}`
+
+            升级命令:
+            ```bash
+            oxidns upgrade apply \
+              --repository ${{ github.repository }} \
+              --bundle ${{ inputs.bundle == 'custom' && 'full' || inputs.bundle }}
+            ```
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.deb
+          draft: false
+          fail_on_unmatched_files: true

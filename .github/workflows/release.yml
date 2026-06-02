@@ -356,29 +356,11 @@ jobs:
             rm -rf "$DIR/webui"
             cp -R webui/out "$DIR/webui"
             tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns config.yaml LICENSE webui
-            exit 0
+          else
+            # minimal: ship the dedicated minimal config (no api/webui block)
+            cp config.minimal.yaml "$DIR/config.yaml"
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns config.yaml LICENSE
           fi
-
-          DIR="$DIR" python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          source = Path("config.yaml").read_text().splitlines()
-          output = []
-          skip_webui = False
-          for line in source:
-              if line.startswith("    # Optional static WebUI directory."):
-                  skip_webui = True
-                  continue
-              if skip_webui:
-                  if line.startswith("    ") or line.strip() == "":
-                      continue
-                  skip_webui = False
-              output.append(line)
-
-          Path(os.environ["DIR"], "config.yaml").write_text("\n".join(output) + "\n")
-          PY
-          tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns config.yaml LICENSE
 
       - name: Upload slim archive artifact
         uses: actions/upload-artifact@v7
