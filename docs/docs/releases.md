@@ -7,10 +7,51 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 
 # 版本更新
 
+## 2026-06
+
+<div className="release-stack">
+   <ReleaseCard version="v1.2.0" badge="Minor Release" date="2026-06-03" defaultOpen>
+       **版本定位**
+
+       - Minor Release，本周期最重要的变更是引入完整的编译期特性体系（`minimal` / `standard` / `full` 三个 bundle + 细粒度 flag），将 DoQ / DoH3、DoT / DoH、`api` / `webui` / `metrics`、可选插件以及 TLS / HTTP 依赖全部改为按需启用，并把"编译进来的能力"暴露给 CLI、API 与 WebUI。同步上线两个新插件 `ip_selector`（响应 IP 选优）与 `dynamic_domain_set` + `learn_domain`（可写动态域名集与在线学习），扩展 `env` 匹配器为多条件表达式，新增 WebUI 插件卡片拖拽排序与 `dynamic_domain_set` 规则管理界面。同时修复缓存大容量场景的内存与持久化问题、DoH/DoH3 启动失败时的监听泄漏、`upgrade` WebUI 路径解析等问题，并完成多个 Cargo 依赖升级。
+       - 含一个破坏性变更：`env` 匹配器移除遗留的两参数 `"KEY" "VALUE"` 解析。使用旧写法做相等匹配的配置需要迁移到 `KEY=VALUE` 形式（见下方升级说明）。
+
+       **主要变更**
+
+       - 编译期特性体系：新增 `minimal` / `standard`（默认推荐）/ `full` 三个 bundle，覆盖 `server-doq` / `server-doh3` / `server-dot` / `server-doh`、`upstream-doq` / `upstream-doh3` / `upstream-dot` / `upstream-doh`、`api` / `webui` / `metrics`，以及 `plugin-mikrotik` / `query-recorder` / `ipset` / `cron` / `script` / `download` / `http-request` / `reverse-lookup` / `upgrade` / `arbitrary` / `plugin-ip-selector` / `plugin-dynamic-domain`、`provider-protobuf` / `adguard-rule` 等细粒度 flag；禁用的协议/插件在配置引用时给出"未编译进来；请使用 `--features ...` 重新编译"的明确错误。最小构建的 release 二进制约 8.9 MB（full 约 21 MB，缩小约 58%）。
+       - 发行物构建调整：CI 与 release 产物按 bundle 切分，新增 Linux musl 的 `minimal` / `standard` 归档（`full` 名称保持不变），`upgrade` 与安装脚本可显式选择目标 bundle。`standard` bundle 现已包含 `api`、`webui`、`query_recorder`、`upgrade` 等常用能力。
+       - 运行时能力反射：CLI 与 `system/health` API 上报激活的 bundle 与支持的插件类型；WebUI 在新建、引用选择、卡片、详情视图中禁用未编译进来的插件类型。
+       - 新插件 `ip_selector`（执行器）：A / AAAA 响应 IP 选优，支持 TCP / ping 带上限的探测、得分缓存、并发探测合并、DNSSEC 安全处理与失败兜底放行；拒绝兼容别名与未知字段，仅暴露 OxiDNS 原生配置项。
+       - 新插件 `dynamic_domain_set`（provider）+ `learn_domain`（执行器）：基于文件的可写 provider，支持热快照、去重、API 规则管理与显式 reload；`learn_domain` 在不依赖 SQLite 与不触发整体 reload 的前提下，按过滤条件把查询/响应写入动态域名集；WebUI 新增 `dynamic_domain_set` 的规则列表、添加 / 删除 / 清空管理面板。
+       - `env` 匹配器：支持在一次匹配中传入多个独立条件，每个参数都按独立表达式解析；推荐 `KEY=VALUE` 作为精确匹配语法，`KEY:VALUE` 作为别名；保留对带分隔符的 value 的兼容解析。**破坏性**：旧的两参数形式 `["KEY", "VALUE"]` 现在表示"KEY 和 VALUE 两个环境变量都存在"，不再等价于 `KEY == VALUE`。
+       - WebUI 插件卡片拖拽排序：仪表盘与插件中心均支持拖拽排序。插件中心的排序会写回配置文件的 `plugins` 顺序（暂存后由"应用更改"统一保存），在当前类型 tab 内做子集排序、保留其它类型相对位置；搜索查询激活时禁用。仪表盘固定卡片顺序仅作为本地偏好持久化到 `localStorage`，不修改配置文件。
+       - WebUI `ConfigField` 新增 `fullWidth` 选项并应用到 `dynamic_domain_set.path` 等长文件路径字段；修复 `@container` 查询无法样式化自身容器导致的配置表单分栏不均问题。
+       - `sequence` 步骤记录改为受内部 `_sequence-step-recording` feature 控制，仅在 `query_recorder` 启用时编译进来，未启用 recorder 的构建省去对应字段与上报开销。
+       - 修复 `cache`：将 `size` 视为条目上限而非启动时的 map 容量，避免大缓存配置下的预分配开销；启动与 API dump 加载后立即按上限裁剪，并增加大容量回归覆盖。
+       - 修复 `server`：DoH3 / TLS 前置条件不满足或 HTTP/3 初始化失败时，先回收已启动的 HTTP/2 监听任务，避免泄漏的 DoH 监听句柄。
+       - 修复 `upgrade`：从运行时配置推断 WebUI 资源路径，避免与 `working-dir` 切换组合时找不到 WebUI 资源的问题。
+       - 修复 `config`：区分运行时占位符（`{...}`）与 `env` 占位符的展开规则，消除歧义。
+       - 修复 `dynamic_domain_set`：序列化追加写入、分行写入新增规则、写文件前先校验规则、保持动态域名结构变更与文件状态一致；`api` 关闭时跳过对应管理接口注册。
+       - 文档：新增 `PLUGIN_DEV.md` 插件开发与注册指南、`SECURITY.md` 安全策略、自定义构建中文文档与 quickstart 中的预设能力矩阵；新增 roadmap 时间线组件；移除安装文档中的 GHCR 引用；修复 TLS 配置文档格式。
+       - 依赖：升级 `socket2 0.6.3 → 0.6.4`、`jiff 0.2.24 → 0.2.28`、`wincode 0.5.4 → 0.5.5`、`http 1.4.0 → 1.4.1`、`hyper 1.9.0 → 1.10.1`、`rusqlite 0.39 → 0.40`、`windows-service 0.6 → 0.8.1`。
+       - 其它：`IpSelectorCacheConfig` 拒绝未知字段；修复运行时测试的序列化死锁；清理被取消的 `ip_selector` 探测；多项 CI 修复，覆盖 minimal / standard / full feature 组合与 Windows 测试；新增可复用的 custom build workflow 与最小化的 `build.config.yml` 范例。
+
+       **配置与升级说明**
+
+       - 根 crate 版本号升级为 `1.2.0`；本周期 `crates/macros`、`crates/proto`、`crates/ripset`、`crates/zoneparser` 均无改动，无需子 crate 同步升级；release tag 应使用 `v1.2.0`。
+       - `v1.1.4` 配置在使用默认（`full`）或 `standard` bundle 升级时无需修改即可直接启动；如选择 `minimal` 或自定义裁剪 feature，配置里引用未编译进来的插件 / 协议会在启动时报错"未编译进来；请使用 `--features ...` 重新编译"，可据此添加缺失 feature 或移除对应配置项。
+       - **破坏性 — `env` 匹配器**：旧的两参数写法 `env: ["KEY", "VALUE"]`（语义：`$KEY == VALUE`）需要迁移为 `env: ["KEY=VALUE"]` 或 `env: ["KEY:VALUE"]`。若刻意保留两参数语义，请确认你确实是想匹配"两个环境变量都存在"。详见 `docs/docs/migrate-from-mosdns.mdx` 中的迁移说明。
+       - 选择最小化部署的用户可通过 `--no-default-features --features minimal` 或 `standard` 自行构建；release 通道同时发布 `minimal` / `standard` / `full` 三套 Linux musl 归档，`upgrade` 与安装脚本支持显式 bundle 选择。包含 WebUI、`query_recorder`、`upgrade` 的部署建议使用 `standard` 或 `full`。
+       - 缓存大容量（如 `size > 200000`）部署强烈建议升级：先前的大容量场景会预分配过大的 map，并在加载 API dump 时不强制按上限裁剪；本次修复后内存占用与上限严格对齐。
+       - 启用 DoH 且未启用 DoH3、或启用 DoH3 但缺少必需 TLS 配置的部署建议升级：先前在 HTTP/3 初始化失败时可能残留 HTTP/2 DoH 监听句柄；现在改为前置校验并清理已启动的任务。
+       - `dynamic_domain_set` 与 `learn_domain` 为可选 `plugin-dynamic-domain` 特性、`ip_selector` 为 `plugin-ip-selector` 特性，二者均已包含在 `standard` / `full` bundle 中；最小化构建若需启用，请显式添加对应 feature。
+   </ReleaseCard>
+</div>
+
 ## 2026-05
 
 <div className="release-stack">
-   <ReleaseCard version="v1.1.4" badge="Patch Release" date="2026-05-30" defaultOpen>
+   <ReleaseCard version="v1.1.4" badge="Patch Release" date="2026-05-30">
        **版本定位**
 
        - Patch Release，重点优化 provider 与规则匹配路径的内存占用与重载开销，并修复 WebUI 在移动端的配置编辑器与插件筛选可用性、查询记录图表标签显示，及 Monaco 编辑器改为本地自托管。同时新增"从 mosdns 迁移"文档。本版本不引入破坏性配置变更，查询热路径行为保持不变。
