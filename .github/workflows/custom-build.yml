@@ -364,6 +364,17 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" \) | sort
 
+      - name: Collect release files
+        id: files
+        run: |
+          {
+            echo 'files<<EOF'
+            find artifacts -type f \
+              \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" \) \
+              | sort
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+    
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
@@ -381,9 +392,6 @@ jobs:
               --repository ${{ github.repository }} \
               --bundle ${{ inputs.bundle == 'custom' && 'full' || inputs.bundle }}
             ```
-          files: |
-            artifacts/*.zip
-            artifacts/*.tar.gz
-            artifacts/*.deb
+          files: ${{ steps.files.outputs.files }}
           draft: false
           fail_on_unmatched_files: true
