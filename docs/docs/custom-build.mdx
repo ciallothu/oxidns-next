@@ -376,8 +376,9 @@ A: 通常什么都不用做。模版 `build.yml` 默认 pin 到 `svenshi/oxidns@
 下次触发就自动用最新逻辑。要锁版本就把 `@main` 改成 `@v1.2.0` 之类的 tag。
 
 **Q: 能编译上游 PR 分支或某个 commit 吗?**
-A: 改 `watch-upstream.yml` 把 latest release 检测换成 git rev-parse,或者
-直接手动 `workflow_dispatch` 给 build.yml 传一个 tag/branch/SHA。
+A: 目前模版只支持 release tag。需要构建分支 / commit 的话,要么走"方式二:
+本地 cargo build",要么把模版的 `watch-upstream.yml` 改成检测分支 HEAD 而
+不是 release tag。
 
 **Q: 产物完整性怎么验证?**
 A: GitHub 自动给每个 release asset 生成 SHA256 digest,`oxidns upgrade`

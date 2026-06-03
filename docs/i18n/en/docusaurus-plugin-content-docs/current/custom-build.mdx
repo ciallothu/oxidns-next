@@ -399,9 +399,10 @@ A: Usually nothing. The template's `build.yml` pins to
 automatically. Pin to `@v1.2.0` (or any tag) for a fixed version.
 
 **Q: Can I build a PR branch or a specific commit?**
-A: Tweak `watch-upstream.yml` to use `git rev-parse` instead of "latest
-release", or manually `workflow_dispatch` `build.yml` with a tag, branch,
-or SHA.
+A: The template supports release tags only today. To build branches or
+commits, either go through "Path 2: local cargo build", or edit the
+template's `watch-upstream.yml` to detect branch HEADs instead of
+release tags.
 
 **Q: How is artifact integrity verified?**
 A: GitHub generates a SHA256 digest per release asset automatically, and

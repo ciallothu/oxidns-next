@@ -8,9 +8,7 @@ name: Custom Build (reusable)
 #     build:
 #       uses: svenshi/oxidns/.github/workflows/custom-build.yml@main
 #       with:
-#         ref: v1.2.0               # branch / tag / SHA in svenshi/oxidns
-#         release_tag: v1.2.0       # tag for the GitHub release in the caller repo
-#         prerelease: false         # set true for branch / commit builds
+#         tag: v1.2.0
 #         bundle: custom
 #         features: api,webui,server-doh,...
 #         targets: '["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]'
@@ -29,20 +27,10 @@ name: Custom Build (reusable)
 on:
   workflow_call:
     inputs:
-      ref:
-        description: 'Upstream oxidns git ref to check out (tag / branch / SHA, e.g. v1.2.0, main, abc1234).'
+      tag:
+        description: 'Upstream oxidns release tag (e.g. v1.2.0)'
         required: true
         type: string
-      release_tag:
-        description: 'Tag for the GitHub release in the caller repo. Defaults to `ref` when empty. For non-tag refs the caller should derive something unique (e.g. branch-main-abc1234) so it does not collide with tagged releases.'
-        required: false
-        default: ''
-        type: string
-      prerelease:
-        description: 'Mark the resulting GitHub release as a prerelease. Recommended for branch / commit builds so they do not override `oxidns upgrade --bundle auto` resolution.'
-        required: false
-        default: false
-        type: boolean
       bundle:
         description: 'full | standard | minimal | custom'
         required: true
@@ -160,7 +148,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: svenshi/oxidns
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.tag }}
 
       - uses: pnpm/action-setup@v6
         with:
@@ -201,7 +189,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: svenshi/oxidns
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.tag }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -376,53 +364,22 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" \) | sort
 
-      - name: Build release metadata
-        id: meta
-        env:
-          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
-          INPUT_REF: ${{ inputs.ref }}
-          INPUT_BUNDLE: ${{ inputs.bundle }}
-          INPUT_PRERELEASE: ${{ inputs.prerelease }}
-          INPUT_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          TAG="$INPUT_RELEASE_TAG"
-          [ -z "$TAG" ] && TAG="$INPUT_REF"
-
-          # `oxidns upgrade --bundle auto` does not know about custom builds;
-          # we recommend --bundle full because custom archives reuse the
-          # full-bundle filename (oxidns-{target}.{ext}).
-          BUNDLE_FOR_UPGRADE="$INPUT_BUNDLE"
-          [ "$BUNDLE_FOR_UPGRADE" = "custom" ] && BUNDLE_FOR_UPGRADE="full"
-
-          PRERELEASE_FLAG=""
-          [ "$INPUT_PRERELEASE" = "true" ] && PRERELEASE_FLAG=" \\
-              --allow-prerelease"
-
-          {
-            echo "tag=$TAG"
-            echo "bundle_for_upgrade=$BUNDLE_FOR_UPGRADE"
-            echo 'upgrade_hint<<EOF'
-            printf 'oxidns upgrade apply \\\n  --repository %s \\\n  --target %s \\\n  --bundle %s%s\n' \
-              "$INPUT_REPO" "$TAG" "$BUNDLE_FOR_UPGRADE" "$PRERELEASE_FLAG"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.tag }} ${{ inputs.release_name_suffix }}
-          prerelease: ${{ inputs.prerelease }}
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }} ${{ inputs.release_name_suffix }}
           body: |
-            Custom build of svenshi/oxidns @ `${{ inputs.ref }}`
+            Custom build of svenshi/oxidns ${{ inputs.tag }}
 
             - Bundle: `${{ inputs.bundle }}`
             - Features: `${{ needs.plan.outputs.features }}`
 
             Upgrade command:
             ```bash
-            ${{ steps.meta.outputs.upgrade_hint }}
+            oxidns upgrade apply \
+              --repository ${{ github.repository }} \
+              --bundle ${{ inputs.bundle == 'custom' && 'full' || inputs.bundle }}
             ```
           files: |
             artifacts/*.zip
