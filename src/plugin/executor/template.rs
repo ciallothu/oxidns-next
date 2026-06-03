@@ -8,29 +8,9 @@
 
 use serde_json::{Number as JsonNumber, Value as JsonValue};
 
+use crate::config::env_expand::BUILTIN_KEYS;
 use crate::core::context::DnsContext;
 use crate::core::error::{DnsError, Result};
-
-pub(crate) const BUILTIN_KEYS: &[&str] = &[
-    "qname",
-    "qtype",
-    "qtype_name",
-    "qclass",
-    "qclass_name",
-    "client_ip",
-    "client_port",
-    "server_name",
-    "url_path",
-    "marks",
-    "has_resp",
-    "rcode",
-    "rcode_name",
-    "resp_ip",
-    "cron_plugin_tag",
-    "cron_job_name",
-    "cron_trigger_kind",
-    "cron_scheduled_at_unix_ms",
-];
 
 const CRON_ATTR_PLUGIN_TAG: &str = "cron.plugin_tag";
 const CRON_ATTR_JOB_NAME: &str = "cron.job_name";
@@ -48,6 +28,7 @@ enum TemplateSegment {
     Builtin(&'static str),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) enum JsonTemplateValue {
     Null,
@@ -126,6 +107,7 @@ impl Template {
     }
 }
 
+#[allow(dead_code)]
 impl JsonTemplateValue {
     pub(crate) fn compile(value: JsonValue) -> Result<Self> {
         match value {

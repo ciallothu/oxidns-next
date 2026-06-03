@@ -34,6 +34,7 @@ export interface SaveConfigResponse {
 export interface HealthResponse {
   status: string;
   version: string;
+  build_bundle?: string;
   uptime_ms: number;
   checks: {
     api: string;
@@ -44,6 +45,26 @@ export interface HealthResponse {
     total: number;
     servers: number;
   };
+}
+
+export interface SupportedPlugins {
+  servers: string[];
+  executors: string[];
+  matchers: string[];
+  providers: string[];
+}
+
+export interface BuildInfo {
+  version: string;
+  bundle: string;
+  enabled_bundles: string[];
+  enabled_features: string[];
+  supported_plugins: SupportedPlugins;
+}
+
+export interface BuildInfoResponse {
+  ok: boolean;
+  build: BuildInfo;
 }
 
 export interface ReloadSnapshot {
@@ -71,6 +92,7 @@ export interface ControlResponse {
 export interface SystemResponse {
   ok: boolean;
   version: string;
+  build?: BuildInfo;
   os: string;
   arch: string;
   uptime_ms: number;
@@ -385,6 +407,14 @@ export async function fetchHealth(): Promise<HealthResponse> {
   return readJsonResponse<HealthResponse>(response);
 }
 
+export async function fetchBuildInfo(): Promise<BuildInfoResponse> {
+  const response = await fetch(apiUrl("/build"), {
+    method: "GET",
+    headers: apiHeaders(),
+  });
+  return readJsonResponse<BuildInfoResponse>(response);
+}
+
 export async function fetchControl(): Promise<ControlResponse> {
   const response = await fetch(apiUrl("/control"), {
     method: "GET",
@@ -692,6 +722,81 @@ export async function fetchQueryRecorderTimeseries(
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
   return readJsonResponse<QueryRecorderTimeseriesResponse>(response);
+}
+
+// --- Dynamic Domain Set API ---
+
+export type DynamicDomainRuleKind = "full" | "domain";
+
+export interface DynamicDomainRulesResponse {
+  ok: boolean;
+  total: number;
+  next_cursor: number | null;
+  rules: string[];
+}
+
+export interface DynamicDomainMutationResponse {
+  ok: boolean;
+  added: number;
+  removed: number;
+  total: number;
+}
+
+export async function listDynamicDomainRules(
+  tag: string,
+  options: { cursor?: number; limit?: number; signal?: AbortSignal } = {},
+): Promise<DynamicDomainRulesResponse> {
+  const params = new URLSearchParams();
+  if (options.cursor !== undefined) params.set("cursor", String(options.cursor));
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/rules${suffix}`),
+    { method: "GET", headers: apiHeaders(), signal: options.signal },
+  );
+  return readJsonResponse<DynamicDomainRulesResponse>(response);
+}
+
+export async function appendDynamicDomainRules(
+  tag: string,
+  rules: string[],
+  rule_kind?: DynamicDomainRuleKind,
+): Promise<DynamicDomainMutationResponse> {
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/rules`),
+    {
+      method: "POST",
+      headers: { ...apiHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ rules, rule_kind }),
+    },
+  );
+  return readJsonResponse<DynamicDomainMutationResponse>(response);
+}
+
+export async function removeDynamicDomainRules(
+  tag: string,
+  rules: string[],
+  rule_kind?: DynamicDomainRuleKind,
+): Promise<DynamicDomainMutationResponse> {
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/rules`),
+    {
+      method: "DELETE",
+      headers: { ...apiHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ rules, rule_kind }),
+    },
+  );
+  return readJsonResponse<DynamicDomainMutationResponse>(response);
+}
+
+export async function clearDynamicDomainRules(
+  tag: string,
+): Promise<DynamicDomainMutationResponse> {
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/rules/clear`),
+    { method: "POST", headers: apiHeaders() },
+  );
+  return readJsonResponse<DynamicDomainMutationResponse>(response);
 }
 
 // --- Log API ---

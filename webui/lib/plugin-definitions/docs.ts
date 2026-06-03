@@ -158,6 +158,34 @@ export const pluginFieldDocs = {
     min: "- 类型：`integer`；必填：否；默认值：无\n- 作用：定义 TTL 下限。",
     max: "- 类型：`integer`；必填：否；默认值：无\n- 作用：定义 TTL 上限。",
   },
+  ip_selector: {
+    selection_mode:
+      "- 类型：`string`；必填：否；默认值：`first_success`\n- 可选值：\n  - `first_success`：在总等待预算内，第一个成功探测的地址优先\n  - `best_within_budget`：在总等待预算内收集成功探测结果，选择延迟最低的地址\n  - `background`：本次响应保持原始顺序，后台异步预热探测评分缓存\n- 作用：定义已有 A / AAAA 响应中的地址优选策略。\n- 运行影响：\n  - 插件只处理已有 DNS response，不负责上游竞速。\n  - 探测失败、超时或无评分时会保留原始响应作为兜底。\n- 配置要求：只接受 OxiDNS 原生命名，不提供兼容别名。",
+    probe_methods:
+      '- 类型：`array<string>` 或逗号分隔 `string`；必填：否；默认值：`["tcp:443", "tcp:80"]`\n- 支持值：\n  - `tcp:<port>`：对目标 IP 的指定端口做 TCP connect 探测\n  - `ping`：best-effort ICMP 探测，受平台与权限影响\n  - `none`：不主动探测，只使用已有缓存评分或原始顺序\n- 作用：定义用于给响应 IP 评分的探测方式。\n- 配置要求：\n  - `none` 不能与其它探测方式组合。\n  - `tcp:<port>` 的端口必须大于 0。\n  - 方法顺序会影响错峰启动顺序。',
+    probe_stagger:
+      "- 类型：`integer`；必填：否；默认值：`200`\n- 单位：毫秒\n- 作用：定义多种探测方式之间的错峰启动间隔。\n- 运行影响：\n  - 较小值会让多种方法更快并发启动。\n  - 较大值会让靠前方法获得更明显的优先机会，尤其影响 `first_success`。",
+    probe_timeout:
+      "- 类型：`integer`；必填：否；默认值：`600`\n- 单位：毫秒\n- 作用：定义单次 IP 探测的超时时间。\n- 配置要求：必须大于 0。\n- 运行影响：超时会被记录为失败评分，不会清空或中断 DNS response。",
+    max_wait:
+      "- 类型：`integer`；必填：否；默认值：`1000`\n- 单位：毫秒\n- 作用：定义本次响应优选允许等待探测结果的总预算。\n- 配置要求：必须大于 0。\n- 运行影响：预算耗尽时会基于已获得的成功评分排序；没有成功评分时保留原始响应。",
+    top_n:
+      "- 类型：`integer`；必填：否；默认值：`1`\n- 作用：保留排序后的前 N 个目标地址。\n- 特殊值：`0` 表示只重排，不删除任何 A / AAAA 记录。\n- 运行影响：\n  - 仅裁剪当前查询类型对应的地址记录。\n  - CNAME 与非目标地址记录会被保留。",
+    dnssec_policy:
+      "- 类型：`string`；必填：否；默认值：`reorder_only`\n- 可选值：\n  - `reorder_only`：DNSSEC 敏感响应只重排，不删除记录\n  - `skip`：DNSSEC 敏感响应完全跳过优选处理\n- 作用：控制请求带 DO bit 或响应中存在覆盖当前 A / AAAA 的 RRSIG 时如何处理。\n- 运行影响：默认避免裁剪可能被签名覆盖的 RRset。",
+    max_parallel_probes:
+      "- 类型：`integer`；必填：否；默认值：`256`\n- 作用：限制当前插件实例同时进行的主动探测数量。\n- 配置要求：必须大于 0。\n- 运行影响：达到上限时新增探测会按失败处理，并保留原始 DNS response 兜底。",
+    cache:
+      "- 类型：`object`；必填：否；默认值：启用，容量 `4096`\n- 作用：配置 IP 探测评分缓存。\n- 运行影响：\n  - 缓存命中可避免在请求热路径重复主动探测。\n  - 成功与失败评分使用不同 TTL。\n  - 后台模式依赖该缓存为后续请求提供排序依据。",
+    "cache.enabled":
+      "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否启用探测评分缓存。\n- 运行影响：关闭后，每次需要评分时都只能依赖本次探测或原始顺序。",
+    "cache.size":
+      "- 类型：`integer`；必填：否；默认值：`4096`\n- 作用：定义探测评分缓存的目标容量。\n- 配置要求：启用缓存时必须大于 0。\n- 运行影响：超过目标容量后会优先淘汰较少访问的缓存项。",
+    "cache.ttl":
+      "- 类型：`integer`；必填：否；默认值：`3600`\n- 单位：秒\n- 作用：定义成功探测评分的保留时间。\n- 配置要求：启用缓存时必须大于 0。",
+    "cache.failure_ttl":
+      "- 类型：`integer`；必填：否；默认值：`60`\n- 单位：秒\n- 作用：定义失败探测评分的保留时间。\n- 配置要求：启用缓存时必须大于 0。\n- 运行影响：失败缓存可避免不可达地址在短时间内被反复探测，同时允许较快恢复。",
+  },
   prefer_ipv4: {
     cache:
       "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否缓存 preferred 类型存在状态。",
@@ -186,6 +214,28 @@ export const pluginFieldDocs = {
   },
   query_summary: {
     msg: '- 类型：`string`；必填：否；默认值：`"query summary"`\n- 作用：定义摘要日志标题。',
+  },
+  learn_domain: {
+    provider:
+      "- 类型：`string`；必填：是；默认值：无\n- 作用：引用目标 `dynamic_domain_set` provider。\n- 约束：\n  - 必须是 `dynamic_domain_set` 类型，不能引用普通 `domain_set`。\n- 运行影响：所有学习到的规则会写入该 provider 的本地文件，并立即更新其热快照。",
+    phase:
+      "- 类型：`string`；必填：否；默认值：`after`\n- 可选值：\n  - `before`：在后续 executor 执行前，按 request question 学习。\n  - `after`：先执行后续链路，再根据响应判定是否学习。\n- 运行影响：`before` 不检查响应条件；`after` 会受 `success_only`、`answer_required` 等过滤。",
+    questions:
+      "- 类型：`string`；必填：否；默认值：`first`\n- 可选值：`first`、`all`\n- 作用：控制只学习第一个 question 还是所有 question；常规单 question 请求保持默认即可。",
+    qtypes:
+      '- 类型：`array<string>`；必填：否；默认值：`["A", "AAAA"]`\n- 作用：只对指定 DNS 查询类型生效。\n- 配置要求：使用大写记录类型，例如 `A`、`AAAA`、`HTTPS`。',
+    success_only:
+      "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：仅响应 RCODE 为 `NOERROR` 时学习。\n- 使用条件：仅 `phase: after` 生效。",
+    answer_required:
+      "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：仅响应包含 answer 记录时学习。\n- 使用条件：仅 `phase: after` 生效。",
+    rule_kind:
+      "- 类型：`string`；必填：否；默认值：`full`\n- 可选值：\n  - `full`：写入 `full:example.com` 精确规则。\n  - `domain`：写入 `domain:example.com` 后缀规则。\n- 运行影响：默认精确规则可避免意外扩大匹配范围；改为 `domain` 时整棵子域都会命中。",
+    async:
+      "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否只入队后继续执行。\n- 运行影响：\n  - `true`：写入异步入队，请求路径零等待。\n  - `false`：在当前请求路径同步等待 provider 写入完成，受 `timeout` 限制。",
+    error_mode:
+      "- 类型：`string`；必填：否；默认值：`continue`\n- 可选值：\n  - `continue`：失败仅记录日志，继续后续链路。\n  - `stop`：失败后返回 `Stop`，截断当前 sequence 分支。\n  - `fail`：失败后直接返回 executor 错误。",
+    timeout:
+      "- 类型：`duration`；必填：否；默认值：`1s`\n- 作用：限制 `async: false` 时等待 provider 写入完成的最长时间。\n- 支持单位：`ms`、`s`、`m`、`h`、`d`。",
   },
   query_recorder: {
     path: "- 类型：`string`；必填：是\n- 作用：指定当前 recorder 的 SQLite 文件路径。",
@@ -323,7 +373,9 @@ export const pluginFieldDocs = {
     repository:
       "- 类型：`string`；必填：否；默认值：`svenshi/oxidns`\n- 作用：GitHub 仓库。",
     asset:
-      "- 类型：`string`；必填：否；默认值：`auto`\n- 作用：Release asset 名称；`auto` 会按当前平台选择 archive。",
+      "- 类型：`string`；必填：否；默认值：`auto`\n- 作用：Release asset 名称；`auto` 会根据当前平台和编译版本选择 archive。\n- 优先级：显式填写 asset 时会跳过 `bundle` 推导。",
+    bundle:
+      "- 类型：`auto | full | standard | minimal`；必填：否；默认值：`auto`\n- 作用：当 `asset: auto` 时选择 release 编译版本。`full` 使用旧资产名，`standard` / `minimal` 使用带 bundle 前缀的 slim 资产名。",
     github_token:
       "- 类型：`string`；必填：否；默认值：无\n- 作用：GitHub 个人访问令牌，用于提高 API 速率限制或访问私有仓库。\n- 说明：会作为 GitHub API 请求的 Bearer token 使用。",
     cache_dir: "- 类型：`path`；必填：否；默认值：无\n- 作用：下载缓存目录。",
@@ -417,7 +469,7 @@ export const pluginFieldDocs = {
     args: "`mark` 的 `args` 为 mark 列表。\n\n- 类型：`array`；必填：是；默认值：无\n- 作用：定义可命中的上下文标记集合。\n- 支持取值：\n  - 无符号整数形式的 mark 值\n- 运行影响：\n  - 只要上下文 marks 与配置 marks 存在交集，即返回 `true`。",
   },
   env: {
-    args: "`env` 的 `args` 为一到两个元素。\n\n- 类型：`array`；必填：是；默认值：无\n- 元素定义：\n  - 第一个元素：环境变量名\n  - 第二个元素：可选，期望值\n- 运行影响：\n  - 仅配置变量名时，环境变量存在即返回 `true`。\n  - 同时配置变量名和值时，需完全匹配才返回 `true`。",
+    args: "`env` 的 `args` 为环境变量条件列表。\n\n- 类型：`array`；必填：是；默认值：无\n- 支持形式：\n  - `KEY=VALUE`：变量存在且值完全匹配，推荐用于环境变量等值匹配\n  - `KEY:VALUE`：与 `KEY=VALUE` 等价，作为规则表达式风格的别名保留\n  - `KEY`、`KEY:` 或 `KEY=`：变量存在即命中\n- 注意：数组中的每个字符串都是完整表达式，不会按逗号或空白继续拆分；`PROFILE`、`prod` 这样的两个裸参数表示两个存在性检查，不表示 `PROFILE == prod`。\n- 运行影响：所有条件都满足时才返回 `true`；变量值在插件初始化时缓存。",
   },
   random: {
     args: "`random` 的 `args` 只接受一个概率值。\n\n- 类型：`array`；必填：是；默认值：无\n- 取值范围：`0.0` 到 `1.0`\n- 作用：定义本次匹配返回 `true` 的概率。\n- 运行影响：\n  - `0.0` 表示始终不命中。\n  - `1.0` 表示始终命中。",
@@ -445,6 +497,17 @@ export const pluginFieldDocs = {
     files:
       "- 类型：`array`；必填：否；默认值：空数组\n- 作用：指定外部规则文件路径列表。\n- 文件要求：\n  - 每行一条规则。\n  - 空行与注释行会被忽略。\n- 运行影响：\n  - 文件内容会在初始化或 `reload_provider` 时重新读取，并编译进当前 provider 的本地 matcher。",
     sets: "- 类型：`array`；必填：否；默认值：空数组\n- 作用：引用其它具备域名匹配能力的 provider。\n- 约束：\n  - 允许引用任意具备域名匹配能力的 provider，例如 `domain_set`、`geosite`、`adguard_rule`。\n- 运行影响：\n  - 当前 provider 只保存被引用 provider 的稳定句柄，不复制其规则。\n  - 下游 provider 单独 reload 后，当前 `domain_set` 无需 reload 即可看到新结果。",
+  },
+  dynamic_domain_set: {
+    path: "- 类型：`string`；必填：是；默认值：无\n- 作用：指定该 provider 管理的本地规则文件路径。\n- 文件要求：\n  - machine-managed：由插件维护，不保留手写注释。\n  - 一行一条规则，支持 `full:`、`domain:`、`keyword:`、`regexp:` 与无前缀域名（按 `domain:` 解析）。\n  - 空行与 `#` 开头的注释行在加载时忽略。\n- 运行影响：\n  - 文件不存在时自动创建。\n  - 文件存在时会在启动和 `reload_provider` 时重新读取。\n  - 外部手工编辑文件不会被自动感知，需要手动 reload。",
+    bootstrap_rules:
+      "- 类型：`array`；必填：否；默认值：空数组\n- 作用：当 `path` 文件不存在时写入的初始规则。\n- 支持内容：`full:`、`domain:`、`keyword:`、`regexp:` 与无前缀域名。\n- 运行影响：\n  - 文件已存在时该字段不生效。\n  - 仅用于首次 bootstrap，后续追加请通过 `learn_domain` 或管理 API。",
+    queue_size:
+      "- 类型：`integer`；必填：否；默认值：`1024`\n- 配置要求：必须大于 0。\n- 作用：定义自动学习从请求路径到后台写线程的有界队列大小。\n- 运行影响：队列满时新增 append 会阻塞或被丢弃，取决于上游调用方。",
+    batch_size:
+      "- 类型：`integer`；必填：否；默认值：`256`\n- 配置要求：必须大于 0。\n- 作用：定义后台 append 的批量 flush 阈值。\n- 运行影响：值越大，单次 flush 落盘的规则越多，CPU 与磁盘开销越集中。",
+    flush_interval_ms:
+      "- 类型：`integer`；必填：否；默认值：`200`\n- 单位：毫秒\n- 配置要求：必须大于 0。\n- 作用：定义后台 append 的定时 flush 间隔。\n- 运行影响：与 `batch_size` 共同决定写盘节奏，较小值能让新规则更快可见，但落盘更频繁。",
   },
   geosite: {
     file: "- 类型：`string`；必填：是\n- 作用：指定 `geosite.dat` 文件路径。",

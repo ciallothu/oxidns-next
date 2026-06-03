@@ -88,6 +88,25 @@
   --sidebar-ring: oklch(0.56 0.155 160);
 }
 
+/* Two-column responsive grid for plugin config field forms. Declared
+   outside any @layer so it sits in the highest-priority unlayered tier;
+   this is required because the FieldGroup primitive's base `flex` /
+   `grid-cols-1` utilities live in Tailwind's `utilities` layer and would
+   otherwise outrank a `@layer components` rule, preventing the
+   container-query 2-col override from taking effect. */
+.oxidns-config-fields-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 1.25rem;
+  column-gap: 1.25rem;
+}
+
+@container field-group (min-width: 28rem) {
+  .oxidns-config-fields-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .dark {
   --background: oklch(0.15 0.028 235);
   --foreground: oklch(0.94 0.012 210);

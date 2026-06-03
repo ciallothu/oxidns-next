@@ -1,0 +1,389 @@
+name: Custom Build (reusable)
+
+# Reusable workflow consumed by custom-build template repositories.
+#
+# The template repo's build.yml calls this workflow like so:
+#
+#   jobs:
+#     build:
+#       uses: svenshi/oxidns/.github/workflows/custom-build.yml@main
+#       with:
+#         tag: v1.2.0
+#         bundle: custom
+#         features: api,webui,server-doh,...
+#         targets: '["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]'
+#         upx: true
+#         make_deb: false
+#       secrets: inherit
+#
+# When this reusable workflow runs:
+#   - github.repository = the caller repo (e.g. user-A/oxidns-build)
+#   - secrets.GITHUB_TOKEN = the caller's token, with write access to the
+#     caller's release feed
+#   - runner usage is billed to the caller account
+# So the release is published to the caller repo automatically and stays
+# isolated from upstream oxidns.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Upstream oxidns release tag (e.g. v1.2.0)'
+        required: true
+        type: string
+      bundle:
+        description: 'full | standard | minimal | custom'
+        required: true
+        type: string
+      features:
+        description: 'Comma-separated Cargo features. Ignored when bundle != custom (bundle name is used instead).'
+        required: false
+        default: ''
+        type: string
+      targets:
+        description: 'JSON array of target triples'
+        required: true
+        type: string
+      upx:
+        description: 'Run UPX on Linux/Windows binaries.'
+        required: false
+        default: true
+        type: boolean
+      make_deb:
+        description: 'Also produce .deb packages for x86_64/aarch64 unknown-linux-gnu targets.'
+        required: false
+        default: false
+        type: boolean
+      release_name_suffix:
+        description: 'Suffix appended to the GitHub release name (e.g. "(custom build)").'
+        required: false
+        default: '(custom build)'
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Validate inputs and expand the targets JSON into a matrix annotated with
+  # runner / toolchain metadata.
+  # -------------------------------------------------------------------------
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      features: ${{ steps.gen.outputs.features }}
+    steps:
+      - id: gen
+        env:
+          BUNDLE: ${{ inputs.bundle }}
+          FEATURES_IN: ${{ inputs.features }}
+          TARGETS_IN: ${{ inputs.targets }}
+        run: |
+          set -euo pipefail
+
+          case "$BUNDLE" in
+            full|standard|minimal|custom) ;;
+            *) echo "::error::invalid bundle '$BUNDLE'"; exit 1 ;;
+          esac
+
+          if [ "$BUNDLE" = "custom" ]; then
+            if [ -z "$FEATURES_IN" ]; then
+              echo "::error::bundle=custom requires non-empty features"
+              exit 1
+            fi
+            if ! [[ "$FEATURES_IN" =~ ^[a-zA-Z0-9,_-]+$ ]]; then
+              echo "::error::features may only contain alphanumerics, underscores, and hyphens: '$FEATURES_IN'"
+              exit 1
+            fi
+            FEATURES="$FEATURES_IN"
+          else
+            FEATURES="$BUNDLE"
+          fi
+
+          # `targets` is a JSON array — expand it into a matrix.include list.
+          # The runner / build_tool / upx_kind mapping must stay 1:1 with the
+          # upstream release.yml — check there before changing this table.
+          MATRIX=$(jq -c -n --argjson t "$TARGETS_IN" '
+            $t | map({
+              "target": .,
+              "os": (
+                if test("apple-darwin") then "macos-latest"
+                elif test("windows") then "windows-latest"
+                else "ubuntu-latest" end
+              ),
+              "exe": (if test("windows") then "oxidns.exe" else "oxidns" end),
+              "archive_ext": (if test("windows") then "zip" else "tar.gz" end),
+              "build_tool": (
+                if test("apple-darwin") or test("windows") or . == "x86_64-unknown-linux-gnu"
+                then "cargo" else "cross" end
+              ),
+              "upx_kind": (
+                if test("windows") then "windows"
+                elif test("linux-(gnu|musl)") then "linux"
+                else "none" end
+              ),
+              "deb_eligible": (. == "x86_64-unknown-linux-gnu" or . == "aarch64-unknown-linux-gnu")
+            })
+          ')
+
+          {
+            echo "matrix={\"include\":$MATRIX}"
+            echo "features=$FEATURES"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved matrix:"
+          echo "$MATRIX" | jq .
+
+  # -------------------------------------------------------------------------
+  # Build the WebUI once and reuse across every target. Skipped for the
+  # minimal bundle since it ships without a WebUI.
+  # -------------------------------------------------------------------------
+  webui:
+    needs: plan
+    if: inputs.bundle != 'minimal'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout oxidns source
+        uses: actions/checkout@v6
+        with:
+          repository: svenshi/oxidns
+          ref: ${{ inputs.tag }}
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+
+      - name: Build WebUI
+        working-directory: webui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webui-dist
+          path: webui/out
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # Main build matrix. Naming and packaging must stay strictly aligned with
+  # the upstream release.yml.
+  # -------------------------------------------------------------------------
+  build:
+    needs: [plan, webui]
+    if: always() && needs.plan.result == 'success' && (needs.webui.result == 'success' || needs.webui.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout oxidns source
+        uses: actions/checkout@v6
+        with:
+          repository: svenshi/oxidns
+          ref: ${{ inputs.tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Download WebUI artifact
+        if: inputs.bundle != 'minimal'
+        uses: actions/download-artifact@v8
+        with:
+          name: webui-dist
+          path: webui/out
+
+      - name: Install cross
+        if: matrix.build_tool == 'cross'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install aarch64 GNU toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Install cargo-deb
+        if: inputs.make_deb && matrix.deb_eligible
+        run: cargo install cargo-deb --locked
+
+      - name: Build (cargo)
+        if: matrix.build_tool == 'cargo'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release \
+            --target "${{ matrix.target }}" \
+            --no-default-features \
+            --features "${{ needs.plan.outputs.features }}"
+
+      - name: Build (cross)
+        if: matrix.build_tool == 'cross'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cross build --locked --release \
+            --target "${{ matrix.target }}" \
+            --no-default-features \
+            --features "${{ needs.plan.outputs.features }}"
+
+      # .deb must run before UPX so cargo-deb sees the original symbol table.
+      - name: Generate .deb
+        if: inputs.make_deb && matrix.deb_eligible
+        run: cargo deb --no-build --target ${{ matrix.target }}
+
+      - name: Upload .deb artifact
+        if: inputs.make_deb && matrix.deb_eligible
+        uses: actions/upload-artifact@v7
+        with:
+          name: oxidns-${{ matrix.target }}.deb
+          path: target/debian/*.deb
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Run UPX (Linux)
+        if: inputs.upx && matrix.upx_kind == 'linux'
+        continue-on-error: true
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          version: v5.0.2
+          files: target/${{ matrix.target }}/release/${{ matrix.exe }}
+          args: -q --best --lzma
+
+      - name: Run UPX (Windows)
+        if: inputs.upx && matrix.upx_kind == 'windows'
+        continue-on-error: true
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          version: v5.0.2
+          files: target/${{ matrix.target }}/release/${{ matrix.exe }}
+          args: -q --best --lzma
+
+      # ---------------------------------------------------------------------
+      # The archive filename and its contents must stay 1:1 with upstream
+      # release.yml, otherwise `oxidns upgrade` cannot find the asset or
+      # cannot locate the `oxidns` binary after extracting.
+      # ---------------------------------------------------------------------
+      - name: Determine archive name
+        id: name
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          TARGET="${{ matrix.target }}"
+          EXT="${{ matrix.archive_ext }}"
+          case "$BUNDLE" in
+            full|custom)
+              echo "archive=oxidns-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
+              ;;
+            standard|minimal)
+              echo "archive=oxidns-${BUNDLE}-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Package (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ inputs.bundle }}"
+          TARGET="${{ matrix.target }}"
+          EXE="${{ matrix.exe }}"
+          DIR="target/${TARGET}/release"
+          ARCHIVE="${{ steps.name.outputs.archive }}"
+
+          ls -lah "$DIR"
+          cp LICENSE "$DIR/"
+
+          if [ "$BUNDLE" = "minimal" ]; then
+            # minimal ships its dedicated config without the api / webui section
+            cp config.minimal.yaml "$DIR/config.yaml"
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" "$EXE" config.yaml LICENSE
+          else
+            cp config.yaml "$DIR/"
+            rm -rf "$DIR/webui"
+            cp -R webui/out "$DIR/webui"
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" "$EXE" config.yaml LICENSE webui
+          fi
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $TARGET = '${{ matrix.target }}'
+          $EXE = '${{ matrix.exe }}'
+          $DIR = "target/${TARGET}/release"
+          $ARCHIVE = '${{ steps.name.outputs.archive }}'
+
+          Copy-Item -Path "config.yaml" -Destination "$DIR/"
+          Copy-Item -Path "LICENSE" -Destination "$DIR/"
+          if (Test-Path "$DIR/webui") { Remove-Item "$DIR/webui" -Recurse -Force }
+          Copy-Item -Path "webui/out" -Destination "$DIR/webui" -Recurse
+
+          Compress-Archive `
+            -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE", "$DIR/webui" `
+            -DestinationPath "$DIR/$ARCHIVE" `
+            -Force
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.name.outputs.archive }}
+          path: target/${{ matrix.target }}/release/${{ steps.name.outputs.archive }}
+          compression-level: 0
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------
+  # Publish the release into the caller's repo. github.repository and
+  # GITHUB_TOKEN both belong to the caller, so softprops/action-gh-release
+  # writes to the correct destination automatically.
+  # -------------------------------------------------------------------------
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" \) | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }} ${{ inputs.release_name_suffix }}
+          body: |
+            Custom build of svenshi/oxidns ${{ inputs.tag }}
+
+            - Bundle: `${{ inputs.bundle }}`
+            - Features: `${{ needs.plan.outputs.features }}`
+
+            Upgrade command:
+            ```bash
+            oxidns upgrade apply \
+              --repository ${{ github.repository }} \
+              --bundle ${{ inputs.bundle == 'custom' && 'full' || inputs.bundle }}
+            ```
+          files: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
+            artifacts/*.deb
+          draft: false
+          fail_on_unmatched_files: true

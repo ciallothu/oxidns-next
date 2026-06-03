@@ -99,6 +99,10 @@ export interface ConfigField {
   itemOptions?: ConfigFieldChild[];
   fields?: ConfigField[];
   summaryFields?: string[];
+  // Force the field to span both columns in the 2-col config grid. Use this
+  // for inherently long single-line values (file paths, URLs) so they do not
+  // leave an empty half-row next to them.
+  fullWidth?: boolean;
 }
 export type ConfigFieldChild =
   | ({

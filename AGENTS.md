@@ -62,37 +62,32 @@
 - Use `snake_case` for functions and fields, `CamelCase` for types, and `SCREAMING_SNAKE_CASE` for constants.
 - Keep modules cohesive and place helpers close to the feature they serve.
 - Comments should be written in English.
-- Plugin implementations should include detailed comments about purpose, config shape, dependency expectations, lifecycle, and hot-path or side-effect behavior when that is not obvious from the code.
-- Reuse the existing abstractions (`DnsContext`, `Executor`, `Matcher`, `Provider`, `RequestHandle`, upstream pools, plugin registry) before introducing parallel frameworks.
-- Register new plugin types with `#[plugin_factory("type")]` on a unit or empty braced struct. Fall back to `register_plugin_factory!("type", expr)` only when the factory requires state at construction time (e.g. `DualSelectorFactory::new(RecordType::A)`) or when a single factory struct must register under multiple type names.
-- Keep platform-specific integrations clearly guarded, especially Linux-only netlink, `ipset`, and `nftset` behavior.
+- For plugin registration patterns, implementation guidelines, and platform-specific guarding rules, see [PLUGIN_DEV.md](PLUGIN_DEV.md).
 
 ## Performance & Architecture Principles
 
 - Treat the request hot path as a first-class design constraint. Avoid unnecessary allocation, cloning, parsing, locking, or blocking I/O in per-request code.
 - Prefer work that can be done once at startup or plugin initialization over work repeated for every query.
 - Reuse connections and transport state through the existing upstream pool design instead of creating one-off connections on the fast path.
-- Keep side effects such as metrics, persistence, reverse lookup, and route synchronization away from the most latency-sensitive response path unless correctness requires otherwise.
 - Respect DNS semantics when touching cache, fallback, rewrite, or synthetic-response code, especially TTL and negative-cache behavior.
-- Preserve plugin composability. New behavior should usually be added as a plugin or trait extension, not as a server-specific special case.
-- Watch lock contention and shared-state growth; any `Arc`, `DashMap`, queue, or background task added to the core path needs a clear justification.
+- For plugin-specific hot-path rules and composability principles, see [PLUGIN_DEV.md](PLUGIN_DEV.md).
 
 ## Testing Guidelines
 
 - Use Rust's built-in test framework and keep focused unit tests close to logic-heavy modules.
-- Use `tests/plugin_integration.rs` for wiring-level behavior: config parsing, dependency resolution, sequence quick-setup, and server integration.
-- For changes in servers, upstreams, cache, or plugin orchestration, cover both success paths and failure paths.
 - Prefer ephemeral ports, bounded timeouts, and deterministic inputs for network-facing tests.
-- Run at least `cargo test` for behavior changes. Also run `cargo test --test plugin_integration` when changing plugin registration, config parsing, sequence behavior, or server startup paths.
+- Run at least `cargo test` for behavior changes.
+- For plugin-specific testing rules (integration test placement, feature gating, trigger conditions), see [PLUGIN_DEV.md](PLUGIN_DEV.md).
 
 ## Configuration & Documentation
 
-- If a change adds or renames plugin types, config fields, default behaviors, supported protocols, or user-visible capabilities, update `README.md`, and `README_EN.md` in the same change when applicable.
-- If a change adds, removes, or modifies a plugin, also sync the dedicated documentation in `docs/` for both Chinese and English. Treat plugin code changes and plugin docs updates as part of the same change whenever the behavior, config shape, dependencies, lifecycle, side effects, or examples are affected.
-- When a Rust plugin is added or its config shape changes, update the corresponding entry in `webui/lib/plugin-definitions/` (one file per category: `executor.ts`, `matcher.ts`, `provider.ts`, `server.ts`) to keep the WebUI console aligned. Adding an entry to the right category file is sufficient — the catalog, create dialog, cards, detail drawer, sequence composer, and YAML editor all auto-derive from it.
+- If a change adds or renames plugin types, config fields, default behaviors, or supported protocols, update `README.md` and `README_EN.md` in the same change when applicable.
 - When preparing a release, follow the standalone workflow in `docs/release-process.md` for tag-based changelog generation, Cargo version bumps, and release-note updates.
-- Prefer descriptive plugin tags such as `forward_main`, `cache_main`, `udp_server`, or `seq_main`.
-- Keep `sequence` examples readable; use tagged reusable plugins once logic becomes non-trivial.
+- For the full plugin documentation and WebUI sync checklist (`docs/`, `webui/lib/plugin-definitions/`, `config.yaml`), see [PLUGIN_DEV.md](PLUGIN_DEV.md).
+
+## Cargo Feature Conventions
+
+See [PLUGIN_DEV.md](PLUGIN_DEV.md) for the full feature system description, naming rules, the four-step checklist for adding a feature-gated plugin, and the required build verification commands.
 
 ## Commit & Pull Request Guidelines
 

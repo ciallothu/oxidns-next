@@ -579,8 +579,8 @@ import Admonition from "@theme/Admonition";
 - tag: env_profile_prod
   type: env
   args:
-    - "PROFILE"
-    - "prod"
+    - "PROFILE=prod"
+    - "FEATURE_X"
 ```
 
 或只校验存在：
@@ -592,26 +592,31 @@ args:
 
 ### 配置项
 
-`env` 的 `args` 为一到两个元素。
+`env` 的 `args` 为环境变量条件列表。
 
 - 类型：`array`；必填：是；默认值：无
 - 元素定义：
-  - 第一个元素：环境变量名
-  - 第二个元素：可选，期望值
+  - `KEY=VALUE`：环境变量必须存在且值完全匹配，推荐用于环境变量等值匹配。
+  - `KEY:VALUE`：与 `KEY=VALUE` 等价，作为规则表达式风格的别名保留。
+  - `KEY`：环境变量存在即命中。
+  - `KEY:` 或 `KEY=`：显式存在性检查。
+- 数组中的每个字符串都会作为一个完整表达式解析，不会再按逗号或空白拆分；因此 `NO_PROXY=localhost,127.0.0.1`、`GREETING=hello world` 这类值应写成单独的带引号数组项。
 - 运行影响：
-  - 仅配置变量名时，环境变量存在即返回 `true`。
-  - 同时配置变量名和值时，需完全匹配才返回 `true`。
+  - 所有环境变量条件都满足时才返回 `true`。
+  - 环境变量值在插件 `init` 阶段缓存，运行中不会动态重新读取。
 
 ### quick setup
 
 ```yaml
-- matches: "env PROFILE prod"
+- matches: "env PROFILE=prod FEATURE_X"
 ```
 
 ### 行为说明
 
-- 在 `init` 时缓存环境变量值。
-- 运行中不会动态重新读取环境变量。
+- `KEY=VALUE` 和 `KEY:VALUE` 要求值完全匹配。
+- `KEY`、`KEY:` 和 `KEY=` 只检查变量是否存在。
+- `["PROFILE", "prod"]` 表示同时检查 `PROFILE` 和 `prod` 两个环境变量存在，不表示 `PROFILE == prod`。
+- quick setup 使用空白分隔多个表达式；如果值本身包含空格，请使用完整 `args` 数组配置。
 
 ### 典型用途
 

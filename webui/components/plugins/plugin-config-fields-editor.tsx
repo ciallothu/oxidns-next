@@ -252,30 +252,37 @@ export function PluginConfigFieldsEditor({
   }
 
   return (
-    <FieldGroup className="grid grid-cols-1 gap-x-5 gap-y-5 @md/field-group:grid-cols-2">
-      {fields.map((field) => (
-        <Field
-          key={field.key}
-          className={cn(
-            isFullWidthConfigField(field) && "@md/field-group:col-span-2",
-          )}
-        >
-          <ConfigFieldLabel field={field} />
-          <ConfigFieldControl
-            field={field}
-            plugins={plugins}
-            value={values[field.key]}
-            onChange={(value) => updateConfig(field.key, value)}
-            defaultArrayObjectCollapsed={defaultArrayObjectCollapsed}
-            readOnly={readOnly}
-          />
-        </Field>
-      ))}
+    <FieldGroup>
+      {/* Grid layout lives on a child element rather than on FieldGroup
+          itself, because FieldGroup establishes `@container/field-group`
+          and CSS container queries cannot match the container element they
+          establish — only its descendants. */}
+      <div className="oxidns-config-fields-grid w-full">
+        {fields.map((field) => (
+          <Field
+            key={field.key}
+            className={cn(
+              isFullWidthConfigField(field) && "@md/field-group:col-span-2",
+            )}
+          >
+            <ConfigFieldLabel field={field} />
+            <ConfigFieldControl
+              field={field}
+              plugins={plugins}
+              value={values[field.key]}
+              onChange={(value) => updateConfig(field.key, value)}
+              defaultArrayObjectCollapsed={defaultArrayObjectCollapsed}
+              readOnly={readOnly}
+            />
+          </Field>
+        ))}
+      </div>
     </FieldGroup>
   );
 }
 
 function isFullWidthConfigField(field: ConfigField): boolean {
+  if (field.fullWidth) return true;
   switch (field.type) {
     case "textarea":
     case "json":

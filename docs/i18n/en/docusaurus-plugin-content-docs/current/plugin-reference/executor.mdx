@@ -1018,6 +1018,130 @@ Full object form:
 
 ---
 
+## `ip_selector`
+
+<Admonition type="warning" title="Experimental Plugin (Introduced in v1.2.0)">
+
+`ip_selector` was first introduced in `v1.2.0` and is currently in an **experimental** stage. Configuration fields, default values, probing strategies, and cache semantics may be adjusted in future releases based on real-world usage feedback. It is recommended to validate the plugin in non-critical environments first and monitor the release notes for related changes.
+
+</Admonition>
+
+### Purpose
+
+Response IP selector. It only shapes A/AAAA records already present in `response`, using cached probe scores and bounded active probing to produce a stable order or a smaller answer set.
+
+`ip_selector` does not race upstream DNS responses, suppress dual-stack families, or carry its own domain-rule system. Use `forward` / `fallback` for upstream racing, `prefer_ipv4` / `prefer_ipv6` for dual-stack policy, and `sequence` with matchers/providers for domain-specific routing.
+
+### Example Configuration
+
+```yaml
+- tag: ip_select
+  type: ip_selector
+  args:
+    selection_mode: first_success
+    probe_methods: ["tcp:443", "tcp:80"]
+    probe_stagger: 200
+    probe_timeout: 600
+    max_wait: 1000
+    top_n: 1
+    dnssec_policy: reorder_only
+    max_parallel_probes: 256
+    cache:
+      enabled: true
+      size: 4096
+      ttl: 3600
+      failure_ttl: 60
+```
+
+Recommended sequence placement:
+
+```yaml
+- exec: $ip_select
+- exec: $cache_main
+- matches: !$has_resp
+  exec: $forward_main
+- exec: accept
+```
+
+This lets `cache` store the original upstream response while `ip_selector` applies final response shaping on the return path.
+
+### Configuration Details
+
+#### `selection_mode`
+
+- Type: `string`; Required: no; Default: `first_success`
+- Values: `first_success`, `best_within_budget`, `background`
+- Purpose:
+  - `first_success`: use the first candidate IP with a successful probe.
+  - `best_within_budget`: choose the lowest-latency IP within `max_wait`.
+  - `background`: return immediately using the original or cached order while refreshing probe scores in the background.
+
+#### `probe_methods`
+
+- Type: `array<string> | string`; Required: no; Default: `["tcp:443", "tcp:80"]`
+- Values: `tcp:<port>`, `ping`, `none`
+- Purpose: Probe methods used to score answer IPs. `ping` is best-effort and fails open when unavailable.
+
+#### `probe_stagger`
+
+- Type: `integer`; Unit: milliseconds; Required: no; Default: `200`
+- Purpose: Delay between launching different probe methods.
+
+#### `probe_timeout`
+
+- Type: `integer`; Unit: milliseconds; Required: no; Default: `600`
+- Purpose: Timeout for one probe attempt.
+
+#### `max_wait`
+
+- Type: `integer`; Unit: milliseconds; Required: no; Default: `1000`
+- Purpose: Maximum per-response wait budget for selection.
+
+#### `top_n`
+
+- Type: `integer`; Required: no; Default: `1`
+- Purpose: Keep the first N selected addresses. Use `0` to reorder only without deleting records.
+
+#### `dnssec_policy`
+
+- Type: `string`; Required: no; Default: `reorder_only`
+- Values: `reorder_only`, `skip`
+- Purpose: When the request carries DO bit or the response contains RRSIGs covering A/AAAA, the default policy only reorders records. `skip` leaves the response unchanged.
+
+#### `max_parallel_probes`
+
+- Type: `integer`; Required: no; Default: `256`
+- Purpose: Plugin-wide active probe concurrency limit.
+
+#### `cache`
+
+- Type: `object`; Required: no
+- Fields:
+  - `enabled`: enable probe score cache, default `true`.
+  - `size`: target cache capacity, default `4096`.
+  - `ttl`: successful score retention in seconds, default `3600`.
+  - `failure_ttl`: failed score retention in seconds, default `60`.
+
+### quick setup
+
+```yaml
+- exec: "ip_selector"
+- exec: "ip_selector best_within_budget tcp:443,tcp:80,ping"
+```
+
+`ip_selector` accepts only the OxiDNS-native names listed above and does not provide compatibility aliases.
+
+### Metrics
+
+- `ip_selector_probe_total{method,result}`
+- `ip_selector_probe_latency_count{method}`
+- `ip_selector_probe_latency_sum_ms{method}`
+- `ip_selector_selected_total{source="probe|cache|fallback"}`
+- `ip_selector_cache_entries`
+- `ip_selector_dropped_probe_total{reason="parallel_limit|inflight"}`
+
+---
+
 <span id="prefer_ipv4-prefer_ipv6"></span>
 
 ## `prefer_ipv4` / `prefer_ipv6`
@@ -1247,6 +1371,115 @@ Maintains a reverse IP-to-name cache and optionally handles PTR requests.
 - This is an auxiliary index, not a replacement for authoritative PTR data.
 
 </Admonition>
+
+---
+
+## `learn_domain`
+
+<Admonition type="warning" title="Experimental Plugin (Introduced in v1.2.0)">
+
+`learn_domain` was first introduced in `v1.2.0` and is currently in an **experimental** stage. Filtering rules, write trigger timing, and the integration interface with `dynamic_domain_set` may change in future releases. Before deploying in production, please evaluate the impact of learning rates and disk writes on the persistence layer.
+
+</Admonition>
+
+### Purpose
+
+Observes qnames in the DNS pipeline and writes matching request names into a target `dynamic_domain_set`. It is a side-effect executor and never modifies the DNS request or response.
+
+### Example Configuration
+
+```yaml
+- tag: learned_allow
+  type: dynamic_domain_set
+  args:
+    path: "/etc/oxidns/learned-allow.txt"
+
+- tag: learn_allow
+  type: learn_domain
+  args:
+    provider: learned_allow
+    phase: after
+    questions: first
+    qtypes: ["A", "AAAA"]
+    success_only: true
+    answer_required: true
+    rule_kind: full
+    async: true
+    error_mode: continue
+    timeout: 1s
+```
+
+### Configuration Details
+
+#### `provider`
+
+- Type: `string`; Required: yes
+- Purpose: Target `dynamic_domain_set` provider tag.
+- Constraint: must reference `dynamic_domain_set`, not a regular `domain_set`.
+
+#### `phase`
+
+- Type: `string`; Required: no; Default: `after`
+- Values: `before`, `after`
+- Purpose:
+  - `before`: learn from the request questions before downstream executors run.
+  - `after`: run downstream first, then decide whether to learn based on the response.
+
+#### `questions`
+
+- Type: `string`; Required: no; Default: `first`
+- Values: `first`, `all`
+- Purpose: Learns only the first question or all questions.
+
+#### `qtypes`
+
+- Type: `array`; Required: no; Default: `["A", "AAAA"]`
+- Purpose: DNS query types eligible for learning.
+
+#### `success_only`
+
+- Type: `bool`; Required: no; Default: `true`
+- Purpose: Only applies to `phase: after`; requires `NOERROR`.
+
+#### `answer_required`
+
+- Type: `bool`; Required: no; Default: `true`
+- Purpose: Only applies to `phase: after`; requires at least one answer record.
+
+#### `rule_kind`
+
+- Type: `string`; Required: no; Default: `full`
+- Values: `full`, `domain`
+- Purpose: Rule kind written into the target `dynamic_domain_set`.
+
+#### `async`
+
+- Type: `bool`; Required: no; Default: `true`
+- Purpose: Enqueues learned rules and continues immediately. When `false`, waits for provider persistence.
+
+#### `error_mode`
+
+- Type: `string`; Required: no; Default: `continue`
+- Values: `continue`, `stop`, `fail`
+- Purpose: Controls execution behavior if learning fails.
+
+#### `timeout`
+
+- Type: `duration`; Required: no; Default: `1s`
+- Purpose: Limits provider write waiting time when `async: false`.
+
+### Behavior
+
+- Learned domains are normalized to lowercase with trailing dots removed.
+- The default output is `full:example.com` to avoid broad accidental matches.
+- With the default `phase: after`, only successful `A` / `AAAA` responses with answers are learned.
+- `phase: before` does not inspect response conditions.
+- v1 only learns the request question qname and does not learn CNAME targets.
+
+### Typical Uses
+
+- Add successfully resolved domains to a dynamic allow list.
+- Persist domains seen on a policy branch into a local file for later `qname $learned_allow` or parent `domain_set` matching.
 
 ---
 
@@ -2177,6 +2410,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
   args:
       repository: svenshi/oxidns
       asset: auto
+      bundle: auto
       github_token: ghp_xxx
       cache_dir: ./upgrade/cache
       backup_dir: ./upgrade/backups
@@ -2201,7 +2435,12 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
 - `repository`
     - GitHub repository. Default: `svenshi/oxidns`.
 - `asset`
-    - Release asset name. `auto` selects the current platform archive.
+    - Release asset name. `auto` selects the archive for the current platform and build bundle.
+    - An explicit asset has the highest priority and skips `bundle` inference.
+- `bundle`
+    - Type: `auto | full | standard | minimal`.
+    - Default: `auto`.
+    - Selects the release build bundle when `asset: auto` is used. `full` uses the legacy asset name; `standard` / `minimal` use slim asset names with a bundle prefix.
 - `github_token`
     - GitHub personal access token for API requests, used to raise the rate limit or access private repositories.
     - The value is sent as a Bearer token on GitHub API requests.
@@ -2227,6 +2466,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
 - By default it updates only when a newer version is available. `force: true` forces the update.
 - By default it cleans cache and backup files after a successful upgrade. Set `cleanup: false` to keep rollback files.
 - The upgrade downloads the archive and verifies SHA256 with the GitHub release asset `digest` field.
+- `asset: auto` selects the archive from `bundle`; `bundle: auto` follows the current binary's build bundle, and custom builds must set `bundle` or `asset` explicitly.
 - On Unix it unpacks `.tar.gz`, backs up the current binary, and replaces it. Windows currently does not support plugin upgrades.
 - By default, after replacing the binary it backs up and installs the archive's `webui/` directory into `webui_dir`; set `skip_webui: true` to skip it. If the archive has no `webui/` (older releases), the WebUI upgrade is skipped without affecting the binary upgrade result.
 
@@ -2236,6 +2476,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
 - exec: upgrade
 - exec: upgrade force
 - exec: upgrade force=false
+- exec: upgrade bundle=standard
 ```
 
 - Empty arguments run apply with the default configuration.

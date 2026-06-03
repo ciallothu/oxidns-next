@@ -1,56 +1,24 @@
 import type { PluginInstance } from "@/lib/types";
 import type { PluginComponentDefinition } from "./types";
-import { udpPlugin } from "./kinds/udp";
-import { tcpPlugin } from "./kinds/tcp";
-import { dohPlugin } from "./kinds/doh";
-import { dotPlugin } from "./kinds/dot";
-import { cachePlugin } from "./kinds/cache";
-import { forwardPlugin } from "./kinds/forward";
-import { blockPlugin } from "./kinds/block";
-import { rewritePlugin } from "./kinds/rewrite";
-import { parallelPlugin } from "./kinds/parallel";
-import { domainListPlugin } from "./kinds/domain-list";
-import { ipListPlugin } from "./kinds/ip-list";
-import { regexPlugin } from "./kinds/regex";
-import { geoipPlugin } from "./kinds/geoip";
-import { queryTypePlugin } from "./kinds/query-type";
-import { hostsPlugin } from "./kinds/hosts";
-import { redisPlugin } from "./kinds/redis";
-import { filePlugin } from "./kinds/file";
-import { prometheusPlugin } from "./kinds/prometheus";
-import { httpPlugin } from "./kinds/http";
 import { sequencePlugin } from "./kinds/sequence";
+import { cachePlugin } from "./kinds/cache";
 import { queryRecorderPlugin } from "./kinds/query-recorder";
 import { cronPlugin } from "./kinds/cron";
+import { dynamicDomainSetPlugin } from "./kinds/dynamic-domain-set";
 
-// Optional card/detail overrides live here. If a kind is omitted or exports an
-// empty definition, the plugin center falls back to the generic templates.
+// Custom card/detail overrides for plugin kinds that need bespoke UI beyond
+// the generic template. Any kind not listed here falls back to
+// `PluginCardTemplate` / `PluginDetailTemplate`. Keep entries here aligned
+// with the Rust factory names registered under `src/plugin/`.
 export const pluginComponentRegistry: Record<
   string,
   PluginComponentDefinition
 > = {
   sequence: sequencePlugin,
+  cache: cachePlugin,
   query_recorder: queryRecorderPlugin,
   cron: cronPlugin,
-  udp: udpPlugin,
-  tcp: tcpPlugin,
-  doh: dohPlugin,
-  dot: dotPlugin,
-  cache: cachePlugin,
-  forward: forwardPlugin,
-  block: blockPlugin,
-  rewrite: rewritePlugin,
-  parallel: parallelPlugin,
-  domain_list: domainListPlugin,
-  ip_list: ipListPlugin,
-  regex: regexPlugin,
-  geoip: geoipPlugin,
-  query_type: queryTypePlugin,
-  hosts: hostsPlugin,
-  redis: redisPlugin,
-  file: filePlugin,
-  prometheus: prometheusPlugin,
-  http: httpPlugin,
+  dynamic_domain_set: dynamicDomainSetPlugin,
 };
 
 export function getPluginComponentDefinition(plugin: PluginInstance) {

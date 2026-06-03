@@ -12,8 +12,8 @@ use tokio::sync::Mutex as AsyncMutex;
 use super::{
     PluginRegistry, PluginRuntime, lock_mutex, read_rwlock, try_global_catalog, write_rwlock,
 };
-use crate::api::control::{AppController, ControlRequestError};
 use crate::config::types::Config;
+use crate::core::app_controller::{AppController, ControlRequestError};
 use crate::core::error::{DnsError, Result};
 
 #[cfg(debug_assertions)]
@@ -59,13 +59,16 @@ impl PluginRuntimeManager {
     }
 
     pub async fn init_runtime(&self, config: Config) -> Result<Arc<PluginRuntime>> {
-        let _guard = self.lifecycle.lock().await;
+        // Test serialization must not wait while holding the lifecycle lock.
+        // A concurrently running test may need `destroy_runtime` to acquire
+        // that lifecycle lock before it can drop the previous test guard.
         #[cfg(debug_assertions)]
         let test_guard = if SERIALIZE_RUNTIME_FOR_TESTS.load(Ordering::Relaxed) {
             Some(test_runtime_lock().lock_owned().await)
         } else {
             None
         };
+        let _guard = self.lifecycle.lock().await;
         let mut candidate = PluginRegistry::new();
         #[cfg(debug_assertions)]
         candidate.set_test_runtime_guard(test_guard);

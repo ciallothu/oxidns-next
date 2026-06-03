@@ -7,10 +7,51 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 
 # Release Notes
 
+## 2026-06
+
+<div className="release-stack">
+   <ReleaseCard version="v1.2.0" badge="Minor Release" date="2026-06-03" defaultOpen>
+       **Release Scope**
+
+       - Minor Release. The headline change is a full compile-time feature system (`minimal` / `standard` / `full` bundles plus granular flags) that gates DoQ / DoH3, DoT / DoH, `api` / `webui` / `metrics`, optional plugins, and TLS / HTTP dependencies behind opt-in features, and exposes the compiled capability set to the CLI, the API, and the WebUI. Two new plugins land in the same cycle: `ip_selector` (response-IP selection) and `dynamic_domain_set` + `learn_domain` (writable dynamic domain sets with online learning). The `env` matcher gains multi-condition support, the WebUI gets drag-and-drop card reordering and a `dynamic_domain_set` rule manager, and several memory / lifecycle bugs in the cache, DoH listener startup, and WebUI upgrade path are fixed. Multiple Cargo dependencies are bumped.
+       - Contains one breaking change: the `env` matcher drops the legacy two-token `"KEY" "VALUE"` parsing. Configs that used the old form for equality matching must migrate to `KEY=VALUE` (see upgrade notes below).
+
+       **Changes**
+
+       - Compile-time feature system: new `minimal` / `standard` (recommended default) / `full` bundles covering `server-doq` / `server-doh3` / `server-dot` / `server-doh`, `upstream-doq` / `upstream-doh3` / `upstream-dot` / `upstream-doh`, `api` / `webui` / `metrics`, plus granular plugin flags (`plugin-mikrotik`, `query-recorder`, `ipset`, `cron`, `script`, `download`, `http-request`, `reverse-lookup`, `upgrade`, `arbitrary`, `plugin-ip-selector`, `plugin-dynamic-domain`) and provider flags (`provider-protobuf`, `adguard-rule`). Disabled protocols / plugins referenced from a config now fail with a clear "not compiled in; rebuild with `--features ...`" error. The `minimal` release binary is ~8.9 MB (vs ~21 MB for `full`, ~58% smaller).
+       - Release artifacts are bundle-aware: CI and release flows split per bundle, adding Linux musl `minimal` / `standard` archives (the `full` archive name is unchanged). `upgrade` and the installer scripts can resolve a specific bundle. `standard` now bundles `api`, `webui`, `query_recorder`, and `upgrade`.
+       - Runtime capability reflection: the CLI and `system/health` API report the active bundle and supported plugin kinds; the WebUI disables unsupported plugin kinds in create, reference picker, card, and detail views.
+       - New plugin `ip_selector` (executor): A / AAAA response-IP sorting / filtering with bounded TCP / ping probing, score caching, in-flight probe coalescing, DNSSEC-safe handling, and fail-open fallback. Rejects compatibility aliases and unknown config fields — only native OxiDNS configuration is exposed.
+       - New plugins `dynamic_domain_set` (provider) + `learn_domain` (executor): file-backed writable provider with hot snapshots, deduplication, API rule management, and explicit reload; `learn_domain` writes filtered queries / responses into a dynamic domain set without SQLite persistence or a full reload. The WebUI gains a Detail tab to list / add / remove / clear rules for `dynamic_domain_set`.
+       - `env` matcher: each argument is now parsed as an independent expression, so a single matcher can express multiple conditions. `KEY=VALUE` is the recommended exact-match syntax; `KEY:VALUE` remains a documented alias; values containing separators stay supported. **Breaking**: the legacy `["KEY", "VALUE"]` two-token form now means "both env vars `KEY` and `VALUE` exist" instead of `KEY == VALUE`.
+       - WebUI drag-and-drop card reordering on both the dashboard and the plugin center. The plugin center rewrites the config file's `plugins` order (staged then saved via the 应用更改 pill), as a subset reorder inside the active type tab that preserves other types' relative positions; disabled while a search query is active. Dashboard pinned-card order is a frontend-only preference persisted to `localStorage` and never touches the config file.
+       - `ConfigField` gains a `fullWidth` flag (applied to `dynamic_domain_set.path`); fixes uneven config form columns caused by `@container` queries being unable to style their own container.
+       - `sequence` step recording is now behind an internal `_sequence-step-recording` feature opted into by `query_recorder`, so builds without the recorder compile the step fields and capture calls out entirely.
+       - Cache fixes: treat `size` as an entry limit instead of startup map capacity (no more large up-front allocations for high cache limits); enforce the configured limit immediately after startup and after API dump loads; regression coverage for oversized large-cache dumps.
+       - Server fix: pre-flight HTTP/3 feature and TLS requirements before spawning the HTTP/2 listener and clean up partially started HTTP server tasks when startup fails, preventing leaked DoH listener handles.
+       - `upgrade` fix: infer the WebUI asset path from the runtime config so it works correctly with `--working-dir` overrides.
+       - Config fix: disambiguate runtime placeholders (`{...}`) from `env` placeholders during expansion.
+       - `dynamic_domain_set` provider hardening: serialize append staging, write each new rule on its own line, validate rules before writing to disk, keep in-memory structures consistent with file state; skip API route registration when the `api` feature is off.
+       - Documentation: new `PLUGIN_DEV.md` plugin development and registration guide, new `SECURITY.md` policy, custom-build docs (zh) and a preset capability matrix in quickstart; a roadmap timeline component; install docs no longer reference GHCR; TLS configuration doc formatting fix.
+       - Dependencies: `socket2 0.6.3 → 0.6.4`, `jiff 0.2.24 → 0.2.28`, `wincode 0.5.4 → 0.5.5`, `http 1.4.0 → 1.4.1`, `hyper 1.9.0 → 1.10.1`, `rusqlite 0.39 → 0.40`, `windows-service 0.6 → 0.8.1`.
+       - Misc: `IpSelectorCacheConfig` denies unknown fields; fix a runtime test serialization deadlock; clean up cancelled `ip_selector` probes; CI fixes covering minimal / standard / full feature combinations and Windows tests; add a reusable custom-build workflow and a minimal `build.config.yml` example.
+
+       **Compatibility and Upgrade Notes**
+
+       - Root crate version bumped to `1.2.0`; no `crates/` workspace crate changed this cycle (`crates/macros`, `crates/proto`, `crates/ripset`, `crates/zoneparser`), so none need a version bump; the release tag should use `v1.2.0`.
+       - `v1.1.4` configs upgrade directly on the default (`full`) or `standard` bundle. If you choose `minimal` or a custom feature subset, references to plugins / protocols that were not compiled in fail at startup with "not compiled in; rebuild with `--features ...`" — add the missing feature or remove the corresponding config entry.
+       - **Breaking — `env` matcher**: the legacy two-token form `env: ["KEY", "VALUE"]` (meaning `$KEY == VALUE`) must be migrated to `env: ["KEY=VALUE"]` or `env: ["KEY:VALUE"]`. If you intentionally want the new semantics, confirm that you really mean "both env vars exist". See the migration note in `docs/docs/migrate-from-mosdns.mdx`.
+       - For minimized deployments you can build with `--no-default-features --features minimal` (or `standard`); the release channel now ships `minimal` / `standard` / `full` Linux musl archives, and `upgrade` / the installer scripts support explicit bundle selection. Deployments that need WebUI, `query_recorder`, or `upgrade` should stay on `standard` or `full`.
+       - Large-cache deployments (e.g. `size > 200000`) should upgrade: previous builds pre-allocated an oversized map and did not strictly enforce the limit after API dump loads; memory now stays aligned with the configured cap.
+       - Deployments running DoH without DoH3, or DoH3 without the required TLS configuration, should upgrade: previously a failed HTTP/3 init could leave the HTTP/2 DoH listener leaked. The startup path now pre-validates and cleans up partially spawned tasks.
+       - `dynamic_domain_set` / `learn_domain` are gated behind the optional `plugin-dynamic-domain` feature and `ip_selector` behind `plugin-ip-selector`. Both are included in `standard` / `full`; for custom minimal builds enable the corresponding features explicitly.
+   </ReleaseCard>
+</div>
+
 ## 2026-05
 
 <div className="release-stack">
-   <ReleaseCard version="v1.1.4" badge="Patch Release" date="2026-05-30" defaultOpen>
+   <ReleaseCard version="v1.1.4" badge="Patch Release" date="2026-05-30">
        **Release Scope**
 
        - Patch Release reducing memory footprint and reload cost on the provider and rule-matching paths, plus WebUI fixes for mobile config-editor and plugin-filter usability, query-recorder chart labels, and self-hosting the Monaco editor. Also adds a "Migrate from mosdns" guide. This release introduces no breaking configuration changes and leaves the query hot path unchanged.
