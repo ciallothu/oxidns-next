@@ -144,6 +144,7 @@ pub trait ManagedMaintenanceTask {
 /// Ensures `using_count` is always decremented even when the query future is
 /// cancelled by an outer timeout, preventing the pool from permanently
 /// deadlocking due to a leaked counter.
+#[allow(dead_code)]
 pub(crate) struct UsingCountGuard<'a>(pub(crate) &'a AtomicU16);
 
 impl Drop for UsingCountGuard<'_> {
