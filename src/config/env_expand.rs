@@ -13,7 +13,7 @@
 //! `${VAR:-default}`, or `${env:VAR}` placeholders and replaced with the
 //! looked-up environment value. Sequence items, mapping values, and string
 //! mapping keys are all expanded; runtime-template placeholders such as
-//! `${qname}` (see [`BUILTIN_KEYS`]) are preserved verbatim for later
+//! `${qname}` (see `BUILTIN_KEYS`) are preserved verbatim for later
 //! per-request rendering.
 //!
 //! When the original scalar was *exactly* one placeholder (no surrounding
