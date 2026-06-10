@@ -44,6 +44,7 @@ export default function ConsoleLayout({
   const pathname = usePathname();
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   const upgradeAutoCheck = useUpdateStore((s) => s.upgradeConfig.autoCheck);
+  const buildInfo = useAppStore((s) => s.buildInfo);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const sidebarStateBeforeEditor = useRef(sidebarOpen);
   const previousEditorMode = useRef(editorMode);
@@ -74,11 +75,12 @@ export default function ConsoleLayout({
 
   useEffect(() => {
     if (!isConnected || hasCheckedUpdates.current || !upgradeAutoCheck) return;
+    if (!buildInfo?.enabled_features.includes("plugin-upgrade")) return;
     const version = system?.version ?? health?.version;
     if (!version) return;
     hasCheckedUpdates.current = true;
     void checkForUpdates(version);
-  }, [isConnected, upgradeAutoCheck, health, system, checkForUpdates]);
+  }, [isConnected, upgradeAutoCheck, health, system, buildInfo, checkForUpdates]);
 
   // On reconnect, drop offline mode so loadConfig's authoritative state wins.
   useEffect(() => {

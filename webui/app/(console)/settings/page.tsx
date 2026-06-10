@@ -70,6 +70,7 @@ export default function SettingsPage() {
   const dependencyGraph = useAppStore((s) => s.dependencyGraph);
   const health = useAppStore((s) => s.health);
   const system = useAppStore((s) => s.system);
+  const buildInfo = useAppStore((s) => s.buildInfo);
   const reloadStatus = useAppStore((s) => s.reloadStatus);
   const setYamlConfig = useAppStore((s) => s.setYamlConfig);
   const saveConfig = useAppStore((s) => s.saveConfig);
@@ -157,6 +158,12 @@ export default function SettingsPage() {
     system?.build
       ? `${system.build.version}`
       : (system?.version ?? health?.version ?? "");
+
+  // null = build info not yet loaded; true/false = feature presence known
+  const backendSupportsUpgrade =
+    buildInfo != null
+      ? buildInfo.enabled_features.includes("plugin-upgrade")
+      : null;
 
   const handleCheckUpdates = () => {
     if (runtimeVersionForCheck) {
@@ -961,27 +968,39 @@ export default function SettingsPage() {
                 软件升级
               </CardTitle>
               <CardDescription>
-                检查版本更新并触发后端自升级，升级完成后服务将自动重启
+                {backendSupportsUpgrade === false
+                  ? "当前后端编译时未启用升级插件，在线检查和自动升级不可用；可使用下方 CLI 命令手动升级"
+                  : "检查版本更新并触发后端自升级，升级完成后服务将自动重启"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
 
-              {/* 版本信息 */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <InfoTile label="当前版本" value={runtimeVersionForCheck || "-"} />
-                <InfoTile
-                  label="最新版本"
-                  value={updateInfo ? updateInfo.latestVersion : (lastCheckedAt ? "-" : "尚未检查")}
-                />
-                <InfoTile
-                  label="上次检查"
-                  value={
-                    lastCheckedAt
-                      ? new Date(lastCheckedAt).toLocaleTimeString()
-                      : "-"
-                  }
-                />
-              </div>
+              {/* 后端不支持升级时的提示 */}
+              {backendSupportsUpgrade === false && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                  <CircleAlert className="h-4 w-4 shrink-0" />
+                  后端未编译 <span className="mx-1 font-mono font-semibold">plugin-upgrade</span> 特性，在线升级功能不可用
+                </div>
+              )}
+
+              {/* 版本信息（仅在后端支持时展示检查结果） */}
+              {backendSupportsUpgrade !== false && (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <InfoTile label="当前版本" value={runtimeVersionForCheck || "-"} />
+                  <InfoTile
+                    label="最新版本"
+                    value={updateInfo ? updateInfo.latestVersion : (lastCheckedAt ? "-" : "尚未检查")}
+                  />
+                  <InfoTile
+                    label="上次检查"
+                    value={
+                      lastCheckedAt
+                        ? new Date(lastCheckedAt).toLocaleTimeString()
+                        : "-"
+                    }
+                  />
+                </div>
+              )}
 
               {updateInfo?.updateAvailable && (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
@@ -1024,25 +1043,27 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={handleCheckUpdates}
-                  disabled={isChecking || !runtimeVersionForCheck}
-                >
-                  <RefreshCw className={`h-4 w-4 mr-1.5 ${isChecking ? "animate-spin" : ""}`} />
-                  {isChecking ? "检查中…" : "检查更新"}
-                </Button>
-                {updateInfo?.updateAvailable && (
+              {backendSupportsUpgrade !== false && (
+                <div className="flex flex-wrap gap-2">
                   <Button
-                    onClick={() => void triggerUpgrade()}
-                    disabled={isApplying || isRestarting}
+                    variant="outline"
+                    onClick={handleCheckUpdates}
+                    disabled={isChecking || !runtimeVersionForCheck || backendSupportsUpgrade === null}
                   >
-                    <ArrowUpCircle className="h-4 w-4 mr-1.5" />
-                    {isApplying ? "升级中…" : "立即升级"}
+                    <RefreshCw className={`h-4 w-4 mr-1.5 ${isChecking ? "animate-spin" : ""}`} />
+                    {isChecking ? "检查中…" : "检查更新"}
                   </Button>
-                )}
-              </div>
+                  {updateInfo?.updateAvailable && (
+                    <Button
+                      onClick={() => void triggerUpgrade()}
+                      disabled={isApplying || isRestarting}
+                    >
+                      <ArrowUpCircle className="h-4 w-4 mr-1.5" />
+                      {isApplying ? "升级中…" : "立即升级"}
+                    </Button>
+                  )}
+                </div>
+              )}
 
               {/* 升级配置 */}
               <div className="space-y-4">
