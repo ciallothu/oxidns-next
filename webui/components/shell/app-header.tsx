@@ -39,6 +39,8 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
   const buildInfo = useAppStore((s) => s.buildInfo);
   const backendSupportsUpgrade =
     buildInfo != null ? buildInfo.enabled_features.includes("plugin-upgrade") : null;
+  const showUpgradeNotice =
+    isConnected && backendSupportsUpgrade === true && updateInfo?.updateAvailable === true;
   const showNavigation = !editorMode;
 
   return (
@@ -84,7 +86,7 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
 
       <div className="ml-auto flex items-center gap-2">
         <ConfigSyncControl />
-        {isConnected && (
+        {showUpgradeNotice && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -94,16 +96,12 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
                 onClick={() => router.push("/settings#upgrade")}
               >
                 <ArrowUpCircle className="h-4 w-4" />
-                {backendSupportsUpgrade && updateInfo?.updateAvailable && (
-                  <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-destructive" />
-                )}
+                <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-destructive" />
                 <span className="sr-only">软件升级</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {backendSupportsUpgrade && updateInfo?.updateAvailable
-                ? `有新版本 ${updateInfo.latestVersion} 可用`
-                : "软件升级设置"}
+              有新版本 {updateInfo.latestVersion} 可用
             </TooltipContent>
           </Tooltip>
         )}
