@@ -5,18 +5,11 @@
 
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Background,
   Controls,
   Handle,
-  Panel,
   Position,
   ReactFlow,
   useNodesState,
@@ -67,6 +60,8 @@ import {
   stringifyArgsLevelPluginConfigYaml,
 } from "@/lib/plugin-config-yaml";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 type ConditionMode = "reference" | "quick_setup" | "text";
 type ActionMode = "reference" | "quick_setup" | "control" | "text";
@@ -155,19 +150,6 @@ interface SequenceCanvasProps {
   onDeleteRule: (ruleId: string) => void;
 }
 
-const conditionModeLabels: Record<ConditionMode, string> = {
-  reference: "引用",
-  quick_setup: "快捷",
-  text: "文本",
-};
-
-const actionModeLabels: Record<ActionMode, string> = {
-  reference: "引用",
-  quick_setup: "快捷",
-  control: "控制流",
-  text: "文本",
-};
-
 const controlLabels: Record<ControlKind, string> = {
   accept: "accept",
   return: "return",
@@ -206,6 +188,7 @@ export function SequenceComposer({
   onCancelEdit,
   onSaveEdit,
 }: SequenceComposerProps) {
+  const { t } = useI18n();
   const [view, setView] = useState<"visual" | "yaml">("visual");
   const [expanded, setExpanded] = useState(false);
   const [yamlText, setYamlText] = useState(() =>
@@ -320,7 +303,7 @@ export function SequenceComposer({
       return;
     }
 
-    setYamlError("sequence 配置必须是 YAML 对象");
+    setYamlError(t(WEBUI.sequence.yamlMustBeObject));
   };
 
   return (
@@ -331,7 +314,9 @@ export function SequenceComposer({
           onValueChange={(next) => handleViewChange(next as typeof view)}
         >
           <TabsList className="grid w-44 max-w-full grid-cols-2">
-            <TabsTrigger value="visual">画布</TabsTrigger>
+            <TabsTrigger value="visual">
+              {t(WEBUI.sequence.canvasTab)}
+            </TabsTrigger>
             <TabsTrigger value="yaml">YAML</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -354,7 +339,7 @@ export function SequenceComposer({
                 onClick={resetPositions}
               >
                 <RotateCcw className="h-4 w-4" />
-                重置布局
+                {t(WEBUI.sequence.resetLayout)}
               </Button>
             )}
             <Button
@@ -364,11 +349,11 @@ export function SequenceComposer({
               onClick={() => setExpanded(true)}
             >
               <Maximize2 className="h-4 w-4" />
-              全屏
+              {t(WEBUI.sequence.fullscreen)}
             </Button>
             <Button type="button" size="sm" onClick={addRule}>
               <Plus className="h-4 w-4" />
-              新增规则
+              {t(WEBUI.sequence.addRule)}
             </Button>
           </div>
         )}
@@ -382,7 +367,7 @@ export function SequenceComposer({
                 onClick={resetPositions}
               >
                 <RotateCcw className="h-4 w-4" />
-                重置布局
+                {t(WEBUI.sequence.resetLayout)}
               </Button>
             )}
             <Button
@@ -392,7 +377,7 @@ export function SequenceComposer({
               onClick={() => setExpanded(true)}
             >
               <Maximize2 className="h-4 w-4" />
-              全屏
+              {t(WEBUI.sequence.fullscreen)}
             </Button>
           </div>
         )}
@@ -492,6 +477,7 @@ function SequenceExpandedCanvas({
   onMoveRule: (index: number, offset: number) => void;
   onDeleteRule: (ruleId: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       data-sequence-fullscreen="true"
@@ -508,15 +494,15 @@ function SequenceExpandedCanvas({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium">
             <GitBranch className="h-4 w-4 text-primary" />
-            <span>Sequence 编排画布</span>
+            <span>{t(WEBUI.sequence.canvasTitle)}</span>
             <Badge variant="secondary" className="font-mono">
               {rules.length} rules
             </Badge>
           </div>
           <div className="mt-0.5 text-xs text-muted-foreground">
             {readOnly
-              ? "查看模式，进入编辑后可直接保存当前 sequence 配置。"
-              : "编辑模式，保存后写入当前插件配置。"}
+              ? t(WEBUI.sequence.viewModeDesc)
+              : t(WEBUI.sequence.editModeDesc)}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -524,7 +510,7 @@ function SequenceExpandedCanvas({
             onRequestEdit && (
               <Button type="button" size="sm" onClick={onRequestEdit}>
                 <Pencil className="h-4 w-4" />
-                编辑模式
+                {t(WEBUI.sequence.editMode)}
               </Button>
             )
           ) : (
@@ -536,7 +522,7 @@ function SequenceExpandedCanvas({
                 onClick={onAddRule}
               >
                 <Plus className="h-4 w-4" />
-                新增规则
+                {t(WEBUI.sequence.addRule)}
               </Button>
               {onCancelEdit && (
                 <Button
@@ -545,7 +531,7 @@ function SequenceExpandedCanvas({
                   size="sm"
                   onClick={onCancelEdit}
                 >
-                  取消
+                  {t(WEBUI.common.cancel)}
                 </Button>
               )}
               {onSaveEdit && (
@@ -556,7 +542,9 @@ function SequenceExpandedCanvas({
                   disabled={isSaving}
                 >
                   <Save className="h-4 w-4" />
-                  {isSaving ? "保存中" : "保存配置"}
+                  {isSaving
+                    ? t(WEBUI.sequence.saving)
+                    : t(WEBUI.common.saveConfig)}
                 </Button>
               )}
             </>
@@ -569,12 +557,12 @@ function SequenceExpandedCanvas({
               onClick={onResetPositions}
             >
               <RotateCcw className="h-4 w-4" />
-              重置布局
+              {t(WEBUI.sequence.resetLayout)}
             </Button>
           )}
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             <Minimize2 className="h-4 w-4" />
-            退出全屏
+            {t(WEBUI.sequence.exitFullscreen)}
           </Button>
         </div>
       </div>
@@ -599,6 +587,42 @@ function SequenceExpandedCanvas({
   );
 }
 
+function SequenceEmptyState({
+  readOnly,
+  heightMode = "inline",
+  fullHeight = false,
+  onAddRule,
+}: {
+  readOnly: boolean;
+  heightMode?: SequenceCanvasHeightMode;
+  fullHeight?: boolean;
+  onAddRule: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center",
+        getSequenceCanvasHeightClass(heightMode, fullHeight),
+      )}
+    >
+      <GitBranch className="mx-auto h-8 w-8 text-muted-foreground" />
+      <div className="mt-3 text-sm font-medium">
+        {t(WEBUI.sequence.noRules)}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t(WEBUI.sequence.noRulesDesc)}
+      </p>
+      {!readOnly && (
+        <Button type="button" className="mt-4" onClick={onAddRule}>
+          <Plus className="h-4 w-4" />
+          {t(WEBUI.sequence.addFirstRule)}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function SequenceCanvas({
   rules,
   plugins,
@@ -614,15 +638,6 @@ function SequenceCanvas({
   onDeleteRule,
   onAddRule,
 }: SequenceCanvasProps) {
-  // Route callbacks through a ref so the memo below can use data-only deps;
-  // the inline closures from `SequenceComposer` change identity each render
-  // but their behaviour only depends on the props above. Without this the
-  // memo would invalidate every render → setNodes would loop infinitely.
-  const callbacksRef = useRef({ onUpdateRule, onMoveRule, onDeleteRule });
-  useEffect(() => {
-    callbacksRef.current = { onUpdateRule, onMoveRule, onDeleteRule };
-  });
-
   // Derive flow nodes/edges from props. Memoised on the actual data inputs so
   // the reference is stable across renders that don't affect graph contents.
   const built = useMemo(
@@ -634,13 +649,21 @@ function SequenceCanvas({
         readOnly,
         currentSequenceName,
         savedPositions,
-        onUpdateRule: (id, patch) =>
-          callbacksRef.current.onUpdateRule(id, patch),
-        onMoveRule: (index, offset) =>
-          callbacksRef.current.onMoveRule(index, offset),
-        onDeleteRule: (id) => callbacksRef.current.onDeleteRule(id),
+        onUpdateRule,
+        onMoveRule,
+        onDeleteRule,
       }),
-    [rules, plugins, sequenceTags, readOnly, currentSequenceName, savedPositions],
+    [
+      rules,
+      plugins,
+      sequenceTags,
+      readOnly,
+      currentSequenceName,
+      savedPositions,
+      onUpdateRule,
+      onMoveRule,
+      onDeleteRule,
+    ],
   );
 
   // Hold nodes as local state so React Flow's d3-drag updates land via
@@ -660,24 +683,12 @@ function SequenceCanvas({
 
   if (rules.length === 0) {
     return (
-      <div
-        className={cn(
-          "flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center",
-          getSequenceCanvasHeightClass(heightMode, fullHeight),
-        )}
-      >
-        <GitBranch className="mx-auto h-8 w-8 text-muted-foreground" />
-        <div className="mt-3 text-sm font-medium">暂无规则</div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          sequence 至少需要一条规则，通常从 cache、matcher 或 forward 开始。
-        </p>
-        {!readOnly && (
-          <Button type="button" className="mt-4" onClick={onAddRule}>
-            <Plus className="h-4 w-4" />
-            新增第一条规则
-          </Button>
-        )}
-      </div>
+      <SequenceEmptyState
+        readOnly={readOnly}
+        heightMode={heightMode}
+        fullHeight={fullHeight}
+        onAddRule={onAddRule}
+      />
     );
   }
 
@@ -794,7 +805,8 @@ function buildSequenceFlow({
     const baseKey = rulePositionKey(rule);
     const occ = keyOccurrences.get(baseKey) ?? 0;
     keyOccurrences.set(baseKey, occ + 1);
-    const positionKey = occ === 0 ? `rule:${baseKey}` : `rule:${baseKey}#${occ}`;
+    const positionKey =
+      occ === 0 ? `rule:${baseKey}` : `rule:${baseKey}#${occ}`;
     const ruleY = currentY;
     nodes.push({
       id: ruleId,
@@ -1010,6 +1022,7 @@ function SequenceRuleNode({
     });
   };
 
+  const { t } = useI18n();
   const branchTarget = getSequenceControlTarget(rule.action);
   const hasBranch = Boolean(branchTarget);
 
@@ -1029,7 +1042,7 @@ function SequenceRuleNode({
               #{index + 1}
             </Badge>
             <CardTitle className="truncate text-sm">
-              {summarizeRule(rule)}
+              {summarizeRule(rule, t)}
             </CardTitle>
           </div>
           {!readOnly && (
@@ -1040,7 +1053,7 @@ function SequenceRuleNode({
                 size="icon-sm"
                 disabled={index === 0}
                 onClick={() => onMove(-1)}
-                aria-label="上移规则"
+                aria-label={t(WEBUI.sequence.moveUp)}
               >
                 <ArrowDown className="h-4 w-4 rotate-180" />
               </Button>
@@ -1050,7 +1063,7 @@ function SequenceRuleNode({
                 size="icon-sm"
                 disabled={index === total - 1}
                 onClick={() => onMove(1)}
-                aria-label="下移规则"
+                aria-label={t(WEBUI.sequence.moveDown)}
               >
                 <ArrowDown className="h-4 w-4" />
               </Button>
@@ -1059,7 +1072,7 @@ function SequenceRuleNode({
                 variant="outline"
                 size="icon-sm"
                 onClick={onDelete}
-                aria-label="删除规则"
+                aria-label={t(WEBUI.sequence.deleteRule)}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -1070,7 +1083,7 @@ function SequenceRuleNode({
           <div className="space-y-2">
             <div className="flex h-6 items-center justify-between gap-2">
               <div className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                IF · 匹配条件
+                {t(WEBUI.sequence.ifCondition)}
               </div>
               {!readOnly && (
                 <Button
@@ -1080,7 +1093,7 @@ function SequenceRuleNode({
                   onClick={addCondition}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  条件
+                  {t(WEBUI.sequence.condition)}
                 </Button>
               )}
             </div>
@@ -1099,7 +1112,7 @@ function SequenceRuleNode({
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-amber-300/60 bg-amber-50/30 px-3 py-4 text-center text-xs italic text-muted-foreground dark:border-amber-800/40 dark:bg-amber-950/15">
-                无条件，始终命中
+                {t(WEBUI.sequence.unconditional)}
               </div>
             )}
           </div>
@@ -1117,7 +1130,7 @@ function SequenceRuleNode({
           <div className="flex h-full flex-col justify-center space-y-2">
             <div className="flex h-6 items-center">
               <div className="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-                THEN · 执行动作
+                {t(WEBUI.sequence.thenAction)}
               </div>
             </div>
             <ActionEditor
@@ -1151,6 +1164,7 @@ function ConditionEditor({
   // round-trips that re-classify condition.mode. The component is keyed by
   // condition.id so useState initialises fresh whenever a different condition
   // is displayed.
+  const { t } = useI18n();
   const [localMode, setLocalMode] = useState<ConditionMode>(condition.mode);
 
   const handleModeChange = (mode: ConditionMode) => {
@@ -1177,12 +1191,11 @@ function ConditionEditor({
           onChange={(mode) => handleModeChange(mode as ConditionMode)}
           disabled={readOnly}
           className="w-[4.5rem] shrink-0"
-          options={Object.entries(conditionModeLabels).map(
-            ([value, label]) => ({
-              value,
-              label,
-            }),
-          )}
+          options={[
+            { value: "reference", label: t(WEBUI.sequence.modeReference) },
+            { value: "quick_setup", label: t(WEBUI.sequence.modeQuickSetup) },
+            { value: "text", label: t(WEBUI.sequence.modeText) },
+          ]}
         />
         {(localMode === "reference" || localMode === "quick_setup") && (
           <InvertCheckbox
@@ -1198,7 +1211,7 @@ function ConditionEditor({
               value={stripReferencePrefix(condition.value)}
               referenceTypes={["matcher"]}
               disabled={readOnly}
-              placeholder="选择 matcher"
+              placeholder={t(WEBUI.sequence.selectMatcher)}
               className="h-8 min-h-8 py-0"
               allowCreate
               onChange={(tag) => onChange({ value: `$${tag}` })}
@@ -1228,7 +1241,7 @@ function ConditionEditor({
             size="icon"
             className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
             onClick={onDelete}
-            aria-label="删除条件"
+            aria-label={t(WEBUI.sequence.deleteCondition)}
           >
             <Minus className="h-3.5 w-3.5" />
           </Button>
@@ -1247,6 +1260,7 @@ function InvertCheckbox({
   disabled: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -1258,14 +1272,16 @@ function InvertCheckbox({
               ? "border-rose-400 bg-rose-500 text-white dark:border-rose-500 dark:bg-rose-600"
               : "border-input bg-background text-muted-foreground/25 hover:text-muted-foreground/60",
           )}
-          aria-label="取反匹配"
+          aria-label={t(WEBUI.sequence.invertMatch)}
           disabled={disabled}
           onClick={() => onCheckedChange(!checked)}
         >
           !
         </button>
       </TooltipTrigger>
-      <TooltipContent sideOffset={6}>取反匹配</TooltipContent>
+      <TooltipContent sideOffset={6}>
+        {t(WEBUI.sequence.invertMatch)}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -1281,6 +1297,7 @@ function SequenceReferencePreview({
   currentSequenceName?: string;
   visitedSequences: Set<string>;
 }) {
+  const { t } = useI18n();
   const target = getSequenceControlTarget(action);
   if (!target) return null;
 
@@ -1300,8 +1317,7 @@ function SequenceReferencePreview({
   if (isSelfReference || isVisited) {
     return (
       <div className="w-[360px] rounded-lg border border-dashed border-sky-300/70 bg-sky-50/50 px-3 py-2 text-xs text-sky-900 shadow-sm dark:border-sky-800/50 dark:bg-sky-950/30 dark:text-sky-200">
-        {action.control} 指向 <span className="font-mono">{target}</span>
-        ，已用指向标记表示，避免循环展开。
+        {t(WEBUI.sequence.cycleRef, { control: action.control, target })}
       </div>
     );
   }
@@ -1309,8 +1325,7 @@ function SequenceReferencePreview({
   if (!targetPlugin) {
     return (
       <div className="w-[360px] rounded-lg border border-dashed border-sky-300/70 bg-sky-50/50 px-3 py-2 text-xs text-sky-900 shadow-sm dark:border-sky-800/50 dark:bg-sky-950/30 dark:text-sky-200">
-        {action.control} 目标 <span className="font-mono">{target}</span>{" "}
-        尚未创建。
+        {t(WEBUI.sequence.missingTarget, { control: action.control, target })}
       </div>
     );
   }
@@ -1322,8 +1337,7 @@ function SequenceReferencePreview({
       <div className="mb-3 flex items-center gap-2 text-xs text-sky-700 dark:text-sky-300">
         <GitBranch className="h-3.5 w-3.5" />
         <span>
-          {action.control} 到{" "}
-          <span className="font-mono text-foreground">{target}</span> 执行链
+          {t(WEBUI.sequence.jumpTo, { control: action.control, target })}
         </span>
       </div>
       <div className="space-y-3">
@@ -1344,7 +1358,7 @@ function SequenceReferencePreview({
           ))
         ) : (
           <div className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
-            目标 sequence 暂无规则
+            {t(WEBUI.sequence.emptyTarget)}
           </div>
         )}
       </div>
@@ -1365,6 +1379,7 @@ function ActionEditor({
   readOnly: boolean;
   onChange: (action: SequenceAction) => void;
 }) {
+  const { t } = useI18n();
   const controlArg = getControlArg(action);
 
   const updateMode = (mode: ActionMode) => {
@@ -1415,10 +1430,12 @@ function ActionEditor({
           onChange={(mode) => updateMode(mode as ActionMode)}
           disabled={readOnly}
           className="w-full"
-          options={Object.entries(actionModeLabels).map(([value, label]) => ({
-            value,
-            label,
-          }))}
+          options={[
+            { value: "reference", label: t(WEBUI.sequence.modeReference) },
+            { value: "quick_setup", label: t(WEBUI.sequence.modeQuickSetup) },
+            { value: "control", label: t(WEBUI.sequence.modeControl) },
+            { value: "text", label: t(WEBUI.sequence.modeText) },
+          ]}
         />
 
         {action.mode === "reference" && (
@@ -1428,7 +1445,7 @@ function ActionEditor({
               value={stripReferencePrefix(action.value)}
               referenceTypes={["executor"]}
               disabled={readOnly}
-              placeholder="选择 executor"
+              placeholder={t(WEBUI.sequence.selectExecutor)}
               className="h-8 min-h-8 py-0"
               allowCreate
               onChange={(tag) =>
@@ -1536,12 +1553,13 @@ function SequenceTargetInput({
   className?: string;
   onChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
   if (sequenceTags.length === 0) {
     return (
       <div className="min-w-0 max-w-[16rem]">
         <Input
           value=""
-          placeholder="暂无 sequence"
+          placeholder={t(WEBUI.sequence.noSequence)}
           className={`h-8 w-full min-w-0 max-w-full font-mono text-xs ${className ?? ""}`}
           disabled
         />
@@ -1554,7 +1572,7 @@ function SequenceTargetInput({
       <InlineSelect
         value={value}
         onChange={onChange}
-        placeholder="选择 sequence"
+        placeholder={t(WEBUI.sequence.selectSequence)}
         className={`w-full min-w-0 font-mono text-xs ${className ?? ""}`}
         disabled={disabled}
         options={sequenceTags.map((tag) => ({
@@ -1569,16 +1587,17 @@ function SequenceTargetInput({
 // ─── Standalone "create dependency plugin" entry ─────────────────────────────
 
 function CreateDependencyPluginButton() {
+  const { t } = useI18n();
   return (
     <CreatePluginDialog
       defaultType="matcher"
       supportedTypes={["executor", "matcher", "provider"]}
-      title="新建依赖插件"
-      description="创建后会出现在当前 sequence 画布的引用选择器中。"
+      title={t(WEBUI.sequence.createDepsTitle)}
+      description={t(WEBUI.sequence.createDepsDesc)}
       trigger={
         <Button type="button" variant="outline" size="sm">
           <Plus className="h-4 w-4" />
-          新建依赖插件
+          {t(WEBUI.sequence.createDepsBtn)}
         </Button>
       }
     />
@@ -1815,13 +1834,14 @@ function getSequenceControlTarget(action: SequenceAction) {
   return getControlArg(action).trim();
 }
 
-function summarizeRule(rule: SequenceRule) {
+function summarizeRule(rule: SequenceRule, t: (key: string) => string) {
   const matches =
     rule.matches.length === 0
       ? "always"
       : rule.matches
           .map((condition) => serializeMatches([condition]))
           .join(" && ");
-  const action = serializeAction(rule.action) || "未配置动作";
+  const action =
+    serializeAction(rule.action) || t(WEBUI.sequence.unconfiguredAction);
   return `${matches} -> ${action}`;
 }

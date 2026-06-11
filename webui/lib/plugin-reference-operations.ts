@@ -3,6 +3,7 @@
 import type { DependencyGraphEdge } from "@/lib/oxidns-api";
 import type { OxiDnsConfig, OxiDnsPluginConfig } from "@/lib/oxidns-config";
 import type { PluginInstance } from "@/lib/types";
+import { WEBUI, tClient } from "@/lib/i18n";
 
 export interface PluginReferenceImpact extends DependencyGraphEdge {
   sourcePlugin?: PluginInstance;
@@ -267,12 +268,12 @@ function isSafelyRemovableReference(edge: DependencyGraphEdge) {
 
 function describeRemoveBlockReason(edge: DependencyGraphEdge) {
   if (edge.field.includes(" -> ")) {
-    return "快捷配置中的嵌套引用需要手动调整或替换";
+    return tClient(WEBUI.storeErrors.shortcutNestedReferenceManual);
   }
   if (edge.field.endsWith(".exec") || edge.field.includes(".entry")) {
-    return "入口执行器和执行动作不能安全移除";
+    return tClient(WEBUI.storeErrors.entryActionCannotRemove);
   }
-  return "该字段不是可安全移除的引用数组项";
+  return tClient(WEBUI.storeErrors.referenceNotSafelyRemovable);
 }
 
 function compareReferenceImpact(

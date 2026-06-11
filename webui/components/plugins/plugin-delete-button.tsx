@@ -28,6 +28,8 @@ import {
 import { useAppStore, type PluginDeletePreview } from "@/lib/store";
 import type { PluginInstance } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface PluginDeleteButtonProps {
   plugin: PluginInstance;
@@ -64,6 +66,8 @@ export function PluginDeleteButton({
   const isRestarting = useAppStore((s) => s.isRestarting);
   const configError = useAppStore((s) => s.configError);
 
+  const { t } = useI18n();
+
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<PluginDeletePreview | null>(null);
   const [replacementTag, setReplacementTag] = useState("");
@@ -89,7 +93,10 @@ export function PluginDeleteButton({
     } catch (error) {
       setPreview({
         status: "blocked",
-        message: error instanceof Error ? error.message : "无法检查插件依赖",
+        message:
+          error instanceof Error
+            ? error.message
+            : t(WEBUI.pluginDelete.cannotCheckDeps),
       });
     } finally {
       setLoading(false);
@@ -104,7 +111,11 @@ export function PluginDeleteButton({
       setOpen(false);
       onDeleted?.();
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "删除失败");
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : t(WEBUI.pluginDelete.deleteFailed),
+      );
     } finally {
       setLoading(false);
     }
@@ -117,10 +128,10 @@ export function PluginDeleteButton({
   };
 
   const tooltip = configError
-    ? "配置有错误，点击查看原因"
+    ? t(WEBUI.pluginDelete.configErrorTooltip)
     : busy
-      ? "配置操作进行中"
-      : "删除";
+      ? t(WEBUI.pluginDelete.busyTooltip)
+      : t(WEBUI.pluginDelete.deleteTooltip);
 
   const readyPreview = preview?.status === "ready" ? preview : null;
 
@@ -158,19 +169,23 @@ export function PluginDeleteButton({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {readyPreview && readyPreview.references.length > 0
-                ? `插件 “${plugin.name}” 仍被引用`
-                : "确认删除插件？"}
+                ? t(WEBUI.pluginDelete.titleStillReferenced, {
+                    name: plugin.name,
+                  })
+                : t(WEBUI.pluginDelete.titleConfirmDelete)}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {readyPreview && readyPreview.references.length > 0
-                ? "删除前请先替换或修复下列引用，否则配置会产生悬空依赖。"
-                : `确定要删除插件 “${plugin.name}” 吗？此操作会先保存到磁盘，但不会自动应用。`}
+                ? t(WEBUI.pluginDelete.descStillReferenced)
+                : t(WEBUI.pluginDelete.descConfirmDelete, {
+                    name: plugin.name,
+                  })}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           {loading && !preview ? (
             <p className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-              正在检查依赖关系…
+              {t(WEBUI.pluginDelete.checkingDeps)}
             </p>
           ) : preview?.status === "blocked" ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -192,22 +207,26 @@ export function PluginDeleteButton({
                         variant="outline"
                         className="font-mono text-[10px]"
                       >
-                        来源{" "}
-                        {reference.sourcePlugin?.pluginKind ??
-                          reference.sourcePlugin?.type ??
-                          "未知"}
+                        {t(WEBUI.pluginDelete.sourceKind, {
+                          kind:
+                            reference.sourcePlugin?.pluginKind ??
+                            reference.sourcePlugin?.type ??
+                            t(WEBUI.pluginDelete.unknownKind),
+                        })}
                       </Badge>
                       <Badge
                         variant="outline"
                         className="font-mono text-[10px]"
                       >
-                        需要{" "}
-                        {reference.expected_plugin_type ??
-                          reference.expected_kind}
+                        {t(WEBUI.pluginDelete.requiresKind, {
+                          kind:
+                            reference.expected_plugin_type ??
+                            reference.expected_kind,
+                        })}
                       </Badge>
                       {!reference.removable && (
                         <Badge variant="outline" className="text-[10px]">
-                          需替换
+                          {t(WEBUI.pluginDelete.mustReplace)}
                         </Badge>
                       )}
                     </div>
@@ -226,7 +245,7 @@ export function PluginDeleteButton({
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
-                  替换引用并删除
+                  {t(WEBUI.pluginDelete.replaceRefAndDelete)}
                 </div>
                 <Select
                   value={replacementTag}
@@ -236,7 +255,9 @@ export function PluginDeleteButton({
                   }
                 >
                   <SelectTrigger className="w-full min-w-0">
-                    <SelectValue placeholder="选择兼容的替换插件" />
+                    <SelectValue
+                      placeholder={t(WEBUI.pluginDelete.selectReplacement)}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {readyPreview.replacementCandidates.map((candidate) => (
@@ -248,7 +269,7 @@ export function PluginDeleteButton({
                 </Select>
                 {readyPreview.replacementCandidates.length === 0 && (
                   <p className="text-xs text-muted-foreground">
-                    当前没有类型兼容的替换插件。
+                    {t(WEBUI.pluginDelete.noCompatibleReplacement)}
                   </p>
                 )}
               </div>
@@ -264,7 +285,7 @@ export function PluginDeleteButton({
 
           <AlertDialogFooter className="gap-2 sm:flex-wrap sm:gap-2">
             <AlertDialogCancel size="sm" disabled={loading}>
-              取消
+              {t(WEBUI.common.cancel)}
             </AlertDialogCancel>
             {readyPreview && readyPreview.references.length === 0 && (
               <Button
@@ -273,7 +294,7 @@ export function PluginDeleteButton({
                 disabled={loading}
                 onClick={() => runAction(() => confirmDeletePlugin(plugin.id))}
               >
-                删除并保存
+                {t(WEBUI.pluginDelete.deleteAndSave)}
               </Button>
             )}
             {readyPreview && readyPreview.references.length > 0 && (
@@ -285,7 +306,7 @@ export function PluginDeleteButton({
                   onClick={handleManualFix}
                 >
                   <Pencil className="mr-1.5 h-4 w-4" />
-                  进入编辑器修复
+                  {t(WEBUI.pluginDelete.fixInEditor)}
                 </Button>
                 <Button
                   variant="outline"
@@ -295,7 +316,7 @@ export function PluginDeleteButton({
                     runAction(() => removeReferencesAndDeletePlugin(plugin.id))
                   }
                 >
-                  移除引用并删除
+                  {t(WEBUI.pluginDelete.removeRefsAndDelete)}
                 </Button>
                 <Button
                   variant="destructive"
@@ -307,7 +328,7 @@ export function PluginDeleteButton({
                     )
                   }
                 >
-                  替换并删除
+                  {t(WEBUI.pluginDelete.replaceAndDelete)}
                 </Button>
               </>
             )}

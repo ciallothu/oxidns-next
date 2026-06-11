@@ -60,11 +60,14 @@ import {
   PluginNotAppliedPlaceholder,
 } from "../plugin-detail-template";
 import { usePluginAppliedStatus } from "@/hooks/use-plugin-applied";
+import { useI18n } from "@/lib/i18n/provider";
+import { WEBUI } from "@/lib/i18n/keys";
 
 function CachePluginCard({
   plugin,
   compact = false,
 }: PluginCardComponentProps) {
+  const { t } = useI18n();
   return (
     <PluginCardTemplate
       plugin={plugin}
@@ -72,7 +75,7 @@ function CachePluginCard({
       icon={<DatabaseZap className="h-4 w-4 text-primary" />}
     >
       <div className="space-y-2 text-xs text-muted-foreground">
-        <div>查看缓存项，按需清空、导出或导入缓存数据。</div>
+        <div>{t(WEBUI.cache.cardDescription)}</div>
         {!compact && (
           <div className="font-mono text-foreground">
             size={String(plugin.config.size ?? "default")}
@@ -84,19 +87,30 @@ function CachePluginCard({
 }
 
 function CachePluginDetail(props: PluginDetailComponentProps) {
+  const { t } = useI18n();
   return (
     <PluginDetailTemplate
       {...props}
       icon={<DatabaseZap className="h-5 w-5" />}
       summaryItems={[
-        { label: "容量", value: String(props.plugin.config.size ?? "默认") },
         {
-          label: "负缓存",
-          value: props.plugin.config.cache_negative === false ? "关闭" : "开启",
+          label: t(WEBUI.cache.capacityLabel),
+          value: String(
+            props.plugin.config.size ?? t(WEBUI.common.defaultValue),
+          ),
         },
         {
-          label: "ECS 键",
-          value: props.plugin.config.ecs_in_key ? "开启" : "关闭",
+          label: t(WEBUI.cache.negCacheLabel),
+          value:
+            props.plugin.config.cache_negative === false
+              ? t(WEBUI.common.disabled)
+              : t(WEBUI.common.enabled),
+        },
+        {
+          label: t(WEBUI.cache.ecsKeyLabel),
+          value: props.plugin.config.ecs_in_key
+            ? t(WEBUI.common.enabled)
+            : t(WEBUI.common.disabled),
         },
       ]}
       metricsContent={<CacheEntriesPanel tag={props.plugin.name} />}
@@ -113,6 +127,7 @@ function CacheEntriesPanel({ tag }: { tag: string }) {
 }
 
 function CacheEntriesPanelInner({ tag }: { tag: string }) {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<CacheEntryRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [total, setTotal] = useState(0);
@@ -138,12 +153,14 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
         setNextCursor(response.next_cursor);
         setTotal(response.total_entries);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "读取缓存项失败");
+        setError(
+          err instanceof Error ? err.message : t(WEBUI.cache.readEntriesFailed),
+        );
       } finally {
         setLoading(false);
       }
     },
-    [tag],
+    [tag, t],
   );
 
   useEffect(() => {
@@ -161,7 +178,9 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
         setSelected(null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除缓存项失败");
+      setError(
+        err instanceof Error ? err.message : t(WEBUI.cache.deleteEntryFailed),
+      );
     }
   };
 
@@ -174,7 +193,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
       setNextCursor(undefined);
       setSelected(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "清空缓存失败");
+      setError(err instanceof Error ? err.message : t(WEBUI.cache.flushFailed));
     }
   };
 
@@ -195,19 +214,25 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
       <Card>
         <CardHeader className="grid gap-3 p-4 pb-2 sm:grid-cols-[1fr_auto] sm:items-center">
           <div className="min-w-0">
-            <CardTitle className="text-sm">缓存项</CardTitle>
+            <CardTitle className="text-sm">
+              {t(WEBUI.cache.entriesTitle)}
+            </CardTitle>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                {appliedQname ? "匹配" : "共"} {total} 项
+                {appliedQname
+                  ? t(WEBUI.cache.matchCount, { total })
+                  : t(WEBUI.cache.totalCount, { total })}
               </span>
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                已载入 {entries.length} 项
+                {t(WEBUI.cache.loadedCount, { count: entries.length })}
               </span>
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                fresh {entries.filter((entry) => entry.fresh).length}
+                {t(WEBUI.metrics.fresh)}{" "}
+                {entries.filter((entry) => entry.fresh).length}
               </span>
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                stale {entries.filter((entry) => entry.stale).length}
+                {t(WEBUI.metrics.stale)}{" "}
+                {entries.filter((entry) => entry.stale).length}
               </span>
             </div>
           </div>
@@ -219,13 +244,13 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
               onClick={() => load(undefined, appliedQname)}
             >
               <RefreshCw className="h-4 w-4" />
-              刷新
+              {t(WEBUI.common.refresh)}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" disabled={loading}>
                   <Trash2 className="h-4 w-4" />
-                  清空
+                  {t(WEBUI.common.clear)}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -233,19 +258,22 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                   <AlertDialogMedia className="bg-destructive/10 text-destructive">
                     <Trash2 className="h-5 w-5" />
                   </AlertDialogMedia>
-                  <AlertDialogTitle>清空缓存项？</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t(WEBUI.cache.flushTitle)}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    将清空插件 &ldquo;{tag}&rdquo;
-                    当前保存的所有缓存项。此操作无法撤销。
+                    {t(WEBUI.cache.flushDesc, { tag })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogCancel>
+                    {t(WEBUI.common.cancel)}
+                  </AlertDialogCancel>
                   <AlertDialogAction
                     variant="destructive"
                     onClick={() => void handleFlush()}
                   >
-                    清空
+                    {t(WEBUI.common.clear)}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -266,7 +294,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
             }}
           >
             <label className="grid min-w-0 flex-1 gap-1 text-xs text-muted-foreground">
-              QNAME 包含
+              {t(WEBUI.cache.qnameFilterLabel)}
               <Input
                 value={qnameInput}
                 onChange={(event) => setQnameInput(event.target.value)}
@@ -282,7 +310,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                 disabled={loading}
               >
                 <Search className="h-4 w-4" />
-                筛选
+                {t(WEBUI.cache.filterButton)}
               </Button>
               {appliedQname && (
                 <Button
@@ -293,7 +321,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                   onClick={clearQnameFilter}
                 >
                   <X className="h-4 w-4" />
-                  清除
+                  {t(WEBUI.cache.clearFilter)}
                 </Button>
               )}
             </div>
@@ -302,8 +330,8 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
             <Table className="min-w-[820px]">
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead>缓存键</TableHead>
-                  <TableHead>状态</TableHead>
+                  <TableHead>{t(WEBUI.cache.cacheKey)}</TableHead>
+                  <TableHead>{t(WEBUI.cache.statusHeader)}</TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
                       TTL
@@ -312,7 +340,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                           <button
                             type="button"
                             className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
-                            aria-label="TTL 说明"
+                            aria-label={t(WEBUI.cache.ttlInfoAria)}
                           >
                             <Info className="h-3.5 w-3.5" />
                           </button>
@@ -321,7 +349,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                           side="top"
                           className="w-auto max-w-[16rem] p-2 text-xs"
                         >
-                          剩余 TTL / 原始 TTL
+                          {t(WEBUI.cache.ttlInfoTooltip)}
                         </PopoverContent>
                       </Popover>
                     </span>
@@ -329,13 +357,13 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                   <TableHead>RCODE</TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
-                      答案
+                      {t(WEBUI.cache.answerHeader)}
                       <Popover>
                         <PopoverTrigger asChild>
                           <button
                             type="button"
                             className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
-                            aria-label="答案说明"
+                            aria-label={t(WEBUI.cache.answerInfoAria)}
                           >
                             <Info className="h-3.5 w-3.5" />
                           </button>
@@ -344,12 +372,12 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                           side="top"
                           className="w-auto max-w-[16rem] p-2 text-xs"
                         >
-                          Answer / Authority / Additional
+                          {t(WEBUI.dnsRecord.responseRecordsTooltip)}
                         </PopoverContent>
                       </Popover>
                     </span>
                   </TableHead>
-                  <TableHead>最近访问</TableHead>
+                  <TableHead>{t(WEBUI.cache.lastAccess)}</TableHead>
                   <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
@@ -373,7 +401,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                         </Badge>
                       </div>
                     </TableCell>
-                    <TableCell>{cacheStatusBadge(entry)}</TableCell>
+                    <TableCell>{cacheStatusBadge(entry, t)}</TableCell>
                     <TableCell className="font-mono">
                       <div className="flex items-baseline gap-1">
                         <span>{entry.remaining_ttl}s</span>
@@ -429,7 +457,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                             variant="ghost"
                             size="icon-sm"
                             onClick={(event) => event.stopPropagation()}
-                            aria-label="删除缓存项"
+                            aria-label={t(WEBUI.cache.deleteEntryAria)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -439,14 +467,20 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                             <AlertDialogMedia className="bg-destructive/10 text-destructive">
                               <Trash2 className="h-5 w-5" />
                             </AlertDialogMedia>
-                            <AlertDialogTitle>删除缓存项？</AlertDialogTitle>
+                            <AlertDialogTitle>
+                              {t(WEBUI.cache.deleteEntryTitle)}
+                            </AlertDialogTitle>
                             <AlertDialogDescription>
-                              将删除 &ldquo;{entry.domain}&rdquo; 的{" "}
-                              {entry.record_type} 缓存记录。此操作无法撤销。
+                              {t(WEBUI.cache.deleteEntryDesc, {
+                                domain: entry.domain,
+                                recordType: entry.record_type,
+                              })}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>取消</AlertDialogCancel>
+                            <AlertDialogCancel>
+                              {t(WEBUI.common.cancel)}
+                            </AlertDialogCancel>
                             <AlertDialogAction
                               variant="destructive"
                               onClick={(event) => {
@@ -454,7 +488,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                                 void handleDelete(entry);
                               }}
                             >
-                              删除
+                              {t(WEBUI.common.delete)}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
@@ -468,7 +502,9 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                       colSpan={7}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      {loading ? "正在读取缓存项..." : "暂无缓存项"}
+                      {loading
+                        ? t(WEBUI.cache.loadingEntries)
+                        : t(WEBUI.cache.noEntries)}
                     </TableCell>
                   </TableRow>
                 )}
@@ -483,7 +519,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
               disabled={loading}
               onClick={() => load(nextCursor, appliedQname)}
             >
-              加载更多
+              {t(WEBUI.common.loadMore)}
             </Button>
           )}
         </CardContent>
@@ -499,6 +535,7 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
 }
 
 function CacheMaintenancePanel({ tag }: { tag: string }) {
+  const { t } = useI18n();
   const [dumpLoading, setDumpLoading] = useState(false);
   const [loadLoading, setLoadLoading] = useState(false);
   const [loadResult, setLoadResult] = useState<number | null>(null);
@@ -519,7 +556,9 @@ function CacheMaintenancePanel({ tag }: { tag: string }) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导出失败");
+      setError(
+        err instanceof Error ? err.message : t(WEBUI.cache.exportFailed),
+      );
     } finally {
       setDumpLoading(false);
     }
@@ -534,7 +573,9 @@ function CacheMaintenancePanel({ tag }: { tag: string }) {
       const result = await loadCacheDump(tag, buffer);
       setLoadResult(result.loaded_entries);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导入失败");
+      setError(
+        err instanceof Error ? err.message : t(WEBUI.cache.importFailed),
+      );
     } finally {
       setLoadLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -544,7 +585,9 @@ function CacheMaintenancePanel({ tag }: { tag: string }) {
   return (
     <Card>
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">维护</CardTitle>
+        <CardTitle className="text-sm">
+          {t(WEBUI.cache.maintenanceTitle)}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 p-4 pt-0">
         {error && (
@@ -554,7 +597,7 @@ function CacheMaintenancePanel({ tag }: { tag: string }) {
         )}
         {loadResult !== null && (
           <div className="rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-600 dark:text-green-400">
-            已载入 {loadResult} 项缓存
+            {t(WEBUI.cache.loadedResult, { count: loadResult })}
           </div>
         )}
         <div className="flex items-center gap-3">
@@ -565,10 +608,12 @@ function CacheMaintenancePanel({ tag }: { tag: string }) {
             onClick={() => void handleDump()}
           >
             <Download className="h-4 w-4" />
-            导出 dump
+            {t(WEBUI.cache.exportButton)}
           </Button>
           <span className="text-xs text-muted-foreground">
-            {dumpLoading ? "正在导出..." : "下载当前缓存快照"}
+            {dumpLoading
+              ? t(WEBUI.cache.exportingStatus)
+              : t(WEBUI.cache.exportDesc)}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -579,10 +624,12 @@ function CacheMaintenancePanel({ tag }: { tag: string }) {
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="h-4 w-4" />
-            导入 dump
+            {t(WEBUI.cache.importButton)}
           </Button>
           <span className="text-xs text-muted-foreground">
-            {loadLoading ? "正在导入..." : "选择 .dump 文件载入缓存"}
+            {loadLoading
+              ? t(WEBUI.cache.importingStatus)
+              : t(WEBUI.cache.importDesc)}
           </span>
           <input
             ref={fileInputRef}
@@ -607,46 +654,64 @@ function CacheEntryDetailDialog({
   entry: CacheEntryRow | null;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <DnsRecordDetailDialog
       open={Boolean(entry)}
       onOpenChange={(open) => !open && onClose()}
-      title={entry ? `${entry.domain} ${entry.record_type}` : "缓存详情"}
+      title={
+        entry
+          ? `${entry.domain} ${entry.record_type}`
+          : t(WEBUI.cache.detailTitle)
+      }
       subtitle={
         entry
-          ? `缓存项 · 写入 ${formatCacheFullTime(entry.cache_time_unix_ms, entry.cache_time_ms)}`
+          ? t(WEBUI.cache.detailSubtitle, {
+              time: formatCacheFullTime(
+                entry.cache_time_unix_ms,
+                entry.cache_time_ms,
+              ),
+            })
           : undefined
       }
-      status={entry ? cacheStatusBadge(entry) : undefined}
+      status={entry ? cacheStatusBadge(entry, t) : undefined}
       summaryItems={
         entry
           ? [
               {
-                label: "域名",
+                label: t(WEBUI.cache.domainLabel),
                 value: entry.domain,
                 title: entry.domain,
                 mono: true,
                 wide: true,
               },
-              { label: "记录类型", value: entry.record_type, mono: true },
-              { label: "记录类", value: entry.dns_class, mono: true },
+              {
+                label: t(WEBUI.cache.recordTypeLabel),
+                value: entry.record_type,
+                mono: true,
+              },
+              {
+                label: t(WEBUI.cache.recordClassLabel),
+                value: entry.dns_class,
+                mono: true,
+              },
               { label: "RCODE", value: entry.rcode, mono: true },
               { label: "TTL", value: `${entry.ttl}s`, mono: true },
               {
-                label: "剩余 TTL",
+                label: t(WEBUI.cache.remainingTtlLabel),
                 value: `${entry.remaining_ttl}s`,
                 mono: true,
               },
               {
                 label: (
                   <span className="inline-flex items-center gap-1">
-                    响应记录
+                    {t(WEBUI.dnsRecord.responseRecordsLabel)}
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
                           className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
-                          aria-label="响应记录说明"
+                          aria-label={t(WEBUI.dnsRecord.responseRecordsAria)}
                         >
                           <Info className="h-3.5 w-3.5" />
                         </button>
@@ -655,7 +720,7 @@ function CacheEntryDetailDialog({
                         side="top"
                         className="w-auto max-w-[16rem] p-2 text-xs"
                       >
-                        Answer / Authority / Additional
+                        {t(WEBUI.dnsRecord.responseRecordsTooltip)}
                       </PopoverContent>
                     </Popover>
                   </span>
@@ -664,12 +729,12 @@ function CacheEntryDetailDialog({
                 mono: true,
               },
               {
-                label: "缓存标志",
+                label: t(WEBUI.cache.cacheFlagsLabel),
                 value: `DO=${entry.do_bit ? "1" : "0"} CD=${entry.cd_bit ? "1" : "0"}`,
                 mono: true,
               },
               {
-                label: "写入时间",
+                label: t(WEBUI.cache.cacheTimeLabel),
                 value: formatCacheFullTime(
                   entry.cache_time_unix_ms,
                   entry.cache_time_ms,
@@ -679,7 +744,7 @@ function CacheEntryDetailDialog({
                 wide: true,
               },
               {
-                label: "过期时间",
+                label: t(WEBUI.cache.expireAtLabel),
                 value: formatCacheFullTime(
                   entry.expire_at_unix_ms,
                   entry.expire_at_ms,
@@ -689,7 +754,7 @@ function CacheEntryDetailDialog({
                 wide: true,
               },
               {
-                label: "最近访问",
+                label: t(WEBUI.cache.lastAccess),
                 value: formatCacheFullTime(
                   entry.last_access_unix_ms,
                   entry.last_access_ms,
@@ -716,24 +781,24 @@ function CacheEntryDetailDialog({
         entry
           ? [
               {
-                title: "应答记录",
+                title: t(WEBUI.dnsRecord.answerSection),
                 records: entry.answers_json ?? [],
-                emptyLabel: "无 answer",
+                emptyLabel: t(WEBUI.dnsRecord.emptyAnswer),
               },
               {
-                title: "权威记录",
+                title: t(WEBUI.dnsRecord.authoritySection),
                 records: entry.authorities_json ?? [],
-                emptyLabel: "无 authority",
+                emptyLabel: t(WEBUI.dnsRecord.emptyAuthority),
               },
               {
-                title: "附加记录",
+                title: t(WEBUI.dnsRecord.additionalSection),
                 records: entry.additionals_json ?? [],
-                emptyLabel: "无 additional",
+                emptyLabel: t(WEBUI.dnsRecord.emptyAdditional),
               },
               {
-                title: "签名记录",
+                title: t(WEBUI.dnsRecord.signatureSection),
                 records: entry.signature_json ?? [],
-                emptyLabel: "无 signature",
+                emptyLabel: t(WEBUI.dnsRecord.emptySignature),
               },
             ]
           : []
@@ -742,7 +807,7 @@ function CacheEntryDetailDialog({
         entry
           ? [
               {
-                title: "缓存键",
+                title: t(WEBUI.cache.cacheKey),
                 children: (
                   <div className="break-all font-mono text-xs text-muted-foreground">
                     {entry.id}
@@ -752,7 +817,7 @@ function CacheEntryDetailDialog({
               ...(entry.ecs_scope
                 ? [
                     {
-                      title: "ECS 范围",
+                      title: t(WEBUI.cache.ecsScopeBlock),
                       children: (
                         <div className="grid gap-2 font-mono text-xs text-muted-foreground sm:grid-cols-2">
                           <span>family={entry.ecs_scope.family}</span>
@@ -773,10 +838,19 @@ function CacheEntryDetailDialog({
   );
 }
 
-function cacheStatusBadge(entry: CacheEntryRow) {
-  if (entry.fresh) return <Badge variant="secondary">fresh</Badge>;
-  if (entry.stale) return <Badge variant="outline">stale</Badge>;
-  return <Badge variant="destructive">已过期</Badge>;
+type TFn = (
+  key: string,
+  params?: Record<string, string | number | boolean | null | undefined>,
+) => string;
+
+function cacheStatusBadge(entry: CacheEntryRow, t: TFn) {
+  if (entry.fresh) {
+    return <Badge variant="secondary">{t(WEBUI.metrics.fresh)}</Badge>;
+  }
+  if (entry.stale) {
+    return <Badge variant="outline">{t(WEBUI.metrics.stale)}</Badge>;
+  }
+  return <Badge variant="destructive">{t(WEBUI.cache.expiredBadge)}</Badge>;
 }
 
 function rcodeBadge(rcode: string) {

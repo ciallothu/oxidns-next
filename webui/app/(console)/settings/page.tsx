@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/shell/app-header";
 import { useAppStore } from "@/lib/store";
 import { useAuthStore } from "@/lib/auth-store";
-import { useUpdateStore, DEFAULT_UPGRADE_CONFIG, type UpgradeBundle } from "@/lib/update-store";
+import {
+  useUpdateStore,
+  DEFAULT_UPGRADE_CONFIG,
+  type UpgradeBundle,
+} from "@/lib/update-store";
 import { stringifyOxiDnsConfig, type OxiDnsConfig } from "@/lib/oxidns-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,19 +38,20 @@ import {
   Cpu,
   FileCode2,
   Globe,
-  LogOut,
   PlugZap,
   RefreshCw,
   ScrollText,
   Server,
   ShieldCheck,
 } from "lucide-react";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export default function SettingsPage() {
+  const { t } = useI18n();
   const serverConfig = useAuthStore((s) => s.serverConfig);
   const setServerConfig = useAuthStore((s) => s.setServerConfig);
   const connect = useAuthStore((s) => s.connect);
-  const logout = useAuthStore((s) => s.logout);
   const isConnected = useAuthStore((s) => s.isConnected);
   const isConnecting = useAuthStore((s) => s.isConnecting);
   const connectionError = useAuthStore((s) => s.connectionError);
@@ -62,6 +67,8 @@ export default function SettingsPage() {
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   const triggerUpgrade = useUpdateStore((s) => s.triggerUpgrade);
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [tokenPersistenceHelpOpen, setTokenPersistenceHelpOpen] =
+    useState(false);
 
   const configModel = useAppStore((s) => s.configModel);
   const configPath = useAppStore((s) => s.configPath);
@@ -90,8 +97,10 @@ export default function SettingsPage() {
   const [apiAuthEnabled, setApiAuthEnabled] = useState(false);
   const [apiAuthUsername, setApiAuthUsername] = useState("");
   const [apiAuthPassword, setApiAuthPassword] = useState("");
-  // "账号与安全" card local form state
-  const [authEditMode, setAuthEditMode] = useState<null | "enable" | "change" | "disable">(null);
+  // Account & Security card local form state
+  const [authEditMode, setAuthEditMode] = useState<
+    null | "enable" | "change" | "disable"
+  >(null);
   const [newAuthUsername, setNewAuthUsername] = useState("");
   const [newAuthPassword, setNewAuthPassword] = useState("");
   const [confirmAuthPassword, setConfirmAuthPassword] = useState("");
@@ -154,10 +163,9 @@ export default function SettingsPage() {
     setServerConfig({ ...serverConfig, url: backendUrl.trim() });
   };
 
-  const runtimeVersionForCheck =
-    system?.build
-      ? `${system.build.version}`
-      : (system?.version ?? health?.version ?? "");
+  const runtimeVersionForCheck = system?.build
+    ? `${system.build.version}`
+    : (system?.version ?? health?.version ?? "");
 
   // null = build info not yet loaded; true/false = feature presence known
   const backendSupportsUpgrade =
@@ -181,6 +189,9 @@ export default function SettingsPage() {
     }
     if (upgradeConfig.socks5.trim()) {
       parts.push("--socks5", upgradeConfig.socks5.trim());
+    }
+    if (upgradeConfig.githubToken.trim()) {
+      parts.push("--github-token", "<GITHUB_TOKEN>");
     }
     if (upgradeConfig.allowPrerelease) {
       parts.push("--allow-prerelease");
@@ -208,9 +219,12 @@ export default function SettingsPage() {
   type AuthOverride = { enabled: boolean; username: string; password: string };
 
   const buildApiHttpConfig = (authOverride?: AuthOverride): unknown => {
-    const authEnabled = authOverride !== undefined ? authOverride.enabled : apiAuthEnabled;
-    const authUsername = authOverride !== undefined ? authOverride.username : apiAuthUsername;
-    const authPassword = authOverride !== undefined ? authOverride.password : apiAuthPassword;
+    const authEnabled =
+      authOverride !== undefined ? authOverride.enabled : apiAuthEnabled;
+    const authUsername =
+      authOverride !== undefined ? authOverride.username : apiAuthUsername;
+    const authPassword =
+      authOverride !== undefined ? authOverride.password : apiAuthPassword;
 
     const sslConfig =
       apiSslEnabled && apiSslCert.trim() && apiSslKey.trim()
@@ -225,7 +239,11 @@ export default function SettingsPage() {
         : undefined;
     const authConfig =
       authEnabled && authUsername.trim()
-        ? { type: "basic", username: authUsername.trim(), password: authPassword }
+        ? {
+            type: "basic",
+            username: authUsername.trim(),
+            password: authPassword,
+          }
         : undefined;
     const corsOriginsList = apiCorsOrigins
       .split("\n")
@@ -302,14 +320,28 @@ export default function SettingsPage() {
   };
 
   // Dedicated auth save: updates config.yaml + syncs WebUI connection credentials atomically.
-  const handleAuthSave = async (enabled: boolean, uname: string, pwd: string) => {
+  const handleAuthSave = async (
+    enabled: boolean,
+    uname: string,
+    pwd: string,
+  ) => {
     const override: AuthOverride = { enabled, username: uname, password: pwd };
     setYamlConfig(stringifyOxiDnsConfig(buildTopLevelConfig(override)));
 
     if (enabled && uname.trim()) {
-      setServerConfig({ ...serverConfig, requiresAuth: true, username: uname.trim(), password: pwd });
+      setServerConfig({
+        ...serverConfig,
+        requiresAuth: true,
+        username: uname.trim(),
+        password: pwd,
+      });
     } else {
-      setServerConfig({ ...serverConfig, requiresAuth: false, username: "", password: "" });
+      setServerConfig({
+        ...serverConfig,
+        requiresAuth: false,
+        username: "",
+        password: "",
+      });
     }
 
     setApiAuthEnabled(enabled);
@@ -323,7 +355,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <AppHeader title="系统配置" />
+      <AppHeader title={t(WEBUI.shell.settings)} />
       <main className="oxidns-dialog-scrollbar min-h-0 flex-1 overflow-auto p-6">
         <div className="max-w-4xl space-y-6">
           <Card>
@@ -332,10 +364,10 @@ export default function SettingsPage() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <PlugZap className="h-5 w-5" />
-                    后台服务
+                    {t(WEBUI.settings.backendCard)}
                   </CardTitle>
                   <CardDescription className="mt-1.5">
-                    配置 WebUI 连接的后端地址，认证凭据通过登录流程自动管理
+                    {t(WEBUI.settings.backendCardDesc)}
                   </CardDescription>
                 </div>
                 <Badge
@@ -346,17 +378,19 @@ export default function SettingsPage() {
                       : "bg-muted text-muted-foreground"
                   }
                 >
-                  {isConnected ? "已连接" : "未连接"}
+                  {isConnected
+                    ? t(WEBUI.settings.connected)
+                    : t(WEBUI.settings.disconnected)}
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <Field>
-                <FieldLabel>服务地址</FieldLabel>
+                <FieldLabel>{t(WEBUI.settings.serviceUrl)}</FieldLabel>
                 <Input
                   value={backendUrl}
                   onChange={(event) => setBackendUrl(event.target.value)}
-                  placeholder="/api 或 http://localhost:8080"
+                  placeholder={t(WEBUI.settings.serviceUrlPlaceholder)}
                   className="font-mono"
                 />
               </Field>
@@ -367,811 +401,987 @@ export default function SettingsPage() {
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={handleSaveConnection}>保存地址</Button>
+                <Button onClick={handleSaveConnection}>
+                  {t(WEBUI.settings.saveAddress)}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={handleConnect}
                   disabled={!canConnect || isConnecting}
                 >
                   <PlugZap className="h-4 w-4 mr-1.5" />
-                  {isConnecting ? "连接中" : "重新连接"}
+                  {isConnecting
+                    ? t(WEBUI.settings.connecting)
+                    : t(WEBUI.settings.reconnect)}
                 </Button>
               </div>
             </CardContent>
           </Card>
 
-          {isConnected && (<>
+          {isConnected && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldCheck className="h-5 w-5" />
+                    {t(WEBUI.settings.accountCard)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(WEBUI.settings.accountCardDesc)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {authEditMode === null && (
+                    <>
+                      {apiAuthEnabled ? (
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className="bg-primary/10 text-primary border-primary/30"
+                            >
+                              {t(WEBUI.settings.authBadgeEnabled)}
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">
+                              {t(WEBUI.settings.accountPrefix)}
+                              <span className="font-mono font-medium text-foreground">
+                                {apiAuthUsername}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setNewAuthUsername(apiAuthUsername);
+                                setNewAuthPassword("");
+                                setConfirmAuthPassword("");
+                                setAuthEditMode("change");
+                              }}
+                              disabled={isRestarting}
+                            >
+                              {t(WEBUI.settings.changePassword)}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setAuthEditMode("disable")}
+                              disabled={isRestarting}
+                            >
+                              {t(WEBUI.settings.disableAuth)}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
+                            <CircleAlert className="h-4 w-4 shrink-0" />
+                            {t(WEBUI.settings.noAuthWarning)}
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setNewAuthUsername("");
+                              setNewAuthPassword("");
+                              setConfirmAuthPassword("");
+                              setAuthEditMode("enable");
+                            }}
+                            disabled={isRestarting}
+                          >
+                            {t(WEBUI.settings.setAccountPassword)}
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
 
-          {/* ── 账号与安全 ─────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5" />
-                账号与安全
-              </CardTitle>
-              <CardDescription>
-                管理 API 的身份验证，修改账号密码后需重启生效
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {authEditMode === null && (
-                <>
-                  {apiAuthEnabled ? (
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant="outline"
-                          className="bg-primary/10 text-primary border-primary/30"
+                  {(authEditMode === "enable" || authEditMode === "change") && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void handleAuthSave(
+                          true,
+                          newAuthUsername,
+                          newAuthPassword,
+                        );
+                      }}
+                      className="space-y-4"
+                    >
+                      <Field>
+                        <FieldLabel>
+                          {t(WEBUI.settings.usernameLabel)}
+                        </FieldLabel>
+                        <Input
+                          value={newAuthUsername}
+                          onChange={(e) => setNewAuthUsername(e.target.value)}
+                          autoComplete="username"
+                          autoFocus
+                          className="max-w-xs"
+                        />
+                      </Field>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>
+                            {authEditMode === "change"
+                              ? t(WEBUI.settings.newPasswordLabel)
+                              : t(WEBUI.settings.passwordLabel)}
+                          </FieldLabel>
+                          <Input
+                            type="password"
+                            value={newAuthPassword}
+                            onChange={(e) => setNewAuthPassword(e.target.value)}
+                            autoComplete="new-password"
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>
+                            {t(WEBUI.settings.confirmPasswordLabel)}
+                          </FieldLabel>
+                          <Input
+                            type="password"
+                            value={confirmAuthPassword}
+                            onChange={(e) =>
+                              setConfirmAuthPassword(e.target.value)
+                            }
+                            autoComplete="new-password"
+                          />
+                        </Field>
+                      </div>
+                      {confirmAuthPassword.length > 0 &&
+                        newAuthPassword !== confirmAuthPassword && (
+                          <p className="text-sm text-destructive">
+                            {t(WEBUI.settings.passwordMismatch)}
+                          </p>
+                        )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="submit"
+                          disabled={
+                            isRestarting ||
+                            !newAuthUsername.trim() ||
+                            !newAuthPassword ||
+                            newAuthPassword !== confirmAuthPassword
+                          }
                         >
-                          已启用
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          账号：
-                          <span className="font-mono font-medium text-foreground">
-                            {apiAuthUsername}
-                          </span>
-                        </span>
+                          <RefreshCw className="h-4 w-4 mr-1.5" />
+                          {isRestarting
+                            ? t(WEBUI.settings.restarting)
+                            : t(WEBUI.settings.saveAndRestart)}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setAuthEditMode(null)}
+                          disabled={isRestarting}
+                        >
+                          {t(WEBUI.common.cancel)}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+
+                  {authEditMode === "disable" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <CircleAlert className="h-4 w-4 shrink-0" />
+                        {t(WEBUI.settings.disableAuthWarning)}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setNewAuthUsername(apiAuthUsername);
-                            setNewAuthPassword("");
-                            setConfirmAuthPassword("");
-                            setAuthEditMode("change");
-                          }}
+                          variant="destructive"
+                          onClick={() => void handleAuthSave(false, "", "")}
                           disabled={isRestarting}
                         >
-                          修改密码
+                          <RefreshCw className="h-4 w-4 mr-1.5" />
+                          {isRestarting
+                            ? t(WEBUI.settings.restarting)
+                            : t(WEBUI.settings.confirmDisableRestart)}
                         </Button>
                         <Button
                           variant="outline"
-                          size="sm"
-                          onClick={() => setAuthEditMode("disable")}
+                          onClick={() => setAuthEditMode(null)}
                           disabled={isRestarting}
                         >
-                          关闭认证
+                          {t(WEBUI.common.cancel)}
                         </Button>
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
-                        <CircleAlert className="h-4 w-4 shrink-0" />
-                        未开启身份验证，任何可访问后台地址的用户均可操作
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setNewAuthUsername("");
-                          setNewAuthPassword("");
-                          setConfirmAuthPassword("");
-                          setAuthEditMode("enable");
-                        }}
-                        disabled={isRestarting}
-                      >
-                        设置账号密码
-                      </Button>
-                    </div>
                   )}
-                </>
-              )}
+                </CardContent>
+              </Card>
 
-              {(authEditMode === "enable" || authEditMode === "change") && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void handleAuthSave(true, newAuthUsername, newAuthPassword);
-                  }}
-                  className="space-y-4"
-                >
-                  <Field>
-                    <FieldLabel>用户名</FieldLabel>
-                    <Input
-                      value={newAuthUsername}
-                      onChange={(e) => setNewAuthUsername(e.target.value)}
-                      autoComplete="username"
-                      autoFocus
-                      className="max-w-xs"
-                    />
-                  </Field>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field>
-                      <FieldLabel>
-                        {authEditMode === "change" ? "新密码" : "密码"}
-                      </FieldLabel>
-                      <Input
-                        type="password"
-                        value={newAuthPassword}
-                        onChange={(e) => setNewAuthPassword(e.target.value)}
-                        autoComplete="new-password"
-                      />
-                    </Field>
-                    <Field>
-                      <FieldLabel>确认密码</FieldLabel>
-                      <Input
-                        type="password"
-                        value={confirmAuthPassword}
-                        onChange={(e) => setConfirmAuthPassword(e.target.value)}
-                        autoComplete="new-password"
-                      />
-                    </Field>
-                  </div>
-                  {confirmAuthPassword.length > 0 &&
-                    newAuthPassword !== confirmAuthPassword && (
-                      <p className="text-sm text-destructive">两次密码不一致</p>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Server className="h-5 w-5" />
+                    {t(WEBUI.settings.runtimeStatusCard)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(WEBUI.settings.runtimeStatusDesc)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <InfoTile
+                    label={t(WEBUI.settings.compiledVersion)}
+                    value={runtimeVersion}
+                  />
+                  <InfoTile
+                    label={t(WEBUI.settings.platformLabel)}
+                    value={system ? `${system.os}/${system.arch}` : "-"}
+                  />
+                  <InfoTile
+                    label={t(WEBUI.settings.healthStatusLabel)}
+                    value={health?.status ?? "-"}
+                  />
+                  <InfoTile
+                    label={t(WEBUI.settings.reloadStatusLabel)}
+                    value={reloadStatus?.status ?? "-"}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileCode2 className="h-5 w-5" />
+                    {t(WEBUI.settings.configSummaryCard)}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <InfoTile
+                    label={t(WEBUI.settings.configFileLabel)}
+                    value={configPath}
+                  />
+                  <InfoTile
+                    label={t(WEBUI.settings.versionLabel)}
+                    value={configVersion?.slice(0, 12) ?? "-"}
+                  />
+                  <InfoTile
+                    label={t(WEBUI.settings.pluginCountLabel)}
+                    value={String(
+                      dependencyGraph?.nodes.length ??
+                        configModel.plugins.length,
                     )}
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="submit"
-                      disabled={
-                        isRestarting ||
-                        !newAuthUsername.trim() ||
-                        !newAuthPassword ||
-                        newAuthPassword !== confirmAuthPassword
+                  />
+                  <InfoTile
+                    label={t(WEBUI.settings.initOrderLabel)}
+                    value={String(dependencyGraph?.init_order.length ?? 0)}
+                  />
+                  <div className="sm:col-span-2">
+                    <Badge
+                      variant={configError ? "destructive" : "outline"}
+                      className={
+                        configError ? "" : "bg-primary/10 text-primary"
                       }
                     >
-                      <RefreshCw className="h-4 w-4 mr-1.5" />
-                      {isRestarting ? "重启中…" : "保存并重启"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setAuthEditMode(null)}
-                      disabled={isRestarting}
-                    >
-                      取消
-                    </Button>
+                      {configError ? (
+                        <CircleAlert className="h-3 w-3 mr-1" />
+                      ) : (
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                      )}
+                      {configError ?? t(WEBUI.settings.configOkBadge)}
+                    </Badge>
                   </div>
-                </form>
-              )}
+                </CardContent>
+              </Card>
 
-              {authEditMode === "disable" && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    <CircleAlert className="h-4 w-4 shrink-0" />
-                    关闭后所有人可无限制访问管理 API，请确认
-                  </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Cpu className="h-5 w-5" />
+                    {t(WEBUI.settings.runtimeCard)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(WEBUI.settings.runtimeCardDesc)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <Field>
+                    <FieldLabel>{t(WEBUI.settings.workerThreads)}</FieldLabel>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {t(WEBUI.settings.workerThreadsDesc)}
+                    </p>
+                    <Input
+                      value={workerThreads}
+                      onChange={(event) => setWorkerThreads(event.target.value)}
+                      type="number"
+                      min={1}
+                      placeholder={t(WEBUI.settings.workerThreadsPlaceholder)}
+                      className="font-mono max-w-xs"
+                    />
+                  </Field>
                   <div className="flex flex-wrap gap-2">
                     <Button
-                      variant="destructive"
-                      onClick={() => void handleAuthSave(false, "", "")}
-                      disabled={isRestarting}
+                      onClick={handleSaveTopLevelConfig}
+                      disabled={isConfigSaving || isRestarting || !isConnected}
                     >
-                      <RefreshCw className="h-4 w-4 mr-1.5" />
-                      {isRestarting ? "重启中…" : "确认关闭并重启"}
+                      {t(WEBUI.common.saveConfig)}
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => setAuthEditMode(null)}
-                      disabled={isRestarting}
+                      onClick={handleRestartTopLevelConfig}
+                      disabled={isConfigSaving || isRestarting || !isConnected}
                     >
-                      取消
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                      {isRestarting
+                        ? t(WEBUI.settings.restarting)
+                        : t(WEBUI.settings.saveAndRestart)}
                     </Button>
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
 
-          {/* ── 运行状态 ─────────────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Server className="h-5 w-5" />
-                运行状态
-              </CardTitle>
-              <CardDescription>
-                来自 /system、/health 和 /reload/status
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <InfoTile label="编译版本" value={runtimeVersion} />
-              <InfoTile
-                label="平台"
-                value={system ? `${system.os}/${system.arch}` : "-"}
-              />
-              <InfoTile label="健康状态" value={health?.status ?? "-"} />
-              <InfoTile label="重载状态" value={reloadStatus?.status ?? "-"} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileCode2 className="h-5 w-5" />
-                配置摘要
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <InfoTile label="配置文件" value={configPath} />
-              <InfoTile
-                label="版本"
-                value={configVersion?.slice(0, 12) ?? "-"}
-              />
-              <InfoTile
-                label="插件数"
-                value={String(
-                  dependencyGraph?.nodes.length ?? configModel.plugins.length,
-                )}
-              />
-              <InfoTile
-                label="初始化顺序"
-                value={String(dependencyGraph?.init_order.length ?? 0)}
-              />
-              <div className="sm:col-span-2">
-                <Badge
-                  variant={configError ? "destructive" : "outline"}
-                  className={configError ? "" : "bg-primary/10 text-primary"}
-                >
-                  {configError ? (
-                    <CircleAlert className="h-3 w-3 mr-1" />
-                  ) : (
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                  )}
-                  {configError ?? "配置校验通过"}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Cpu className="h-5 w-5" />
-                运行时
-              </CardTitle>
-              <CardDescription>Tokio 运行时参数（runtime）</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <Field>
-                <FieldLabel>Worker 线程数</FieldLabel>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Tokio 多线程运行时的 worker
-                  数，留空自动取系统可用并行度，不能为 0
-                </p>
-                <Input
-                  value={workerThreads}
-                  onChange={(event) => setWorkerThreads(event.target.value)}
-                  type="number"
-                  min={1}
-                  placeholder="留空使用系统默认"
-                  className="font-mono max-w-xs"
-                />
-              </Field>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={handleSaveTopLevelConfig}
-                  disabled={isConfigSaving || isRestarting || !isConnected}
-                >
-                  保存配置
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleRestartTopLevelConfig}
-                  disabled={isConfigSaving || isRestarting || !isConnected}
-                >
-                  <RefreshCw className="h-4 w-4 mr-1.5" />
-                  {isRestarting ? "重启中…" : "保存并重启"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Globe className="h-5 w-5" />
-                管理 API
-              </CardTitle>
-              <CardDescription>HTTP 管理接口配置（api.http）</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* 监听地址 */}
-              <div className="space-y-2">
-                <p className="text-sm font-medium">监听地址 (listen)</p>
-                <p className="text-xs text-muted-foreground">
-                  支持 <span className="font-mono">ip:port</span>、
-                  <span className="font-mono">[ipv6]:port</span>、
-                  <span className="font-mono">:port</span>；
-                  <span className="font-mono">:port</span> 绑定为双栈{" "}
-                  <span className="font-mono">[::]:port</span>，仅监听 IPv4 时写{" "}
-                  <span className="font-mono">0.0.0.0:port</span>
-                </p>
-                <Input
-                  value={apiListen}
-                  onChange={(e) => setApiListen(e.target.value)}
-                  placeholder=":9199"
-                  className="font-mono"
-                />
-              </div>
-
-              {/* TLS */}
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">TLS / SSL</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      配置 HTTPS，cert 与 key 必须成对出现
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Globe className="h-5 w-5" />
+                    {t(WEBUI.settings.mgmtApiCard)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(WEBUI.settings.mgmtApiDesc)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">
+                      {t(WEBUI.settings.listenSection)}
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(WEBUI.settings.listenDesc)}
+                    </p>
+                    <Input
+                      value={apiListen}
+                      onChange={(e) => setApiListen(e.target.value)}
+                      placeholder=":9199"
+                      className="font-mono"
+                    />
                   </div>
-                  <Switch
-                    checked={apiSslEnabled}
-                    onCheckedChange={setApiSslEnabled}
-                    aria-label="启用 TLS"
-                  />
-                </div>
-                {apiSslEnabled && (
+
                   <div className="space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field>
-                        <FieldLabel>证书文件路径 (cert)</FieldLabel>
-                        <Input
-                          value={apiSslCert}
-                          onChange={(e) => setApiSslCert(e.target.value)}
-                          placeholder="/etc/oxidns/api.crt"
-                          className="font-mono"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>私钥文件路径 (key)</FieldLabel>
-                        <Input
-                          value={apiSslKey}
-                          onChange={(e) => setApiSslKey(e.target.value)}
-                          placeholder="/etc/oxidns/api.key"
-                          className="font-mono"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>客户端 CA 证书 (client_ca)</FieldLabel>
-                        <p className="text-xs text-muted-foreground mb-2">
-                          可选，启用双向 TLS 时提供
-                        </p>
-                        <Input
-                          value={apiSslClientCa}
-                          onChange={(e) => setApiSslClientCa(e.target.value)}
-                          placeholder="/etc/oxidns/client-ca.crt"
-                          className="font-mono"
-                        />
-                      </Field>
-                    </div>
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="text-sm font-medium">
-                          要求客户端证书 (require_client_cert)
+                          {t(WEBUI.settings.tlsSection)}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          启用时必须提供 client_ca，客户端须携带受信任证书
+                          {t(WEBUI.settings.tlsDesc)}
                         </p>
                       </div>
                       <Switch
-                        checked={apiSslRequireClientCert}
-                        onCheckedChange={setApiSslRequireClientCert}
-                        aria-label="要求客户端证书"
+                        checked={apiSslEnabled}
+                        onCheckedChange={setApiSslEnabled}
+                        aria-label={t(WEBUI.settings.enableTls)}
                       />
                     </div>
+                    {apiSslEnabled && (
+                      <div className="space-y-4">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <Field>
+                            <FieldLabel>
+                              {t(WEBUI.settings.certPath)}
+                            </FieldLabel>
+                            <Input
+                              value={apiSslCert}
+                              onChange={(e) => setApiSslCert(e.target.value)}
+                              placeholder="/etc/oxidns/api.crt"
+                              className="font-mono"
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel>{t(WEBUI.settings.keyPath)}</FieldLabel>
+                            <Input
+                              value={apiSslKey}
+                              onChange={(e) => setApiSslKey(e.target.value)}
+                              placeholder="/etc/oxidns/api.key"
+                              className="font-mono"
+                            />
+                          </Field>
+                          <Field>
+                            <FieldLabel>
+                              {t(WEBUI.settings.clientCa)}
+                            </FieldLabel>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              {t(WEBUI.settings.clientCaDesc)}
+                            </p>
+                            <Input
+                              value={apiSslClientCa}
+                              onChange={(e) =>
+                                setApiSslClientCa(e.target.value)
+                              }
+                              placeholder="/etc/oxidns/client-ca.crt"
+                              className="font-mono"
+                            />
+                          </Field>
+                        </div>
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium">
+                              {t(WEBUI.settings.requireClientCert)}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {t(WEBUI.settings.requireClientCertDesc)}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={apiSslRequireClientCert}
+                            onCheckedChange={setApiSslRequireClientCert}
+                            aria-label={t(WEBUI.settings.requireClientCert)}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* 身份认证 — 只读，在「账号与安全」中管理 */}
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium">身份认证 (auth)</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    在上方「账号与安全」中设置账号密码
-                  </p>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={
-                    apiAuthEnabled
-                      ? "bg-primary/10 text-primary border-primary/30"
-                      : "text-muted-foreground"
-                  }
-                >
-                  {apiAuthEnabled ? `已启用 — ${apiAuthUsername}` : "未启用"}
-                </Badge>
-              </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {t(WEBUI.settings.authSection)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t(WEBUI.settings.authSectionDesc)}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={
+                        apiAuthEnabled
+                          ? "bg-primary/10 text-primary border-primary/30"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {apiAuthEnabled
+                        ? t(WEBUI.settings.authEnabledFor, {
+                            username: apiAuthUsername,
+                          })
+                        : t(WEBUI.settings.authNotEnabled)}
+                    </Badge>
+                  </div>
 
-              {/* CORS */}
-              <div className="space-y-2">
-                <p className="text-sm font-medium">
-                  跨域白名单 (cors.allowed_origins)
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  每行一个 Origin，如{" "}
-                  <span className="font-mono">http://localhost:3000</span>； 写{" "}
-                  <span className="font-mono">*</span> 允许任意
-                  Origin（不可与浏览器凭据跨域同用）；
-                  留空时根据监听地址自动推导
-                </p>
-                <Textarea
-                  value={apiCorsOrigins}
-                  onChange={(e) => setApiCorsOrigins(e.target.value)}
-                  placeholder={
-                    "http://localhost:3000\nhttps://console.example.com"
-                  }
-                  className="font-mono text-xs min-h-[80px] resize-y"
-                  spellCheck={false}
-                />
-              </div>
-
-              {/* WebUI 静态文件 */}
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="space-y-2">
                     <p className="text-sm font-medium">
-                      WebUI 静态文件 (webui)
+                      {t(WEBUI.settings.corsSection)}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      启用后 WebUI 挂载在 <span className="font-mono">/</span>
-                      ，管理 API 位于 <span className="font-mono">/api/*</span>
+                    <p className="text-xs text-muted-foreground">
+                      {t(WEBUI.settings.corsDesc)}
                     </p>
+                    <Textarea
+                      value={apiCorsOrigins}
+                      onChange={(e) => setApiCorsOrigins(e.target.value)}
+                      placeholder={
+                        "http://localhost:3000\nhttps://console.example.com"
+                      }
+                      className="font-mono text-xs min-h-[80px] resize-y"
+                      spellCheck={false}
+                    />
                   </div>
-                  <Switch
-                    checked={apiWebuiEnabled}
-                    onCheckedChange={setApiWebuiEnabled}
-                    aria-label="挂载 WebUI 静态文件"
-                  />
-                </div>
-                {apiWebuiEnabled && (
+
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {t(WEBUI.settings.webuiSection)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {t(WEBUI.settings.webuiDesc)}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={apiWebuiEnabled}
+                        onCheckedChange={setApiWebuiEnabled}
+                        aria-label={t(WEBUI.settings.mountWebui)}
+                      />
+                    </div>
+                    {apiWebuiEnabled && (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>
+                            {t(WEBUI.settings.staticRoot)}
+                          </FieldLabel>
+                          <Input
+                            value={apiWebuiRoot}
+                            onChange={(e) => setApiWebuiRoot(e.target.value)}
+                            placeholder="/etc/oxidns/webui"
+                            className="font-mono"
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>{t(WEBUI.settings.indexFile)}</FieldLabel>
+                          <Input
+                            value={apiWebuiIndex}
+                            onChange={(e) => setApiWebuiIndex(e.target.value)}
+                            placeholder="index.html"
+                            className="font-mono"
+                          />
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={handleSaveTopLevelConfig}
+                      disabled={isConfigSaving || isRestarting || !isConnected}
+                    >
+                      {t(WEBUI.common.saveConfig)}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleRestartTopLevelConfig}
+                      disabled={isConfigSaving || isRestarting || !isConnected}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                      {isRestarting
+                        ? t(WEBUI.settings.restarting)
+                        : t(WEBUI.settings.saveAndRestart)}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ScrollText className="h-5 w-5" />
+                    {t(WEBUI.settings.logCard)}
+                  </CardTitle>
+                  <CardDescription>
+                    {t(WEBUI.settings.logCardDesc)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-5">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field>
-                      <FieldLabel>静态文件目录 (root)</FieldLabel>
+                      <FieldLabel>{t(WEBUI.settings.logLevelLabel)}</FieldLabel>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {t(WEBUI.settings.logLevelDesc)}
+                      </p>
+                      <Select value={logLevel} onValueChange={setLogLevel}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            "trace",
+                            "debug",
+                            "info",
+                            "warn",
+                            "error",
+                            "off",
+                          ].map((level) => (
+                            <SelectItem key={level} value={level}>
+                              {level}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <FieldLabel>{t(WEBUI.settings.logFilePath)}</FieldLabel>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {t(WEBUI.settings.logFileDesc)}
+                      </p>
                       <Input
-                        value={apiWebuiRoot}
-                        onChange={(e) => setApiWebuiRoot(e.target.value)}
-                        placeholder="/etc/oxidns/webui"
+                        value={logFile}
+                        onChange={(event) => setLogFile(event.target.value)}
+                        placeholder={t(WEBUI.settings.logFilePlaceholder)}
                         className="font-mono"
                       />
                     </Field>
                     <Field>
-                      <FieldLabel>首页文件名 (index)</FieldLabel>
-                      <Input
-                        value={apiWebuiIndex}
-                        onChange={(e) => setApiWebuiIndex(e.target.value)}
-                        placeholder="index.html"
-                        className="font-mono"
-                      />
-                    </Field>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={handleSaveTopLevelConfig}
-                  disabled={isConfigSaving || isRestarting || !isConnected}
-                >
-                  保存配置
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleRestartTopLevelConfig}
-                  disabled={isConfigSaving || isRestarting || !isConnected}
-                >
-                  <RefreshCw className="h-4 w-4 mr-1.5" />
-                  {isRestarting ? "重启中…" : "保存并重启"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ScrollText className="h-5 w-5" />
-                日志
-              </CardTitle>
-              <CardDescription>日志输出与轮转配置（log）</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel>日志级别</FieldLabel>
-                  <p className="text-xs text-muted-foreground mb-2">
-                    控制输出的最低日志级别，默认{" "}
-                    <span className="font-mono">info</span>
-                  </p>
-                  <Select value={logLevel} onValueChange={setLogLevel}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["trace", "debug", "info", "warn", "error", "off"].map(
-                        (level) => (
-                          <SelectItem key={level} value={level}>
-                            {level}
+                      <FieldLabel>{t(WEBUI.settings.logRotation)}</FieldLabel>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {t(WEBUI.settings.logRotationDesc)}
+                      </p>
+                      <Select
+                        value={rotationType}
+                        onValueChange={setRotationType}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="never">
+                            {t(WEBUI.settings.rotationNever)}
                           </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field>
-                  <FieldLabel>日志文件路径</FieldLabel>
-                  <p className="text-xs text-muted-foreground mb-2">
-                    可选，留空仅输出到标准输出；配置后同时写入文件（纯文本，无颜色码）
-                  </p>
-                  <Input
-                    value={logFile}
-                    onChange={(event) => setLogFile(event.target.value)}
-                    placeholder="留空输出到控制台"
-                    className="font-mono"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel>日志轮转策略</FieldLabel>
-                  <p className="text-xs text-muted-foreground mb-2">
-                    按时间周期自动创建新日志文件，默认不轮转
-                  </p>
-                  <Select value={rotationType} onValueChange={setRotationType}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="never">never — 不轮转</SelectItem>
-                      <SelectItem value="minutely">
-                        minutely — 按分钟
-                      </SelectItem>
-                      <SelectItem value="hourly">hourly — 按小时</SelectItem>
-                      <SelectItem value="daily">daily — 按天</SelectItem>
-                      <SelectItem value="weekly">weekly — 按周</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {rotationType !== "never" && (
-                  <Field>
-                    <FieldLabel>最多保留历史文件数</FieldLabel>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      <span className="font-mono">0</span>{" "}
-                      或留空表示不自动删除旧文件
-                    </p>
-                    <Input
-                      value={maxFiles}
-                      onChange={(event) => setMaxFiles(event.target.value)}
-                      type="number"
-                      min={0}
-                      placeholder="0（不限制）"
-                      className="font-mono"
-                    />
-                  </Field>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={handleSaveTopLevelConfig}
-                  disabled={isConfigSaving || isRestarting || !isConnected}
-                >
-                  保存配置
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleRestartTopLevelConfig}
-                  disabled={isConfigSaving || isRestarting || !isConnected}
-                >
-                  <RefreshCw className="h-4 w-4 mr-1.5" />
-                  {isRestarting ? "重启中…" : "保存并重启"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── 软件升级 ─────────────────────────────────── */}
-          <Card id="upgrade">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ArrowUpCircle className="h-5 w-5" />
-                软件升级
-              </CardTitle>
-              <CardDescription>
-                {backendSupportsUpgrade === false
-                  ? "当前后端编译时未启用升级插件，在线检查和自动升级不可用；可使用下方 CLI 命令手动升级"
-                  : "检查版本更新并触发后端自升级，升级完成后服务将自动重启"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-
-              {/* 后端不支持升级时的提示 */}
-              {backendSupportsUpgrade === false && (
-                <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-                  <CircleAlert className="h-4 w-4 shrink-0" />
-                  后端未编译 <span className="mx-1 font-mono font-semibold">plugin-upgrade</span> 特性，在线升级功能不可用
-                </div>
-              )}
-
-              {/* 版本信息（仅在后端支持时展示检查结果） */}
-              {backendSupportsUpgrade !== false && (
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <InfoTile label="当前版本" value={runtimeVersionForCheck || "-"} />
-                  <InfoTile
-                    label="最新版本"
-                    value={updateInfo ? updateInfo.latestVersion : (lastCheckedAt ? "-" : "尚未检查")}
-                  />
-                  <InfoTile
-                    label="上次检查"
-                    value={
-                      lastCheckedAt
-                        ? new Date(lastCheckedAt).toLocaleTimeString()
-                        : "-"
-                    }
-                  />
-                </div>
-              )}
-
-              {updateInfo?.updateAvailable && (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
-                  <div className="flex items-center gap-2 text-sm text-primary">
-                    <ArrowUpCircle className="h-4 w-4 shrink-0" />
-                    <span>
-                      发现新版本 <span className="font-semibold">{updateInfo.latestVersion}</span>，当前运行
-                      <span className="font-semibold"> {updateInfo.currentVersion}</span>
-                    </span>
-                  </div>
-                  <a
-                    href={updateInfo.releaseUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 text-xs text-primary underline-offset-2 hover:underline"
-                  >
-                    发布说明
-                  </a>
-                </div>
-              )}
-
-              {updateInfo && !updateInfo.updateAvailable && (
-                <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
-                  已是最新版本 {updateInfo.latestVersion}
-                </div>
-              )}
-
-              {checkError && (
-                <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <CircleAlert className="h-4 w-4 shrink-0" />
-                  {checkError}
-                </div>
-              )}
-
-              {applyError && (
-                <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <CircleAlert className="h-4 w-4 shrink-0" />
-                  启动升级失败：{applyError}
-                </div>
-              )}
-
-              {backendSupportsUpgrade !== false && (
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={handleCheckUpdates}
-                    disabled={isChecking || !runtimeVersionForCheck || backendSupportsUpgrade === null}
-                  >
-                    <RefreshCw className={`h-4 w-4 mr-1.5 ${isChecking ? "animate-spin" : ""}`} />
-                    {isChecking ? "检查中…" : "检查更新"}
-                  </Button>
-                  {updateInfo?.updateAvailable && (
-                    <Button
-                      onClick={() => void triggerUpgrade()}
-                      disabled={isApplying || isRestarting}
-                    >
-                      <ArrowUpCircle className="h-4 w-4 mr-1.5" />
-                      {isApplying ? "升级中…" : "立即升级"}
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              {/* 升级配置 */}
-              <div className="space-y-4">
-                <p className="text-sm font-medium">升级配置</p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel>GitHub 仓库</FieldLabel>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      格式 <span className="font-mono">owner/repo</span>，默认 {DEFAULT_UPGRADE_CONFIG.repository}
-                    </p>
-                    <Input
-                      value={upgradeConfig.repository}
-                      onChange={(e) => setUpgradeConfig({ repository: e.target.value })}
-                      placeholder={DEFAULT_UPGRADE_CONFIG.repository}
-                      className="font-mono"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Bundle 类型</FieldLabel>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      auto 自动匹配当前编译 bundle
-                    </p>
-                    <Select
-                      value={upgradeConfig.bundle}
-                      onValueChange={(v) => setUpgradeConfig({ bundle: v as UpgradeBundle })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">auto — 自动</SelectItem>
-                        <SelectItem value="full">full — 完整版</SelectItem>
-                        <SelectItem value="standard">standard — 标准版</SelectItem>
-                        <SelectItem value="minimal">minimal — 精简版</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <FieldLabel>Socks5 代理</FieldLabel>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      下载时使用的 SOCKS5 代理，留空不使用
-                    </p>
-                    <Input
-                      value={upgradeConfig.socks5}
-                      onChange={(e) => setUpgradeConfig({ socks5: e.target.value })}
-                      placeholder="socks5://127.0.0.1:1080"
-                      className="font-mono"
-                    />
-                  </Field>
-                </div>
-                <div className="flex flex-wrap gap-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">允许预发布版本</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        包含 alpha/beta/rc 等预发布标签
-                      </p>
-                    </div>
-                    <Switch
-                      checked={upgradeConfig.allowPrerelease}
-                      onCheckedChange={(v) => setUpgradeConfig({ allowPrerelease: v })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">自动检查更新</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        每次连接后台时自动查询最新版本
-                      </p>
-                    </div>
-                    <Switch
-                      checked={upgradeConfig.autoCheck}
-                      onCheckedChange={(v) => setUpgradeConfig({ autoCheck: v })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* CLI 升级命令 */}
-              <div className="space-y-2">
-                <p className="text-sm font-medium">等效 CLI 命令</p>
-                <p className="text-xs text-muted-foreground">
-                  在服务器上以 root 或有权限的用户执行，将自动下载并替换当前二进制文件
-                </p>
-                <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
-                  <code className="flex-1 truncate font-mono text-xs">
-                    {buildUpgradeCliCommand()}
-                  </code>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0"
-                    onClick={() => void handleCopyCommand()}
-                  >
-                    {copiedCmd ? (
-                      <CheckCircle2 className="h-4 w-4 text-primary" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
+                          <SelectItem value="minutely">
+                            {t(WEBUI.settings.rotationMinutely)}
+                          </SelectItem>
+                          <SelectItem value="hourly">
+                            {t(WEBUI.settings.rotationHourly)}
+                          </SelectItem>
+                          <SelectItem value="daily">
+                            {t(WEBUI.settings.rotationDaily)}
+                          </SelectItem>
+                          <SelectItem value="weekly">
+                            {t(WEBUI.settings.rotationWeekly)}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {rotationType !== "never" && (
+                      <Field>
+                        <FieldLabel>{t(WEBUI.settings.maxFiles)}</FieldLabel>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {t(WEBUI.settings.maxFilesDesc)}
+                        </p>
+                        <Input
+                          value={maxFiles}
+                          onChange={(event) => setMaxFiles(event.target.value)}
+                          type="number"
+                          min={0}
+                          placeholder={t(WEBUI.settings.maxFilesPlaceholder)}
+                          className="font-mono"
+                        />
+                      </Field>
                     )}
-                    <span className="sr-only">复制命令</span>
-                  </Button>
-                </div>
-              </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={handleSaveTopLevelConfig}
+                      disabled={isConfigSaving || isRestarting || !isConnected}
+                    >
+                      {t(WEBUI.common.saveConfig)}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleRestartTopLevelConfig}
+                      disabled={isConfigSaving || isRestarting || !isConnected}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                      {isRestarting
+                        ? t(WEBUI.settings.restarting)
+                        : t(WEBUI.settings.saveAndRestart)}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
 
-            </CardContent>
-          </Card>
+              <Card id="upgrade">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ArrowUpCircle className="h-5 w-5" />
+                    {t(WEBUI.shell.upgrade)}
+                  </CardTitle>
+                  <CardDescription>
+                    {backendSupportsUpgrade === false
+                      ? t(WEBUI.settings.upgradeCardDescNoSupport)
+                      : t(WEBUI.settings.upgradeCardDescNormal)}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {backendSupportsUpgrade === false && (
+                    <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                      <CircleAlert className="h-4 w-4 shrink-0" />
+                      {t(WEBUI.settings.upgradeNotSupported)}
+                    </div>
+                  )}
 
-          </>)}
+                  {backendSupportsUpgrade !== false && (
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <InfoTile
+                        label={t(WEBUI.settings.currentVersionLabel)}
+                        value={runtimeVersionForCheck || "-"}
+                      />
+                      <InfoTile
+                        label={t(WEBUI.settings.latestVersionLabel)}
+                        value={
+                          updateInfo
+                            ? updateInfo.latestVersion
+                            : lastCheckedAt
+                              ? "-"
+                              : t(WEBUI.settings.notYetChecked)
+                        }
+                      />
+                      <InfoTile
+                        label={t(WEBUI.settings.lastCheckedLabel)}
+                        value={
+                          lastCheckedAt
+                            ? new Date(lastCheckedAt).toLocaleTimeString()
+                            : "-"
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {updateInfo?.updateAvailable && (
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
+                      <div className="flex items-center gap-2 text-sm text-primary">
+                        <ArrowUpCircle className="h-4 w-4 shrink-0" />
+                        <span>
+                          {t(WEBUI.settings.updateFoundMsg, {
+                            latest: updateInfo.latestVersion,
+                            current: updateInfo.currentVersion,
+                          })}
+                        </span>
+                      </div>
+                      <a
+                        href={updateInfo.releaseUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 text-xs text-primary underline-offset-2 hover:underline"
+                      >
+                        {t(WEBUI.settings.releaseNotes)}
+                      </a>
+                    </div>
+                  )}
+
+                  {updateInfo && !updateInfo.updateAvailable && (
+                    <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                      {t(WEBUI.settings.alreadyLatest, {
+                        version: updateInfo.latestVersion,
+                      })}
+                    </div>
+                  )}
+
+                  {checkError && (
+                    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <CircleAlert className="h-4 w-4 shrink-0" />
+                      {checkError}
+                    </div>
+                  )}
+
+                  {applyError && (
+                    <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <CircleAlert className="h-4 w-4 shrink-0" />
+                      {t(WEBUI.settings.upgradeStartFailed, {
+                        error: applyError,
+                      })}
+                    </div>
+                  )}
+
+                  {backendSupportsUpgrade !== false && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={handleCheckUpdates}
+                        disabled={
+                          isChecking ||
+                          !runtimeVersionForCheck ||
+                          backendSupportsUpgrade === null
+                        }
+                      >
+                        <RefreshCw
+                          className={`h-4 w-4 mr-1.5 ${isChecking ? "animate-spin" : ""}`}
+                        />
+                        {isChecking
+                          ? t(WEBUI.settings.checkingUpdates)
+                          : t(WEBUI.settings.checkUpdates)}
+                      </Button>
+                      {updateInfo?.updateAvailable && (
+                        <Button
+                          onClick={() => void triggerUpgrade()}
+                          disabled={isApplying || isRestarting}
+                        >
+                          <ArrowUpCircle className="h-4 w-4 mr-1.5" />
+                          {isApplying
+                            ? t(WEBUI.settings.upgrading)
+                            : t(WEBUI.settings.upgradeNow)}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-4">
+                    <p className="text-sm font-medium">
+                      {t(WEBUI.settings.upgradeConfigSection)}
+                    </p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field>
+                        <FieldLabel>{t(WEBUI.settings.githubRepo)}</FieldLabel>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {t(WEBUI.settings.githubRepoDesc, {
+                            default: DEFAULT_UPGRADE_CONFIG.repository,
+                          })}
+                        </p>
+                        <Input
+                          value={upgradeConfig.repository}
+                          onChange={(e) =>
+                            setUpgradeConfig({ repository: e.target.value })
+                          }
+                          placeholder={DEFAULT_UPGRADE_CONFIG.repository}
+                          className="font-mono"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>{t(WEBUI.settings.bundleType)}</FieldLabel>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {t(WEBUI.settings.bundleTypeDesc)}
+                        </p>
+                        <Select
+                          value={upgradeConfig.bundle}
+                          onValueChange={(v) =>
+                            setUpgradeConfig({ bundle: v as UpgradeBundle })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="auto">
+                              {t(WEBUI.settings.bundleAuto)}
+                            </SelectItem>
+                            <SelectItem value="full">
+                              {t(WEBUI.settings.bundleFull)}
+                            </SelectItem>
+                            <SelectItem value="standard">
+                              {t(WEBUI.settings.bundleStandard)}
+                            </SelectItem>
+                            <SelectItem value="minimal">
+                              {t(WEBUI.settings.bundleMinimal)}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      <Field>
+                        <FieldLabel>{t(WEBUI.settings.socks5Proxy)}</FieldLabel>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {t(WEBUI.settings.socks5ProxyDesc)}
+                        </p>
+                        <Input
+                          value={upgradeConfig.socks5}
+                          onChange={(e) =>
+                            setUpgradeConfig({ socks5: e.target.value })
+                          }
+                          placeholder={t(WEBUI.settings.socks5ProxyPlaceholder)}
+                          className="font-mono"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>{t(WEBUI.settings.githubToken)}</FieldLabel>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          {t(WEBUI.settings.githubTokenDesc)}
+                        </p>
+                        <Input
+                          value={upgradeConfig.githubToken}
+                          onChange={(e) =>
+                            setUpgradeConfig({ githubToken: e.target.value })
+                          }
+                          type="password"
+                          placeholder={t(WEBUI.settings.githubTokenPlaceholder)}
+                          autoComplete="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          className="font-mono"
+                        />
+                      </Field>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {t(WEBUI.settings.persistGithubToken)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {t(WEBUI.settings.persistGithubTokenDesc)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          aria-expanded={tokenPersistenceHelpOpen}
+                          onClick={() =>
+                            setTokenPersistenceHelpOpen((open) => !open)
+                          }
+                        >
+                          <CircleAlert data-icon="inline-start" />
+                          {t(WEBUI.settings.tokenSaveRisk)}
+                        </Button>
+                        <Switch
+                          aria-label={t(WEBUI.settings.persistGithubToken)}
+                          checked={upgradeConfig.persistGithubToken}
+                          onCheckedChange={(v) =>
+                            setUpgradeConfig({ persistGithubToken: v })
+                          }
+                        />
+                      </div>
+                    </div>
+                    {tokenPersistenceHelpOpen && (
+                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+                        <p className="font-medium">
+                          {t(WEBUI.settings.tokenPersistenceAdviceTitle)}
+                        </p>
+                        <p className="mt-1">
+                          {t(WEBUI.settings.tokenPersistenceSafe)}
+                        </p>
+                        <p className="mt-1">
+                          {t(WEBUI.settings.tokenPersistenceUnsafe)}
+                        </p>
+                        <p className="mt-1">
+                          {t(WEBUI.settings.tokenPersistenceScope)}
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t(WEBUI.settings.allowPrerelease)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {t(WEBUI.settings.allowPrereleaseDesc)}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={upgradeConfig.allowPrerelease}
+                          onCheckedChange={(v) =>
+                            setUpgradeConfig({ allowPrerelease: v })
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t(WEBUI.settings.autoCheck)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {t(WEBUI.settings.autoCheckDesc)}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={upgradeConfig.autoCheck}
+                          onCheckedChange={(v) =>
+                            setUpgradeConfig({ autoCheck: v })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">
+                      {t(WEBUI.settings.cliCommand)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(WEBUI.settings.cliCommandDesc)}
+                    </p>
+                    <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2">
+                      <code className="flex-1 truncate font-mono text-xs">
+                        {buildUpgradeCliCommand()}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0"
+                        onClick={() => void handleCopyCommand()}
+                      >
+                        {copiedCmd ? (
+                          <CheckCircle2 className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                        <span className="sr-only">
+                          {t(WEBUI.settings.copyCommand)}
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
       </main>
     </>

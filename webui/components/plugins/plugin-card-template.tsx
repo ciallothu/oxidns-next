@@ -9,11 +9,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { PLUGIN_TYPE_LABELS } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { selectCardMetrics } from "@/lib/metrics";
 import { isPluginKindSupported } from "@/lib/build-capabilities";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
+import { useI18n } from "@/lib/i18n/provider";
 import type { PluginCardTemplateProps } from "./types";
 import { pluginTypeColors, pluginTypeIcons } from "./display";
 import { getPluginCatalogItem, renderPluginKindIcon } from "./catalog";
@@ -26,12 +28,13 @@ export function PluginCardTemplate({
   primaryMetric,
   children,
 }: PluginCardTemplateProps) {
+  const { locale, t } = useI18n();
   const { setSelectedPlugin, setDetailOpen, togglePluginPin } = useAppStore();
   const series = useAppStore((s) => s.pluginMetrics[plugin.name]);
   const buildInfo = useAppStore((s) => s.buildInfo);
-  const cardMetrics = selectCardMetrics(series, plugin.pluginKind, 4);
+  const cardMetrics = selectCardMetrics(series, plugin.pluginKind, 4, locale);
   const showFallbackContent = cardMetrics.length === 0 && Boolean(children);
-  const definition = getPluginCatalogItem(plugin.pluginKind);
+  const definition = getPluginCatalogItem(plugin.pluginKind, locale);
   const supported = isPluginKindSupported(
     buildInfo,
     plugin.type,
@@ -77,14 +80,14 @@ export function PluginCardTemplate({
               className={cn("gap-1 text-xs", pluginTypeColors[plugin.type])}
             >
               {pluginTypeIcons[plugin.type]}
-              {PLUGIN_TYPE_LABELS[plugin.type]}
+              {pluginTypeLabel(plugin.type, locale)}
             </Badge>
             <Badge variant="outline" className="text-xs">
               {definition?.name ?? plugin.pluginKind}
             </Badge>
             {!supported && (
               <Badge variant="outline" className="text-xs">
-                未编译
+                {t(WEBUI.common.notCompiled)}
               </Badge>
             )}
           </div>
@@ -129,7 +132,9 @@ export function PluginCardTemplate({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {plugin.pinned ? "取消固定" : "固定到仪表盘"}
+              {plugin.pinned
+                ? t(WEBUI.plugins.unpin)
+                : t(WEBUI.plugins.pinDashboard)}
             </TooltipContent>
           </Tooltip>
           <PluginDeleteButton

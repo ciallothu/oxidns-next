@@ -19,12 +19,15 @@ import {
 } from "@/components/shell/connection-required";
 import { RestartingOverlay } from "@/components/shell/restarting-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export default function ConsoleLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const editorMode = useAppStore((s) => s.editorMode);
   const historyOpen = useAppStore((s) => s.historyOpen);
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
@@ -59,7 +62,7 @@ export default function ConsoleLayout({
   }, [isAuthHydrated, attemptAutoConnect]);
 
   // While the initial auto-connect is still in flight, neither render
-  // backend-dependent pages nor the "需要连接" prompt; show a pending state.
+  // backend-dependent pages nor the connection-required prompt; show a pending state.
   const isAutoConnectPending =
     isAuthHydrated &&
     !isConnected &&
@@ -81,7 +84,14 @@ export default function ConsoleLayout({
     if (!version) return;
     hasCheckedUpdates.current = true;
     void checkForUpdates(version);
-  }, [isConnected, upgradeAutoCheck, health, system, buildInfo, checkForUpdates]);
+  }, [
+    isConnected,
+    upgradeAutoCheck,
+    health,
+    system,
+    buildInfo,
+    checkForUpdates,
+  ]);
 
   // On disconnect: allow auto-check to re-fire on the next reconnect, and
   // clear any in-progress upgrade state (the server restarted or the apply failed).
@@ -147,7 +157,7 @@ export default function ConsoleLayout({
         <SidebarInset className="h-svh min-h-0 overflow-hidden md:h-[calc(100svh-1rem)]">
           {editorMode ? (
             <div className="flex h-full min-h-0 flex-col overflow-hidden">
-              <AppHeader title="配置编辑器" />
+              <AppHeader title={t(WEBUI.shell.configEditor)} />
               {!isAuthHydrated || isConnected || isOfflineMode ? (
                 <ConfigEditorView />
               ) : (
@@ -158,17 +168,17 @@ export default function ConsoleLayout({
             children
           ) : isAutoConnectPending ? (
             <>
-              <AppHeader title="连接后台服务" />
+              <AppHeader title={t(WEBUI.shell.connectBackend)} />
               <ConnectionPending />
             </>
           ) : needsCredentials ? (
             <>
-              <AppHeader title="登录" />
+              <AppHeader title={t(WEBUI.shell.login)} />
               <LoginRequired />
             </>
           ) : (
             <>
-              <AppHeader title="连接后台服务" />
+              <AppHeader title={t(WEBUI.shell.connectBackend)} />
               <ConnectionRequired />
             </>
           )}

@@ -20,12 +20,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { AlertTriangle, Pencil, Pin, PinOff, Rocket, Save } from "lucide-react";
-import { PLUGIN_TYPE_LABELS } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { isPluginKindSupported } from "@/lib/build-capabilities";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { usePluginAppliedStatus } from "@/hooks/use-plugin-applied";
+import { WEBUI } from "@/lib/i18n";
+import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
+import { useI18n } from "@/lib/i18n/provider";
 import type { PluginDetailTemplateProps, PluginSummaryItem } from "./types";
 import { pluginTypeColors, pluginTypeIcons } from "./display";
 import { getPluginCatalogItem, renderPluginKindIcon } from "./catalog";
@@ -43,6 +45,7 @@ export function PluginDetailTemplate({
   metricsContent,
   extraTabs,
 }: PluginDetailTemplateProps) {
+  const { locale, t } = useI18n();
   const {
     togglePluginPin,
     updatePluginConfig,
@@ -61,7 +64,7 @@ export function PluginDetailTemplate({
   const hasMetricSeries = useAppStore(
     (s) => (s.pluginMetrics[plugin.name]?.length ?? 0) > 0,
   );
-  const definition = getPluginCatalogItem(plugin.pluginKind);
+  const definition = getPluginCatalogItem(plugin.pluginKind, locale);
   const supported = isPluginKindSupported(
     buildInfo,
     plugin.type,
@@ -136,7 +139,9 @@ export function PluginDetailTemplate({
       }
       setEditingName(false);
     } catch (error) {
-      setNameError(error instanceof Error ? error.message : "重命名失败");
+      setNameError(
+        error instanceof Error ? error.message : t(WEBUI.plugins.renameFailed),
+      );
     }
   };
 
@@ -154,7 +159,9 @@ export function PluginDetailTemplate({
       setPendingRename(null);
       setEditingName(false);
     } catch (error) {
-      setNameError(error instanceof Error ? error.message : "重命名失败");
+      setNameError(
+        error instanceof Error ? error.message : t(WEBUI.plugins.renameFailed),
+      );
     }
   };
 
@@ -233,14 +240,14 @@ export function PluginDetailTemplate({
                   variant="outline"
                   className={cn("gap-1", pluginTypeColors[plugin.type])}
                 >
-                  {PLUGIN_TYPE_LABELS[plugin.type]}
+                  {pluginTypeLabel(plugin.type, locale)}
                 </Badge>
                 <Badge variant="outline" className="bg-background/70">
                   {definition?.name ?? plugin.pluginKind}
                 </Badge>
                 {!supported && (
                   <Badge variant="outline" className="bg-background/70">
-                    未编译
+                    {t(WEBUI.common.notCompiled)}
                   </Badge>
                 )}
               </div>
@@ -269,12 +276,12 @@ export function PluginDetailTemplate({
               {plugin.pinned ? (
                 <>
                   <PinOff className="mr-1.5 h-4 w-4" />
-                  取消固定
+                  {t(WEBUI.plugins.unpin)}
                 </>
               ) : (
                 <>
                   <Pin className="mr-1.5 h-4 w-4" />
-                  固定
+                  {t(WEBUI.plugins.pin)}
                 </>
               )}
             </Button>
@@ -284,7 +291,7 @@ export function PluginDetailTemplate({
               size="sm"
               className="gap-1.5 text-destructive hover:text-destructive"
               iconClassName="mr-0 h-4 w-4"
-              label="删除"
+              label={t(WEBUI.common.delete)}
               stopPropagation={false}
               onDeleted={onClose}
             />
@@ -300,7 +307,7 @@ export function PluginDetailTemplate({
           disabled={Boolean(configError)}
           onApply={() => {
             void applyConfig().catch(() => {
-              // 失败状态会通过头部的 ConfigSyncControl 同步出来,这里静默。
+              // ConfigSyncControl in the header surfaces the failure state.
             });
           }}
         />
@@ -320,22 +327,30 @@ export function PluginDetailTemplate({
             visibleTabCount >= 5 && "grid-cols-5",
           )}
         >
-          <TabsTrigger value="config">配置</TabsTrigger>
-          {hasStatsContent && <TabsTrigger value="stats">统计</TabsTrigger>}
+          <TabsTrigger value="config">{t(WEBUI.plugins.configTab)}</TabsTrigger>
+          {hasStatsContent && (
+            <TabsTrigger value="stats">{t(WEBUI.plugins.statsTab)}</TabsTrigger>
+          )}
           {resolvedExtraTabs.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.icon}
               {tab.label}
             </TabsTrigger>
           ))}
-          {hasMetricSeries && <TabsTrigger value="metrics">指标</TabsTrigger>}
+          {hasMetricSeries && (
+            <TabsTrigger value="metrics">
+              {t(WEBUI.plugins.metricsTab)}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="config" className="mt-4 space-y-4">
           {configContent ?? (
             <Card>
               <CardHeader className="p-4 pb-2">
-                <CardTitle className="text-sm">配置</CardTitle>
+                <CardTitle className="text-sm">
+                  {t(WEBUI.plugins.configTab)}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 p-4 pt-0">
                 {definition ? (
@@ -367,7 +382,7 @@ export function PluginDetailTemplate({
                         variant="outline"
                         onClick={handleCancelConfigEdit}
                       >
-                        取消
+                        {t(WEBUI.common.cancel)}
                       </Button>
                       <Button
                         key="save-config-edit"
@@ -375,7 +390,9 @@ export function PluginDetailTemplate({
                         disabled={!configValid || isConfigSaving}
                       >
                         <Save className="mr-1.5 h-4 w-4" />
-                        {isConfigSaving ? "保存中" : "保存配置"}
+                        {isConfigSaving
+                          ? t(WEBUI.common.saving)
+                          : t(WEBUI.common.saveConfig)}
                       </Button>
                     </>
                   ) : (
@@ -384,7 +401,7 @@ export function PluginDetailTemplate({
                       onClick={() => setEditingConfig(true)}
                     >
                       <Pencil className="mr-1.5 h-4 w-4" />
-                      编辑配置
+                      {t(WEBUI.common.editConfig)}
                     </Button>
                   )}
                 </div>
@@ -428,10 +445,14 @@ export function PluginDetailTemplate({
       >
         <AlertDialogContent size="lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>同步更新引用？</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t(WEBUI.plugins.updateReferencesTitle)}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              插件 “{plugin.name}” 被其它配置引用。重命名为 “
-              {pendingRename?.name}” 时会同步更新这些引用，并保存配置。
+              {t(WEBUI.plugins.updateReferencesDescription, {
+                oldName: plugin.name,
+                newName: pendingRename?.name ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="max-h-56 space-y-2 overflow-auto rounded-md border bg-muted/20 p-2">
@@ -450,7 +471,9 @@ export function PluginDetailTemplate({
             ))}
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={configBusy}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={configBusy}>
+              {t(WEBUI.common.cancel)}
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={configBusy}
               onClick={(event) => {
@@ -458,7 +481,7 @@ export function PluginDetailTemplate({
                 void handleConfirmRename();
               }}
             >
-              更新引用并保存
+              {t(WEBUI.plugins.updateReferencesAction)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -474,6 +497,7 @@ function DependencySection({
   tag: string;
   dependencyGraph: ReturnType<typeof useAppStore.getState>["dependencyGraph"];
 }) {
+  const { t } = useI18n();
   if (!dependencyGraph) return null;
   const initIndex = dependencyGraph.init_order.indexOf(tag);
   const upstream = dependencyGraph.edges.filter(
@@ -486,20 +510,28 @@ function DependencySection({
   return (
     <Card>
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm">依赖关系</CardTitle>
+        <CardTitle className="text-sm">
+          {t(WEBUI.plugins.dependencyTitle)}
+        </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3 p-4 pt-0 text-sm sm:grid-cols-3">
         <SummaryItem
           item={{
-            label: "初始化序号",
+            label: t(WEBUI.plugins.initOrder),
             value: initIndex >= 0 ? String(initIndex + 1) : "-",
           }}
         />
         <SummaryItem
-          item={{ label: "依赖插件", value: String(upstream.length) }}
+          item={{
+            label: t(WEBUI.plugins.dependencies),
+            value: String(upstream.length),
+          }}
         />
         <SummaryItem
-          item={{ label: "被引用", value: String(downstream.length) }}
+          item={{
+            label: t(WEBUI.plugins.referencedBy),
+            value: String(downstream.length),
+          }}
         />
         <div className="space-y-1 sm:col-span-3">
           {[...upstream, ...downstream].length ? (
@@ -513,7 +545,7 @@ function DependencySection({
             ))
           ) : (
             <div className="rounded-md border border-dashed px-3 py-2 text-muted-foreground">
-              暂无依赖边
+              {t(WEBUI.plugins.noDependencyEdges)}
             </div>
           )}
         </div>
@@ -533,24 +565,25 @@ function SummaryItem({ item }: { item: PluginSummaryItem }) {
   );
 }
 
-// Inline placeholder used inside per-plugin "统计 / 聚合" tabs when the plugin
+// Inline placeholder used inside per-plugin stats / insights tabs when the plugin
 // hasn't been applied to the backend yet — short-circuits all /api/plugins/{tag}/*
 // fetches so the user gets a clear hint instead of an HTTP 404 noise wall.
 export function PluginNotAppliedPlaceholder({
-  title = "插件未应用",
-  description = "此插件目前只存在于配置草稿中,后端尚未注册其接口,因此无法读取数据。请先在顶部点击「立即应用」(或在右上角「应用更改」)。",
+  title,
+  description,
 }: {
   title?: string;
   description?: string;
 } = {}) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-yellow-500/40 bg-yellow-500/5 px-4 py-6 text-sm text-yellow-700 dark:text-yellow-400">
       <div className="flex items-center gap-2 font-medium">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        {title}
+        {title ?? t(WEBUI.plugins.notAppliedTitle)}
       </div>
       <div className="text-xs text-yellow-700/80 dark:text-yellow-400/80">
-        {description}
+        {description ?? t(WEBUI.plugins.notAppliedDescription)}
       </div>
     </div>
   );
@@ -569,6 +602,7 @@ function PluginNotAppliedBanner({
   disabled: boolean;
   onApply: () => void;
 }) {
+  const { t } = useI18n();
   const busy = applying || saving || restarting;
   return (
     <div className="shrink-0 border-b bg-yellow-500/5">
@@ -576,10 +610,11 @@ function PluginNotAppliedBanner({
         <div className="flex items-start gap-2 text-sm text-yellow-700 dark:text-yellow-400">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
-            <div className="font-medium">此插件尚未应用到后端</div>
+            <div className="font-medium">
+              {t(WEBUI.plugins.notAppliedTitle)}
+            </div>
             <div className="mt-0.5 text-xs text-yellow-700/80 dark:text-yellow-400/80">
-              新增 / 重命名的插件需要先保存并应用配置,后端才会注册对应接口;在此之前
-              「统计」「聚合」等需要后端数据的标签页都不可用。
+              {t(WEBUI.plugins.notAppliedDescription)}
             </div>
           </div>
         </div>
@@ -595,7 +630,11 @@ function PluginNotAppliedBanner({
           ) : (
             <Rocket className="h-3.5 w-3.5" />
           )}
-          {applying ? "应用中" : restarting ? "重启中" : "立即应用"}
+          {applying
+            ? t(WEBUI.plugins.applying)
+            : restarting
+              ? t(WEBUI.plugins.restarting)
+              : t(WEBUI.plugins.applyNow)}
         </Button>
       </div>
     </div>

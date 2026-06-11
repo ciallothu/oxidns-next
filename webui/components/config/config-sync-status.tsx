@@ -41,6 +41,8 @@ import { useAuthStore } from "@/lib/auth-store";
 import type { ConfigSnapshot } from "@/lib/config-history";
 import { ConfigDiffDialog } from "@/components/config/config-diff-dialog";
 import { topLevelConfigChanged } from "@/lib/oxidns-config";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export type SyncState =
   | "in-sync"
@@ -69,13 +71,14 @@ export interface ConfigSyncStatus {
 // running" — shared by the global header control and the editor so the two
 // never disagree.
 export function useConfigSyncStatus(): ConfigSyncStatus {
+  const { t } = useI18n();
   const configHistory = useAppStore((s) => s.configHistory);
   const configError = useAppStore((s) => s.configError);
   const configVersion = useAppStore((s) => s.configVersion);
   const runningVersion = useAppStore((s) => s.runningVersion);
   const isApplying = useAppStore((s) => s.isApplying);
 
-  // Snapshot of the config currently on disk (what 应用 would push live).
+  // Snapshot of the config currently on disk (what apply would push live).
   const current = configHistory.find((s) => s.version === configVersion);
   // Snapshot of what the backend is actually running right now. applyStatus
   // is a sticky per-entry flag (an old "applied" never clears), so we resolve
@@ -95,15 +98,15 @@ export function useConfigSyncStatus(): ConfigSyncStatus {
 
   let state: SyncState = "in-sync";
   let tone: ConfigSyncStatus["tone"] = "neutral";
-  let label = "配置已同步";
+  let label = t(WEBUI.configSync.inSync);
 
   if (isApplying) {
     state = "applying";
-    label = "正在应用配置…";
+    label = t(WEBUI.configSync.applying);
   } else if (configError) {
     state = "error";
     tone = "destructive";
-    label = "配置有错误，无法应用；可在菜单中恢复有效版本";
+    label = t(WEBUI.configSync.configError);
   } else if (
     configVersion &&
     runningVersion &&
@@ -115,14 +118,20 @@ export function useConfigSyncStatus(): ConfigSyncStatus {
     state = "apply-failed";
     tone = "destructive";
     label = requiresRestart
-      ? `重启失败或未完成：${current.applyError ?? "需重启服务才能生效"}`
-      : `应用失败：${current.applyError ?? "热重载未成功"}`;
+      ? t(WEBUI.configSync.restartFailedMsg, {
+          error:
+            current.applyError ?? t(WEBUI.configSync.restartRequiredFallback),
+        })
+      : t(WEBUI.configSync.applyFailedMsg, {
+          error:
+            current.applyError ?? t(WEBUI.configSync.hotReloadFailedFallback),
+        });
   } else if (configVersion) {
     state = "not-applied";
     tone = "warning";
     label = requiresRestart
-      ? "顶层配置（runtime / api / log 等）已变更，需重启服务才能生效"
-      : "有未应用的配置改动，点击应用";
+      ? t(WEBUI.configSync.topLevelChanged)
+      : t(WEBUI.configSync.pendingChanges);
   }
 
   return { state, label, tone, head: current, lastGood, requiresRestart };
@@ -140,6 +149,7 @@ const PILL_TONE: Record<"warning" | "destructive", string> = {
 // there are pending / failed / invalid changes it becomes a prominent
 // amber/red pill so the operator never misses an unapplied change.
 export function ConfigSyncControl() {
+  const { t } = useI18n();
   const isConnected = useAuthStore((s) => s.isConnected);
   const applyConfig = useAppStore((s) => s.applyConfig);
   const restartApp = useAppStore((s) => s.restartApp);
@@ -215,10 +225,10 @@ export function ConfigSyncControl() {
             onClick={() => setHistoryOpen(true)}
           >
             <History className="h-4 w-4" />
-            <span className="sr-only">配置历史</span>
+            <span className="sr-only">{t(WEBUI.configSync.historyButton)}</span>
           </Button>
         </TooltipTrigger>
-        <TooltipContent>配置历史（已同步）</TooltipContent>
+        <TooltipContent>{t(WEBUI.configSync.historyInSync)}</TooltipContent>
       </Tooltip>
     ) : state === "applying" ? (
       <Button
@@ -228,7 +238,9 @@ export function ConfigSyncControl() {
         disabled
       >
         <Spinner className="h-3.5 w-3.5" />
-        {isRestarting ? "重启中" : "应用中"}
+        {isRestarting
+          ? t(WEBUI.configSync.restartingLabel)
+          : t(WEBUI.configSync.applyingLabel)}
       </Button>
     ) : isRestarting ? (
       <Button
@@ -238,7 +250,7 @@ export function ConfigSyncControl() {
         disabled
       >
         <Spinner className="h-3.5 w-3.5" />
-        重启中
+        {t(WEBUI.configSync.restartingLabel)}
       </Button>
     ) : (
       <Tooltip>
@@ -267,13 +279,13 @@ export function ConfigSyncControl() {
             )}
             {state === "not-applied"
               ? requiresRestart
-                ? "需要重启"
-                : "应用更改"
+                ? t(WEBUI.configSync.needsRestart)
+                : t(WEBUI.configSync.applyChanges)
               : state === "apply-failed"
                 ? pendingRestartOnlyChange
-                  ? "需要重启"
-                  : "应用失败·重试"
-                : "配置有误"}
+                  ? t(WEBUI.configSync.needsRestart)
+                  : t(WEBUI.configSync.applyFailed)
+                : t(WEBUI.configSync.configHasError)}
           </Button>
         </TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
@@ -290,11 +302,13 @@ export function ConfigSyncControl() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon-sm" className="rounded-md">
                   <MoreHorizontal className="h-4 w-4" />
-                  <span className="sr-only">配置操作</span>
+                  <span className="sr-only">
+                    {t(WEBUI.configSync.moreActions)}
+                  </span>
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>配置操作</TooltipContent>
+            <TooltipContent>{t(WEBUI.configSync.moreActions)}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem
@@ -302,16 +316,16 @@ export function ConfigSyncControl() {
               onClick={() => setDiffOpen(true)}
             >
               <GitCompare className="h-4 w-4" />
-              查看差异
+              {t(WEBUI.configSync.viewDiff)}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
               <History className="h-4 w-4" />
-              配置历史
+              {t(WEBUI.configSync.historyButton)}
             </DropdownMenuItem>
             {canRestore && lastGood && (
               <DropdownMenuItem onClick={handleRevertToRunning}>
                 <Undo2 className="h-4 w-4" />
-                放弃改动·恢复运行版
+                {t(WEBUI.configSync.revertToRunning)}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
@@ -327,7 +341,7 @@ export function ConfigSyncControl() {
               onClick={handleApply}
             >
               <RefreshCw className="h-4 w-4" />
-              重载当前配置
+              {t(WEBUI.configSync.reloadConfig)}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={
@@ -345,7 +359,7 @@ export function ConfigSyncControl() {
               }}
             >
               <Power className="h-4 w-4" />
-              重启服务
+              {t(WEBUI.configSync.restartService)}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -357,8 +371,8 @@ export function ConfigSyncControl() {
           onOpenChange={setDiffOpen}
           original={lastGood.content}
           modified={configText}
-          originalTitle="正在运行"
-          modifiedTitle="待应用（当前配置）"
+          originalTitle={t(WEBUI.configSync.runningVersion)}
+          modifiedTitle={t(WEBUI.configSync.pendingVersion)}
         />
       )}
 
@@ -368,16 +382,17 @@ export function ConfigSyncControl() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>重启 OxiDNS 服务？</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t(WEBUI.configSync.restartDialogTitle)}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              将以新进程替换正在运行的服务。期间 DNS
-              解析会短暂中断，所有内存中的状态（如缓存）将被清空。配置会先保存到磁盘再触发重启。
+              {t(WEBUI.configSync.restartDialogDesc)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t(WEBUI.common.cancel)}</AlertDialogCancel>
             <AlertDialogAction onClick={handleRestart}>
-              确认重启
+              {t(WEBUI.configSync.confirmRestart)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { PlugZap, FileCode2, Loader2, KeyRound, CircleAlert } from "lucide-react";
+import {
+  PlugZap,
+  FileCode2,
+  Loader2,
+  KeyRound,
+  CircleAlert,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -16,8 +22,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export function LoginRequired() {
+  const { t } = useI18n();
   const serverConfig = useAuthStore((s) => s.serverConfig);
   const connect = useAuthStore((s) => s.connect);
   const isConnecting = useAuthStore((s) => s.isConnecting);
@@ -50,12 +59,12 @@ export function LoginRequired() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <KeyRound className="h-5 w-5" />
-            登录
+            {t(WEBUI.connection.loginTitle)}
           </CardTitle>
           <CardDescription>
             {hadCredentials
-              ? "登录凭据已失效，请重新输入密码"
-              : "此服务已开启身份验证，请输入账号密码继续"}
+              ? t(WEBUI.connection.credentialsExpired)
+              : t(WEBUI.connection.authRequired)}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -64,7 +73,7 @@ export function LoginRequired() {
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field>
-              <FieldLabel>用户名</FieldLabel>
+              <FieldLabel>{t(WEBUI.connection.username)}</FieldLabel>
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -73,7 +82,7 @@ export function LoginRequired() {
               />
             </Field>
             <Field>
-              <FieldLabel>密码</FieldLabel>
+              <FieldLabel>{t(WEBUI.connection.password)}</FieldLabel>
               <Input
                 type="password"
                 value={password}
@@ -86,16 +95,18 @@ export function LoginRequired() {
                 htmlFor="remember-login"
                 className="cursor-pointer select-none"
               >
-                <p className="text-sm font-medium">记住登录状态</p>
+                <p className="text-sm font-medium">
+                  {t(WEBUI.connection.rememberLogin)}
+                </p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  关闭后下次访问需重新输入密码
+                  {t(WEBUI.connection.rememberLoginDesc)}
                 </p>
               </label>
               <Switch
                 id="remember-login"
                 checked={rememberLogin}
                 onCheckedChange={setRememberLogin}
-                aria-label="记住登录状态"
+                aria-label={t(WEBUI.connection.rememberLogin)}
               />
             </div>
             {connectionError && (
@@ -109,12 +120,14 @@ export function LoginRequired() {
               className="w-full"
               disabled={isConnecting || !username || !password}
             >
-              {isConnecting ? "登录中…" : "登录"}
+              {isConnecting
+                ? t(WEBUI.connection.loggingIn)
+                : t(WEBUI.connection.loginTitle)}
             </Button>
           </form>
           <div className="flex flex-wrap items-center gap-2 border-t pt-4">
             <Button variant="outline" size="sm" asChild>
-              <Link href="/settings">修改连接设置</Link>
+              <Link href="/settings">{t(WEBUI.connection.editConnection)}</Link>
             </Button>
             <Button
               variant="ghost"
@@ -122,7 +135,7 @@ export function LoginRequired() {
               onClick={() => setEditorMode(true)}
             >
               <FileCode2 className="h-3.5 w-3.5 mr-1.5" />
-              离线编辑配置
+              {t(WEBUI.connection.offlineEditConfig)}
             </Button>
           </div>
         </CardContent>
@@ -132,17 +145,16 @@ export function LoginRequired() {
 }
 
 export function ConnectionPending() {
+  const { t } = useI18n();
   return (
     <main className="oxidns-dialog-scrollbar min-h-0 flex-1 overflow-auto p-6">
       <Card className="max-w-xl">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Loader2 className="h-5 w-5 animate-spin" />
-            正在连接后台服务
+            {t(WEBUI.connection.pendingTitle)}
           </CardTitle>
-          <CardDescription>
-            正在通过默认地址连接 OxiDNS 管理 API，请稍候。
-          </CardDescription>
+          <CardDescription>{t(WEBUI.connection.pendingDesc)}</CardDescription>
         </CardHeader>
       </Card>
     </main>
@@ -150,6 +162,7 @@ export function ConnectionPending() {
 }
 
 export function ConnectionRequired() {
+  const { t } = useI18n();
   const setEditorMode = useAppStore((s) => s.setEditorMode);
   return (
     <main className="oxidns-dialog-scrollbar min-h-0 flex-1 overflow-auto p-6">
@@ -157,19 +170,17 @@ export function ConnectionRequired() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <PlugZap className="h-5 w-5" />
-            需要连接后台服务
+            {t(WEBUI.connection.requiredTitle)}
           </CardTitle>
-          <CardDescription>
-            当前 WebUI 尚未连接 OxiDNS 管理 API，请先在系统配置中连接后台服务。
-          </CardDescription>
+          <CardDescription>{t(WEBUI.connection.requiredDesc)}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button asChild>
-            <Link href="/settings">前往系统配置</Link>
+            <Link href="/settings">{t(WEBUI.connection.goSettings)}</Link>
           </Button>
           <Button variant="outline" onClick={() => setEditorMode(true)}>
             <FileCode2 className="h-4 w-4 mr-1.5" />
-            离线编辑配置文件
+            {t(WEBUI.connection.offlineEditConfigFile)}
           </Button>
         </CardContent>
       </Card>

@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { zhCNWebui } from "@/lib/i18n/locales/zh-CN/webui";
+import { I18nProvider } from "@/lib/i18n/provider";
 
 const fontSans = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const fontMono = JetBrains_Mono({
@@ -10,8 +12,8 @@ const fontMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OxiDNS - 控制台",
-  description: "OxiDNS 可编排 DNS 系统管理控制台",
+  title: zhCNWebui.metadata.title,
+  description: zhCNWebui.metadata.description,
   icons: {
     icon: [
       {
@@ -53,7 +55,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <I18nProvider>{children}</I18nProvider>
         </ThemeProvider>
       </body>
     </html>

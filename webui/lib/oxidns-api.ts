@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthStore } from "./auth-store";
+import { WEBUI, tClient } from "./i18n";
 
 export interface ConfigFileResponse {
   ok: boolean;
@@ -747,7 +748,8 @@ export async function listDynamicDomainRules(
   options: { cursor?: number; limit?: number; signal?: AbortSignal } = {},
 ): Promise<DynamicDomainRulesResponse> {
   const params = new URLSearchParams();
-  if (options.cursor !== undefined) params.set("cursor", String(options.cursor));
+  if (options.cursor !== undefined)
+    params.set("cursor", String(options.cursor));
   if (options.limit !== undefined) params.set("limit", String(options.limit));
   const suffix = params.toString() ? `?${params.toString()}` : "";
   const response = await fetch(
@@ -847,7 +849,7 @@ export async function streamLogs(
   });
   if (response.status === 401) {
     useAuthStore.getState().logout();
-    throw new Error("登录已失效，请重新登录");
+    throw new Error(tClient(WEBUI.storeErrors.loginExpired));
   }
   if (!response.ok || !response.body) {
     throw new Error(`HTTP ${response.status}`);
@@ -987,7 +989,7 @@ export function apiHeaders() {
 async function readJsonResponse<T>(response: Response): Promise<T> {
   if (response.status === 401) {
     useAuthStore.getState().logout();
-    throw new Error("登录已失效，请重新登录");
+    throw new Error(tClient(WEBUI.storeErrors.loginExpired));
   }
   const text = await response.text();
   const parsed = parseJsonResponseText(text);
@@ -1015,7 +1017,11 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   }
 
   if (!parsed.ok) {
-    throw new Error(`响应不是有效 JSON：${parsed.preview}`);
+    throw new Error(
+      tClient(WEBUI.storeErrors.invalidJsonResponse, {
+        preview: parsed.preview,
+      }),
+    );
   }
 
   return body as T;

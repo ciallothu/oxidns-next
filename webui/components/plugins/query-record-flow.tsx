@@ -46,6 +46,8 @@ import {
   pluginKindIconBgClass,
   pluginTypeAccentHex,
 } from "@/components/plugins/display";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 type MatchStatus = "matched" | "not_matched" | "unchecked";
 type ActionStatus =
@@ -117,6 +119,10 @@ const queryRecordNodeTypes = {
 };
 
 type NodePositions = Record<string, { x: number; y: number }>;
+type TFn = (
+  key: string,
+  params?: Record<string, string | number | boolean | null | undefined>,
+) => string;
 
 // Single global store, content-keyed: positions persist across query records
 // that exercise the same sequence / step layout instead of being trapped per
@@ -132,6 +138,7 @@ export function QueryRecordFlowCanvas({
   dependencyGraph: DependencyGraphReport | null;
   plugins: PluginInstance[];
 }) {
+  const { t } = useI18n();
   const positionStorageKey = QRF_STORAGE_KEY;
   const [savedPositions, setSavedPositions] = useState<NodePositions>(() => {
     try {
@@ -162,8 +169,8 @@ export function QueryRecordFlowCanvas({
   };
 
   const model = useMemo(
-    () => buildFlowModel(record, dependencyGraph, plugins),
-    [dependencyGraph, plugins, record],
+    () => buildFlowModel(record, dependencyGraph, plugins, t),
+    [dependencyGraph, plugins, record, t],
   );
 
   // Compute nodes/edges (memoised on model + savedPositions) so the reference
@@ -199,7 +206,7 @@ export function QueryRecordFlowCanvas({
   if (model.mode === "empty") {
     return (
       <div className="flex min-h-36 items-center justify-center rounded-md border border-dashed bg-muted/10 px-4 text-center text-sm text-muted-foreground">
-        本条记录没有 sequence 路径事件。
+        {t(WEBUI.queryRecordFlow.noSequenceEvents)}
       </div>
     );
   }
@@ -213,10 +220,14 @@ export function QueryRecordFlowCanvas({
         {model.mode === "flow" ? (
           <>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              {model.sequences.length} 个 sequence
+              {t(WEBUI.queryRecordFlow.sequenceCount, {
+                count: model.sequences.length,
+              })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              {record.steps.length} 个事件
+              {t(WEBUI.queryRecordFlow.eventCount, {
+                count: record.steps.length,
+              })}
             </span>
           </>
         ) : (
@@ -226,13 +237,13 @@ export function QueryRecordFlowCanvas({
           </span>
         )}
         <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">
-          命中
+          {t(WEBUI.queryRecordFlow.matched)}
         </span>
         <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:text-rose-300">
-          未命中
+          {t(WEBUI.queryRecordFlow.notMatched)}
         </span>
         <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-          未检查
+          {t(WEBUI.queryRecordFlow.unchecked)}
         </span>
       </div>
 
@@ -264,7 +275,7 @@ export function QueryRecordFlowCanvas({
             <Panel position="top-right">
               <button
                 type="button"
-                title="重置布局"
+                title={t(WEBUI.topology.resetLayout)}
                 className="rounded border bg-card/90 p-1.5 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground"
                 onClick={resetPositions}
               >
@@ -282,6 +293,7 @@ function buildFlowModel(
   record: QueryRecordDetail,
   dependencyGraph: DependencyGraphReport | null,
   plugins: PluginInstance[],
+  t: TFn,
 ): FlowModel {
   const steps = record.steps ?? [];
   if (steps.length === 0) return { mode: "empty" };
@@ -295,7 +307,7 @@ function buildFlowModel(
   if (!dependencyGraph || flowByTag.size === 0) {
     return {
       mode: "fallback",
-      reason: "配置拓扑不可用，已按事件顺序降级显示",
+      reason: t(WEBUI.queryRecordFlow.topologyUnavailable),
       steps,
     };
   }
@@ -305,7 +317,9 @@ function buildFlowModel(
   if (missing.length > 0) {
     return {
       mode: "fallback",
-      reason: `缺少 sequence 配置：${missing.join(", ")}`,
+      reason: t(WEBUI.queryRecordFlow.missingSequenceConfig, {
+        names: missing.join(", "),
+      }),
       steps,
     };
   }
@@ -329,7 +343,7 @@ function buildFlowModel(
         source: sequence.flow.tag,
         target,
         ruleIndex: rule.index,
-        label: `#${rule.index} ${sequenceActionLabel(rule.exec)}`,
+        label: `#${rule.index} ${sequenceActionLabel(rule.exec, t)}`,
       });
     }
   }
@@ -473,6 +487,7 @@ function buildFallbackEdges(model: Extract<FlowModel, { mode: "fallback" }>) {
 }
 
 function QuerySequenceNode({ data }: NodeProps<QuerySequenceFlowNode>) {
+  const { t } = useI18n();
   const { sequence, runtime, pluginByTag, outgoingRuleIndexes } = data;
   const flow = sequence.flow;
   const accent = pluginKindAccentHex("executor");
@@ -505,11 +520,11 @@ function QuerySequenceNode({ data }: NodeProps<QuerySequenceFlowNode>) {
             {flow.tag}
           </div>
           <div className="truncate font-mono text-[10px] text-muted-foreground">
-            events {eventRange}
+            {t(WEBUI.queryRecordFlow.eventsRange, { range: eventRange })}
           </div>
         </div>
         <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
-          {flow.rules.length} 条规则
+          {t(WEBUI.queryRecordFlow.rulesCount, { count: flow.rules.length })}
         </Badge>
       </div>
 
@@ -548,6 +563,7 @@ function SequenceRuleRow({
   pluginByTag: Map<string, PluginInstance>;
   hasOutgoingSequence: boolean;
 }) {
+  const { t } = useI18n();
   const matchStatuses = rule.matches.map((expression, matchIndex) =>
     getMatchStatus(sequenceTag, rule.index, matchIndex, expression, runtime),
   );
@@ -590,7 +606,7 @@ function SequenceRuleRow({
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         {rule.matches.length === 0 ? (
           <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">
-            always
+            {t(WEBUI.queryRecordFlow.alwaysMatch)}
           </span>
         ) : (
           rule.matches.map((expression, matchIndex) => (
@@ -652,6 +668,7 @@ function MatcherStatusChip({
   runtime: RuntimeIndexes;
   pluginByTag: Map<string, PluginInstance>;
 }) {
+  const { t } = useI18n();
   const result = getMatchStatus(
     sequenceTag,
     ruleIndex,
@@ -668,7 +685,9 @@ function MatcherStatusChip({
     <StatusPopover
       title={sequenceExpressionLabel(expression)}
       events={result.events}
-      fallback={`字段 ${expression.field}`}
+      fallback={t(WEBUI.queryRecordFlow.fieldFallback, {
+        field: expression.field,
+      })}
     >
       <span
         className={cn(
@@ -693,7 +712,7 @@ function MatcherStatusChip({
         )}
         <StatusSuffix
           events={result.events}
-          label={matchStatusLabel(result.status)}
+          label={matchStatusLabel(result.status, t)}
         />
       </span>
     </StatusPopover>
@@ -713,6 +732,7 @@ function ActionStatusChip({
   runtime: RuntimeIndexes;
   pluginByTag: Map<string, PluginInstance>;
 }) {
+  const { t } = useI18n();
   const result = getActionStatus(sequenceTag, ruleIndex, expression, runtime);
   const plugin =
     result.runtimeTag === undefined
@@ -721,9 +741,15 @@ function ActionStatusChip({
 
   return (
     <StatusPopover
-      title={sequenceActionLabel(expression)}
+      title={sequenceActionLabel(expression, t)}
       events={result.events}
-      fallback={expression ? `字段 ${expression.field}` : "该规则没有 exec"}
+      fallback={
+        expression
+          ? t(WEBUI.queryRecordFlow.fieldFallback, {
+              field: expression.field,
+            })
+          : t(WEBUI.queryRecordFlow.noExecFallback)
+      }
     >
       <span
         className={cn(
@@ -733,7 +759,7 @@ function ActionStatusChip({
       >
         {actionStatusIcon(result.status)}
         <span className="min-w-0 flex-1 truncate font-mono">
-          {sequenceActionLabel(expression)}
+          {sequenceActionLabel(expression, t)}
         </span>
         {plugin && (
           <span
@@ -747,7 +773,7 @@ function ActionStatusChip({
         )}
         <StatusSuffix
           events={result.events}
-          label={actionStatusLabel(result.status)}
+          label={actionStatusLabel(result.status, t)}
         />
       </span>
     </StatusPopover>
@@ -765,6 +791,7 @@ function StatusPopover({
   fallback: string;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -804,7 +831,7 @@ function StatusPopover({
             </div>
           ) : (
             <div className="rounded border border-dashed bg-muted/10 px-2 py-3 text-muted-foreground">
-              本次查询没有记录到这个节点的运行事件。
+              {t(WEBUI.queryRecordFlow.noNodeEvents)}
             </div>
           )}
         </div>
@@ -880,16 +907,26 @@ function QueryStepNode({ data }: NodeProps<QueryStepFlowNode>) {
 }
 
 function QueryRecordFlowLegend({ fallback }: { fallback: boolean }) {
+  const { t } = useI18n();
   return (
     <div className="rounded-md border bg-card/90 p-2 text-[11px] shadow-sm backdrop-blur-sm">
-      <div className="mb-1.5 font-semibold text-muted-foreground">图例</div>
+      <div className="mb-1.5 font-semibold text-muted-foreground">
+        {t(WEBUI.topology.legend)}
+      </div>
       <div className="space-y-1">
-        <LegendLine color={QUERY_MATCH_COLOR} label="matcher 判断" dashed />
-        <LegendLine color={QUERY_EDGE_COLOR} label="sequence 跳转" />
+        <LegendLine
+          color={QUERY_MATCH_COLOR}
+          label={t(WEBUI.queryRecordFlow.matcherEdgeLabel)}
+          dashed
+        />
+        <LegendLine
+          color={QUERY_EDGE_COLOR}
+          label={t(WEBUI.queryRecordFlow.sequenceEdgeLabel)}
+        />
         {fallback && (
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <AlertTriangle className="h-3 w-3 text-amber-500" />
-            原始事件顺序
+            {t(WEBUI.queryRecordFlow.rawEventOrder)}
           </div>
         )}
       </div>
@@ -1076,8 +1113,11 @@ function sequenceExpressionLabel(expression: SequenceFlowExpression) {
   return `${not}${compactText(expression.raw, 26)}`;
 }
 
-function sequenceActionLabel(expression: SequenceFlowExpression | undefined) {
-  if (!expression) return "无 exec";
+function sequenceActionLabel(
+  expression: SequenceFlowExpression | undefined,
+  t: TFn,
+) {
+  if (!expression) return t(WEBUI.queryRecordFlow.noExec);
   if (expression.kind === "builtin") {
     const param = expression.param
       ? ` ${compactText(expression.param, 18)}`
@@ -1099,9 +1139,10 @@ function eventRangeLabel(steps: QueryRecorderStep[]) {
 }
 
 function InvertMark() {
+  const { t } = useI18n();
   return (
     <span
-      aria-label="取反"
+      aria-label={t(WEBUI.topology.invertLabel)}
       className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-rose-400 bg-rose-100 font-mono text-[11px] font-bold leading-none text-rose-600 dark:border-rose-600 dark:bg-rose-950 dark:text-rose-400"
     >
       !
@@ -1121,26 +1162,26 @@ function actionStatusIcon(status: ActionStatus) {
   return <Play className="h-3 w-3 shrink-0" />;
 }
 
-function matchStatusLabel(status: MatchStatus) {
-  if (status === "matched") return "命中";
-  if (status === "not_matched") return "未命中";
-  return "未检查";
+function matchStatusLabel(status: MatchStatus, t: TFn) {
+  if (status === "matched") return t(WEBUI.queryRecordFlow.matched);
+  if (status === "not_matched") return t(WEBUI.queryRecordFlow.notMatched);
+  return t(WEBUI.queryRecordFlow.unchecked);
 }
 
-function actionStatusLabel(status: ActionStatus) {
+function actionStatusLabel(status: ActionStatus, t: TFn) {
   switch (status) {
     case "entered":
-      return "已进入";
+      return t(WEBUI.queryRecordFlow.entered);
     case "next":
-      return "继续";
+      return t(WEBUI.queryRecordFlow.next);
     case "stop":
-      return "停止";
+      return t(WEBUI.queryRecordFlow.stop);
     case "return":
-      return "返回";
+      return t(WEBUI.queryRecordFlow.return);
     case "error":
-      return "错误";
+      return t(WEBUI.queryRecordFlow.error);
     default:
-      return "未执行";
+      return t(WEBUI.queryRecordFlow.notExecuted);
   }
 }
 

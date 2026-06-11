@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,
   Controls,
@@ -26,9 +20,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ArrowRight, CornerDownRight, GitBranch, RotateCcw } from "lucide-react";
+import {
+  ArrowRight,
+  CornerDownRight,
+  GitBranch,
+  RotateCcw,
+} from "lucide-react";
 import type { PluginInstance, PluginType } from "@/lib/types";
-import { PLUGIN_TYPE_LABELS } from "@/lib/types";
 import type {
   DependencyGraphEdge,
   DependencyGraphNode,
@@ -49,6 +47,9 @@ import {
   pluginTypeAccentHex,
   pluginTypeIcons,
 } from "@/components/plugins/display";
+import { WEBUI } from "@/lib/i18n";
+import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
+import { useI18n } from "@/lib/i18n/provider";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -267,9 +268,11 @@ export function TopologyView({
   dependencyGraph: DependencyGraphReport | null;
   onSelect: (plugin: PluginInstance) => void;
 }) {
+  const { t } = useI18n();
   const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
-  const [savedPositions, setSavedPositions] =
-    useState<NodePositions>(loadTopologyPositions);
+  const [savedPositions, setSavedPositions] = useState<NodePositions>(
+    loadTopologyPositions,
+  );
 
   const topology = useMemo(() => {
     if (!dependencyGraph) return null;
@@ -280,10 +283,7 @@ export function TopologyView({
     topology?.roots.find((root) => root.tag === selectedRoot)?.tag ??
     topology?.roots[0]?.tag;
 
-  const handlePositionChange = (
-    key: string,
-    pos: { x: number; y: number },
-  ) => {
+  const handlePositionChange = (key: string, pos: { x: number; y: number }) => {
     setSavedPositions((prev) => {
       const next: NodePositions = { ...prev, [key]: pos };
       localStorage.setItem(TOPOLOGY_STORAGE_KEY, JSON.stringify(next));
@@ -316,98 +316,101 @@ export function TopologyView({
     // filteredReachableByRoot excludes nodes only reachable via inlined paths,
     // so floating "orphan" nodes (e.g. raw providers) never appear in the graph.
     const visibleTags =
-      topology.filteredReachableByRoot.get(activeRoot ?? "") ?? new Set<string>();
+      topology.filteredReachableByRoot.get(activeRoot ?? "") ??
+      new Set<string>();
     const layout = layoutTopology(topology, activeRoot, visibleTags);
 
     const nodes: Node[] = layout.nodes.map(({ node, x, y, isRoot }) => {
       const positionKey = topologyNodeKey(node.kind, node.tag);
       return {
-      id: node.tag,
-      type: "topologyPlugin",
-      position: savedPositions[positionKey] ?? { x, y },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      data: {
-        positionKey,
-        label: topology.sequenceFlowsByTag.has(node.tag) ? (
-          <SequenceFlowNode
-            node={node}
-            flow={topology.sequenceFlowsByTag.get(node.tag)!}
-            nodesByTag={topology.nodesByTag}
-            inlinedTags={topology.inlinedTags}
-            sequenceFlowsByTag={topology.sequenceFlowsByTag}
-            plugins={plugins}
-            isRoot={isRoot}
-            onSelect={(p) => onSelectRef.current(p)}
-          />
-        ) : (
-          <TopologyNodeCard
-            node={node}
-            isRoot={isRoot}
-            plugin={plugins.find((p) => p.name === node.tag)}
-            onSelect={(p) => onSelectRef.current(p)}
-          />
-        ),
-      },
-    };
-    });
-
-    const edges: Edge[] = topology.edges
-    .filter(
-      (edge) =>
-        !topology.inlinedTags.has(edge.source_tag) &&
-        !topology.inlinedTags.has(edge.target_tag) &&
-        visibleTags.has(edge.source_tag) &&
-        visibleTags.has(edge.target_tag),
-    )
-    .map((edge, index) => {
-      // Back/cycle edge detection: edges that don't go strictly left → right
-      // (source depth >= target depth) are rendered as a direct line so the
-      // dependency cycle is visually obvious instead of being routed around
-      // the layout by the orthogonal smoothstep router.
-      const sourceDepth = layout.depthByTag.get(edge.source_tag) ?? 0;
-      const targetDepth = layout.depthByTag.get(edge.target_tag) ?? 0;
-      const isCycle = sourceDepth >= targetDepth;
-
-      const { style, markerEnd, labelStyle } = isCycle
-        ? cycleEdgeStyle()
-        : getEdgeStyle(edge.field);
-
-      // For sequence sources, anchor the edge on the specific rule row
-      // (handle id `rule-N`) so it's obvious which #N → target the line means.
-      // Falls back to the default node-level right handle when the source is
-      // not a sequence or the rule's exec is not a sequence call.
-      const ruleIdx = ruleIndexFromField(edge.field);
-      const sourceHandle =
-        topology.sequenceFlowsByTag.has(edge.source_tag) &&
-        ruleIdx !== null &&
-        topology.sequenceFlowsByTag.has(edge.target_tag) &&
-        /\.exec$/.test(edge.field)
-          ? `rule-${ruleIdx}`
-          : undefined;
-
-      return {
-        id: `${edge.source_tag}-${edge.target_tag}-${index}`,
-        source: edge.source_tag,
-        target: edge.target_tag,
-        sourceHandle,
-        label: isCycle
-          ? `循环 · ${formatDependencyEdgeLabel(edge)}`
-          : formatDependencyEdgeLabel(edge),
-        type: isCycle ? "straight" : "smoothstep",
-        animated: isCycle,
-        style,
-        markerEnd,
-        labelStyle,
-        labelBgPadding: [4, 2] as [number, number],
-        labelBgBorderRadius: 3,
-        labelBgStyle: { fillOpacity: 0.9 },
-        zIndex: isCycle ? 10 : 0,
+        id: node.tag,
+        type: "topologyPlugin",
+        position: savedPositions[positionKey] ?? { x, y },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        data: {
+          positionKey,
+          label: topology.sequenceFlowsByTag.has(node.tag) ? (
+            <SequenceFlowNode
+              node={node}
+              flow={topology.sequenceFlowsByTag.get(node.tag)!}
+              nodesByTag={topology.nodesByTag}
+              inlinedTags={topology.inlinedTags}
+              sequenceFlowsByTag={topology.sequenceFlowsByTag}
+              plugins={plugins}
+              isRoot={isRoot}
+              onSelect={(p) => onSelectRef.current(p)}
+            />
+          ) : (
+            <TopologyNodeCard
+              node={node}
+              isRoot={isRoot}
+              plugin={plugins.find((p) => p.name === node.tag)}
+              onSelect={(p) => onSelectRef.current(p)}
+            />
+          ),
+        },
       };
     });
 
+    const edges: Edge[] = topology.edges
+      .filter(
+        (edge) =>
+          !topology.inlinedTags.has(edge.source_tag) &&
+          !topology.inlinedTags.has(edge.target_tag) &&
+          visibleTags.has(edge.source_tag) &&
+          visibleTags.has(edge.target_tag),
+      )
+      .map((edge, index) => {
+        // Back/cycle edge detection: edges that don't go strictly left → right
+        // (source depth >= target depth) are rendered as a direct line so the
+        // dependency cycle is visually obvious instead of being routed around
+        // the layout by the orthogonal smoothstep router.
+        const sourceDepth = layout.depthByTag.get(edge.source_tag) ?? 0;
+        const targetDepth = layout.depthByTag.get(edge.target_tag) ?? 0;
+        const isCycle = sourceDepth >= targetDepth;
+
+        const { style, markerEnd, labelStyle } = isCycle
+          ? cycleEdgeStyle()
+          : getEdgeStyle(edge.field);
+
+        // For sequence sources, anchor the edge on the specific rule row
+        // (handle id `rule-N`) so it's obvious which #N → target the line means.
+        // Falls back to the default node-level right handle when the source is
+        // not a sequence or the rule's exec is not a sequence call.
+        const ruleIdx = ruleIndexFromField(edge.field);
+        const sourceHandle =
+          topology.sequenceFlowsByTag.has(edge.source_tag) &&
+          ruleIdx !== null &&
+          topology.sequenceFlowsByTag.has(edge.target_tag) &&
+          /\.exec$/.test(edge.field)
+            ? `rule-${ruleIdx}`
+            : undefined;
+
+        return {
+          id: `${edge.source_tag}-${edge.target_tag}-${index}`,
+          source: edge.source_tag,
+          target: edge.target_tag,
+          sourceHandle,
+          label: isCycle
+            ? t(WEBUI.topology.cyclic, {
+                label: formatDependencyEdgeLabel(edge),
+              })
+            : formatDependencyEdgeLabel(edge),
+          type: isCycle ? "straight" : "smoothstep",
+          animated: isCycle,
+          style,
+          markerEnd,
+          labelStyle,
+          labelBgPadding: [4, 2] as [number, number],
+          labelBgBorderRadius: 3,
+          labelBgStyle: { fillOpacity: 0.9 },
+          zIndex: isCycle ? 10 : 0,
+        };
+      });
+
     return { nodes, edges, visibleTags, layout };
-  }, [topology, activeRoot, savedPositions, plugins]);
+  }, [topology, activeRoot, savedPositions, plugins, t]);
 
   // Hold the flow nodes in state and let React Flow's drag pipeline feed
   // updates back via `onNodesChange`; otherwise the in-progress drag never
@@ -421,7 +424,7 @@ export function TopologyView({
   if (!dependencyGraph) {
     return (
       <div className="rounded-lg border border-dashed p-12 text-center text-sm text-muted-foreground">
-        暂无依赖图，请先读取并校验配置。
+        {t(WEBUI.plugins.topologyUnavailable)}
       </div>
     );
   }
@@ -449,11 +452,15 @@ export function TopologyView({
       />
 
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span>{graphNodeCount} 个图节点</span>
+        <span>{t(WEBUI.topology.graphNodes, { count: graphNodeCount })}</span>
         <span className="text-border">·</span>
-        <span>{inlinedCount} 个内嵌插件</span>
+        <span>{t(WEBUI.topology.inlinedPlugins, { count: inlinedCount })}</span>
         <span className="text-border">·</span>
-        <span>{topology.sequenceFlowsByTag.size} 个 sequence</span>
+        <span>
+          {t(WEBUI.topology.sequences, {
+            count: topology.sequenceFlowsByTag.size,
+          })}
+        </span>
       </div>
 
       <div className="h-[660px] overflow-hidden rounded-xl border bg-muted/10 shadow-sm">
@@ -485,7 +492,7 @@ export function TopologyView({
             <Panel position="top-right">
               <button
                 type="button"
-                title="重置布局"
+                title={t(WEBUI.topology.resetLayout)}
                 className="rounded border bg-card/90 p-1.5 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground"
                 onClick={resetPositions}
               >
@@ -512,10 +519,11 @@ function RootSelector({
   filteredReachableByRoot: Map<string, Set<string>>;
   onSelect: (tag: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
       <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
-        入口节点
+        {t(WEBUI.plugins.entryNode)}
       </span>
       <div className="flex flex-wrap gap-1.5">
         {roots.map((root) => {
@@ -561,13 +569,16 @@ function RootSelector({
 // ─── Legend panel ─────────────────────────────────────────────────────────────
 
 function TopologyLegend() {
+  const { t } = useI18n();
   return (
     <div className="rounded-lg border bg-card/90 p-2.5 text-[11px] shadow-sm backdrop-blur-sm">
-      <div className="mb-1.5 font-semibold text-muted-foreground">图例</div>
+      <div className="mb-1.5 font-semibold text-muted-foreground">
+        {t(WEBUI.topology.legend)}
+      </div>
 
       {/* Node types — any plugin kind may appear as a standalone graph node
           depending on how the config is structured. Don't conflate
-          server ↔ entry; the `入口` badge is rendered inline on root nodes. */}
+          server ↔ entry; the entry badge is rendered inline on root nodes. */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {(
           [
@@ -590,11 +601,15 @@ function TopologyLegend() {
       <div className="mt-2 space-y-1 border-t pt-2">
         <div className="flex items-center gap-1.5">
           <div className="h-4 w-10 rounded border border-amber-300/80 bg-amber-50/80 dark:border-amber-700/60 dark:bg-amber-950/50" />
-          <span className="text-muted-foreground">匹配条件</span>
+          <span className="text-muted-foreground">
+            {t(WEBUI.topology.matchCondition)}
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="h-4 w-10 rounded border border-sky-300/80 bg-sky-50/80 dark:border-sky-700/60 dark:bg-sky-950/50" />
-          <span className="text-muted-foreground">执行目标</span>
+          <span className="text-muted-foreground">
+            {t(WEBUI.topology.execTarget)}
+          </span>
         </div>
       </div>
 
@@ -611,7 +626,9 @@ function TopologyLegend() {
               strokeWidth="2.2"
             />
           </svg>
-          <span className="text-muted-foreground">sequence 调用</span>
+          <span className="text-muted-foreground">
+            {t(WEBUI.topology.sequenceCall)}
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
           <svg width="22" height="8" className="shrink-0">
@@ -624,7 +641,9 @@ function TopologyLegend() {
               strokeWidth="1.5"
             />
           </svg>
-          <span className="text-muted-foreground">结构依赖</span>
+          <span className="text-muted-foreground">
+            {t(WEBUI.topology.structuralDep)}
+          </span>
         </div>
         <div className="flex items-center gap-1.5">
           <svg width="22" height="8" className="shrink-0">
@@ -638,7 +657,9 @@ function TopologyLegend() {
               strokeDasharray="4 2"
             />
           </svg>
-          <span className="text-muted-foreground">循环依赖</span>
+          <span className="text-muted-foreground">
+            {t(WEBUI.topology.cyclicDep)}
+          </span>
         </div>
       </div>
     </div>
@@ -666,6 +687,7 @@ function SequenceFlowNode({
   isRoot: boolean;
   onSelect: (plugin: PluginInstance) => void;
 }) {
+  const { t } = useI18n();
   const seqPlugin = plugins.find((p) => p.name === node.tag);
   const accent = kindAccentColor(node.kind);
   const iconBg = kindIconBgClass(node.kind);
@@ -714,11 +736,11 @@ function SequenceFlowNode({
               variant="outline"
               className="border-primary px-1.5 py-0 text-[10px] text-primary"
             >
-              入口
+              {t(WEBUI.plugins.entry)}
             </Badge>
           )}
           <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-            序列 {flow.rules.length} 条
+            {t(WEBUI.topology.sequenceRules, { count: flow.rules.length })}
           </Badge>
         </div>
       </div>
@@ -877,9 +899,10 @@ function SequenceFlowNode({
 // `!` character. Reused everywhere a negated match needs to be visualised, and
 // kept consistent with the `InvertCheckbox` button in `sequence-composer.tsx`.
 export function InvertMark() {
+  const { t } = useI18n();
   return (
     <span
-      aria-label="取反"
+      aria-label={t(WEBUI.topology.invertLabel)}
       className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-rose-400 bg-rose-100 font-mono text-[11px] font-bold leading-none text-rose-600 dark:border-rose-600 dark:bg-rose-950 dark:text-rose-400"
     >
       !
@@ -1013,6 +1036,7 @@ export function SequenceCallChip({
   plugin?: PluginInstance;
   onSelect: (plugin: PluginInstance) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       role={plugin ? "button" : undefined}
@@ -1039,7 +1063,7 @@ export function SequenceCallChip({
         {tag}
       </span>
       <span className="shrink-0 rounded bg-sky-100/80 px-1 py-px text-[9px] text-sky-600 dark:bg-sky-900/50 dark:text-sky-400">
-        {ruleCount}条
+        {t(WEBUI.topology.ruleCount, { count: ruleCount })}
       </span>
     </div>
   );
@@ -1117,6 +1141,7 @@ function TopologyNodeCard({
   plugin?: PluginInstance;
   onSelect: (plugin: PluginInstance) => void;
 }) {
+  const { locale, t } = useI18n();
   const accent = kindAccentColor(node.kind);
   const iconBg = kindIconBgClass(node.kind);
   const badgeCls = kindBadgeClass(node.kind);
@@ -1152,7 +1177,7 @@ function TopologyNodeCard({
               variant="outline"
               className="shrink-0 border-primary px-1.5 py-0 text-[10px] text-primary"
             >
-              入口
+              {t(WEBUI.plugins.entry)}
             </Badge>
           )}
         </div>
@@ -1161,7 +1186,9 @@ function TopologyNodeCard({
             variant="outline"
             className={cn("px-1.5 py-0 text-[10px]", badgeCls)}
           >
-            {PLUGIN_TYPE_LABELS[node.kind as PluginType] ?? node.kind}
+            {isPluginType(node.kind)
+              ? pluginTypeLabel(node.kind, locale)
+              : node.kind}
           </Badge>
           <Badge
             variant="secondary"
@@ -1182,8 +1209,9 @@ function SequenceExpressionChip({
 }: {
   expression: SequenceFlowExpression;
 }) {
+  const { t } = useI18n();
   const label = sequenceExpressionLabel(expression);
-  const detail = sequenceExpressionDetail(expression);
+  const detail = sequenceExpressionDetail(expression, t);
 
   return (
     <Popover>
@@ -1206,9 +1234,13 @@ function SequenceExpressionChip({
         <div className="space-y-2">
           <div className="font-medium">{label}</div>
           <div className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1">
-            <span className="text-muted-foreground">字段</span>
+            <span className="text-muted-foreground">
+              {t(WEBUI.topology.fieldLabel)}
+            </span>
             <span className="font-mono">{expression.field}</span>
-            <span className="text-muted-foreground">类型</span>
+            <span className="text-muted-foreground">
+              {t(WEBUI.topology.typeLabel)}
+            </span>
             <span>{expression.kind}</span>
             {detail.map(([key, value]) => (
               <span key={key} className="contents">
@@ -1681,13 +1713,21 @@ function sequenceExpressionLabel(expression: SequenceFlowExpression) {
   return `${not}${compactText(expression.raw, 32)}`;
 }
 
-function sequenceExpressionDetail(expression: SequenceFlowExpression) {
+function sequenceExpressionDetail(
+  expression: SequenceFlowExpression,
+  t: (key: string) => string,
+) {
   const detail: Array<[string, string]> = [];
-  if (expression.target_tag) detail.push(["目标", expression.target_tag]);
-  if (expression.plugin_type) detail.push(["插件", expression.plugin_type]);
-  if (expression.param) detail.push(["参数", expression.param]);
-  if (expression.builtin) detail.push(["内建", expression.builtin]);
-  if (expression.inverted) detail.push(["取反", "true"]);
+  if (expression.target_tag)
+    detail.push([t(WEBUI.topology.targetLabel), expression.target_tag]);
+  if (expression.plugin_type)
+    detail.push([t(WEBUI.topology.pluginLabel), expression.plugin_type]);
+  if (expression.param)
+    detail.push([t(WEBUI.topology.paramLabel), expression.param]);
+  if (expression.builtin)
+    detail.push([t(WEBUI.topology.builtinLabel), expression.builtin]);
+  if (expression.inverted)
+    detail.push([t(WEBUI.topology.invertedLabel), "true"]);
   return detail;
 }
 

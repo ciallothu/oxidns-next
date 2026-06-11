@@ -6,6 +6,9 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { Cpu, HardDrive, HeartPulse, Puzzle } from "lucide-react";
 import { useAppStore } from "@/lib/store";
+import { WEBUI } from "@/lib/i18n";
+import type { TranslationParams } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 // Ticks locally every second; re-calibrates whenever backendUptimeMs changes.
 function useLocalUptime(backendUptimeMs: number): number {
@@ -30,16 +33,18 @@ function useLocalUptime(backendUptimeMs: number): number {
   return syncedUptime + elapsedMs;
 }
 
-function formatUptime(ms: number): string {
+type TFn = (key: string, params?: TranslationParams) => string;
+
+function formatUptime(ms: number, t: TFn): string {
   const s = Math.floor(ms / 1000);
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  if (d > 0) return `${d}天 ${h}小时 ${m}分`;
-  if (h > 0) return `${h}小时 ${m}分`;
-  if (m > 0) return `${m}分 ${sec}秒`;
-  return `${sec}秒`;
+  if (d > 0) return t(WEBUI.dashboard.uptimeDhm, { d, h, m });
+  if (h > 0) return t(WEBUI.dashboard.uptimeHm, { h, m });
+  if (m > 0) return t(WEBUI.dashboard.uptimeMs, { m, s: sec });
+  return t(WEBUI.dashboard.uptimeS, { s: sec });
 }
 
 function formatMemory(mb: number): string {
@@ -72,6 +77,7 @@ function CheckDot({ status }: { status?: string }) {
 }
 
 export function SystemMetrics() {
+  const { t } = useI18n();
   const health = useAppStore((s) => s.health);
   const system = useAppStore((s) => s.system);
   const plugins = useAppStore((s) => s.plugins);
@@ -92,10 +98,11 @@ export function SystemMetrics() {
 
   return (
     <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-      {/* 服务健康 */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">服务健康</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {t(WEBUI.dashboard.serviceHealth)}
+          </CardTitle>
           <HeartPulse className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent className="space-y-2">
@@ -109,7 +116,11 @@ export function SystemMetrics() {
               {healthStatus}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {uptimeMs > 0 ? `已运行 ${formatUptime(uptimeMs)}` : "等待数据"}
+              {uptimeMs > 0
+                ? t(WEBUI.dashboard.running, {
+                    duration: formatUptime(uptimeMs, t),
+                  })
+                : t(WEBUI.dashboard.waitingData)}
             </p>
           </div>
           {health && (
@@ -120,21 +131,22 @@ export function SystemMetrics() {
               </span>
               <span className="flex items-center gap-1">
                 <CheckDot status={health.checks.plugin_init} />
-                插件
+                {t(WEBUI.dashboard.checkPlugin)}
               </span>
               <span className="flex items-center gap-1">
                 <CheckDot status={health.checks.server_startup} />
-                服务器
+                {t(WEBUI.dashboard.checkServer)}
               </span>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* CPU 占用 */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">CPU 占用</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {t(WEBUI.dashboard.cpuUsage)}
+          </CardTitle>
           <Cpu className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent className="space-y-2">
@@ -145,7 +157,7 @@ export function SystemMetrics() {
               {system ? `${cpuPct.toFixed(1)}%` : "-"}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              进程 CPU 使用率
+              {t(WEBUI.dashboard.cpuUsageDesc)}
             </p>
           </div>
           <Progress
@@ -156,10 +168,11 @@ export function SystemMetrics() {
         </CardContent>
       </Card>
 
-      {/* 内存占用 */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">内存占用</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {t(WEBUI.dashboard.memUsage)}
+          </CardTitle>
           <HardDrive className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent className="space-y-2">
@@ -171,8 +184,11 @@ export function SystemMetrics() {
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {totalMemMb > 0
-                ? `共 ${formatMemory(totalMemMb)} · ${memPct.toFixed(1)}%`
-                : "进程 RSS"}
+                ? t(WEBUI.dashboard.memTotal, {
+                    total: formatMemory(totalMemMb),
+                    pct: memPct.toFixed(1),
+                  })
+                : t(WEBUI.dashboard.processRss)}
             </p>
           </div>
           <Progress
@@ -183,10 +199,11 @@ export function SystemMetrics() {
         </CardContent>
       </Card>
 
-      {/* 插件总数 */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">插件总数</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {t(WEBUI.dashboard.pluginTotal)}
+          </CardTitle>
           <Puzzle className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent className="space-y-2">
@@ -200,13 +217,19 @@ export function SystemMetrics() {
             </p>
           </div>
           <div className="border-t border-border/50 pt-2 flex items-center gap-3 text-xs text-muted-foreground">
-            {serverCount !== undefined && <span>{serverCount} 服务器</span>}
+            {serverCount !== undefined && (
+              <span>
+                {t(WEBUI.dashboard.serverCount, { count: serverCount })}
+              </span>
+            )}
             <span
               className={cn(
                 configError ? "text-destructive" : "text-green-500",
               )}
             >
-              {configError ? "配置有误" : "校验通过"}
+              {configError
+                ? t(WEBUI.dashboard.configError)
+                : t(WEBUI.dashboard.configOk)}
             </span>
           </div>
         </CardContent>

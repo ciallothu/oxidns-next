@@ -36,6 +36,8 @@ import type {
 import { PluginDetailTemplate } from "@/components/plugins/plugin-detail-template";
 import type { PluginInstance } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,12 +56,6 @@ interface CronJob {
   interval: string;
   executors: CronExecutorItem[];
 }
-
-const executorModeLabels: Record<ExecutorItemMode, string> = {
-  reference: "引用",
-  quick_setup: "快捷",
-  text: "文本",
-};
 
 // ─── Parse / serialize ────────────────────────────────────────────────────────
 
@@ -158,6 +154,7 @@ export function CronComposer({
   plugins,
   readOnly = false,
 }: CronComposerProps) {
+  const { t } = useI18n();
   const [view, setView] = useState<"visual" | "yaml">("visual");
   const [yamlText, setYamlText] = useState(() =>
     stringifyArgsLevelPluginConfigYaml(value),
@@ -208,7 +205,7 @@ export function CronComposer({
       onChange(parsed.value as Record<string, unknown>);
       return;
     }
-    setYamlError("cron 配置必须是 YAML 对象");
+    setYamlError(t(WEBUI.cron.yamlMustBeObject));
   };
 
   return (
@@ -219,7 +216,7 @@ export function CronComposer({
           onValueChange={(v) => handleViewChange(v as typeof view)}
         >
           <TabsList className="grid w-44 max-w-full grid-cols-2">
-            <TabsTrigger value="visual">任务</TabsTrigger>
+            <TabsTrigger value="visual">{t(WEBUI.cron.taskTab)}</TabsTrigger>
             <TabsTrigger value="yaml">YAML</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -236,7 +233,7 @@ export function CronComposer({
             <CreateDependencyCronButton />
             <Button type="button" size="sm" onClick={addJob}>
               <Plus className="h-4 w-4" />
-              新增任务
+              {t(WEBUI.cron.addTask)}
             </Button>
           </div>
         )}
@@ -246,13 +243,15 @@ export function CronComposer({
         <div className="space-y-3">
           {!readOnly && (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">时区</span>
+              <span className="text-xs text-muted-foreground">
+                {t(WEBUI.cron.timezone)}
+              </span>
               <Input
                 value={timezone}
                 onChange={(e) =>
                   onChange({ ...value, timezone: e.target.value || undefined })
                 }
-                placeholder="Asia/Shanghai（留空使用系统时区）"
+                placeholder={t(WEBUI.cron.timezonePlaceholder)}
                 className="h-8 max-w-xs font-mono text-xs"
               />
             </div>
@@ -260,14 +259,16 @@ export function CronComposer({
           {jobs.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
               <Clock className="mx-auto h-8 w-8 text-muted-foreground" />
-              <div className="mt-3 text-sm font-medium">暂无定时任务</div>
+              <div className="mt-3 text-sm font-medium">
+                {t(WEBUI.cron.noTasks)}
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                添加任务后，cron 插件会按计划调用一组 executor。
+                {t(WEBUI.cron.noTasksDesc)}
               </p>
               {!readOnly && (
                 <Button type="button" className="mt-4" onClick={addJob}>
                   <Plus className="h-4 w-4" />
-                  新增任务
+                  {t(WEBUI.cron.addTask)}
                 </Button>
               )}
             </div>
@@ -322,6 +323,7 @@ function CronJobCard({
   onChange: (patch: Partial<CronJob>) => void;
   onDelete: () => void;
 }) {
+  const { t } = useI18n();
   const addExecutor = () => {
     onChange({ executors: [...job.executors, createEmptyExecutorItem()] });
   };
@@ -347,7 +349,7 @@ function CronJobCard({
             <span className="min-w-0 flex-1 truncate font-mono text-sm font-medium">
               {job.name || (
                 <span className="text-muted-foreground">
-                  未命名任务 #{index + 1}
+                  {t(WEBUI.cron.unnamedTask, { index: index + 1 })}
                 </span>
               )}
             </span>
@@ -356,7 +358,7 @@ function CronJobCard({
               <Input
                 value={job.name}
                 onChange={(e) => onChange({ name: e.target.value })}
-                placeholder={`任务名称（必填，如 refresh_sets）`}
+                placeholder={t(WEBUI.cron.taskNamePlaceholder)}
                 aria-invalid={!job.name.trim()}
                 className={cn(
                   "h-7 min-w-0 flex-1 font-mono text-xs",
@@ -367,7 +369,7 @@ function CronJobCard({
               <span
                 className="text-destructive"
                 aria-hidden="true"
-                title="必填"
+                title={t(WEBUI.cron.required)}
               >
                 *
               </span>
@@ -383,7 +385,7 @@ function CronJobCard({
               size="icon"
               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
               onClick={onDelete}
-              aria-label="删除任务"
+              aria-label={t(WEBUI.cron.deleteTask)}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -395,7 +397,7 @@ function CronJobCard({
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Cron 表达式
+              {t(WEBUI.cron.cronExpr)}
             </div>
             <Input
               value={job.schedule}
@@ -407,7 +409,7 @@ function CronJobCard({
           </div>
           <div className="space-y-1">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              固定间隔
+              {t(WEBUI.cron.fixedInterval)}
             </div>
             <Input
               value={job.interval}
@@ -423,7 +425,7 @@ function CronJobCard({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
-              执行器列表
+              {t(WEBUI.cron.executorList)}
             </div>
             {!readOnly && (
               <Button
@@ -434,13 +436,13 @@ function CronJobCard({
                 onClick={addExecutor}
               >
                 <Plus className="h-3 w-3" />
-                添加
+                {t(WEBUI.cron.addExecutor)}
               </Button>
             )}
           </div>
           {job.executors.length === 0 ? (
             <div className="rounded-md border border-dashed border-sky-300/60 bg-sky-50/30 px-3 py-3 text-center text-xs italic text-muted-foreground dark:border-sky-800/40 dark:bg-sky-950/15">
-              无执行器
+              {t(WEBUI.cron.noExecutors)}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -477,6 +479,7 @@ function CronExecutorEditor({
   onChange: (patch: Partial<CronExecutorItem>) => void;
   onDelete: () => void;
 }) {
+  const { t } = useI18n();
   const [localMode, setLocalMode] = useState<ExecutorItemMode>(item.mode);
 
   const handleModeChange = (mode: ExecutorItemMode) => {
@@ -503,10 +506,11 @@ function CronExecutorEditor({
             "shrink-0",
             localMode === "quick_setup" ? "w-[4.5rem]" : "w-[4.5rem]",
           )}
-          options={Object.entries(executorModeLabels).map(([value, label]) => ({
-            value,
-            label,
-          }))}
+          options={[
+            { value: "reference", label: t(WEBUI.sequence.modeReference) },
+            { value: "quick_setup", label: t(WEBUI.sequence.modeQuickSetup) },
+            { value: "text", label: t(WEBUI.sequence.modeText) },
+          ]}
         />
         <div className="min-w-0 flex-1">
           {localMode === "reference" ? (
@@ -515,8 +519,8 @@ function CronExecutorEditor({
               value={stripReferencePrefix(item.value)}
               referenceTypes={["executor"]}
               disabled={readOnly}
-              placeholder="选择 executor"
-              createDescription="创建后会立即回填到当前 cron 任务中。"
+              placeholder={t(WEBUI.sequence.selectExecutor)}
+              createDescription={t(WEBUI.cron.createRefDesc)}
               allowCreate
               onChange={(tag) => onChange({ value: tag })}
             />
@@ -545,7 +549,7 @@ function CronExecutorEditor({
             size="icon"
             className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
             onClick={onDelete}
-            aria-label="删除执行器"
+            aria-label={t(WEBUI.cron.deleteExecutor)}
           >
             <Minus className="h-3.5 w-3.5" />
           </Button>
@@ -558,16 +562,17 @@ function CronExecutorEditor({
 // ─── Standalone create dependency button ─────────────────────────────────────
 
 function CreateDependencyCronButton() {
+  const { t } = useI18n();
   return (
     <CreatePluginDialog
       defaultType="executor"
       supportedTypes={["executor"]}
-      title="新建依赖 Executor"
-      description="创建后会出现在当前 cron 任务的执行器选择器中。"
+      title={t(WEBUI.cron.createDepsTitle)}
+      description={t(WEBUI.cron.createDepsDesc)}
       trigger={
         <Button type="button" variant="outline" size="sm">
           <Plus className="h-4 w-4" />
-          新建依赖插件
+          {t(WEBUI.cron.createDepsBtn)}
         </Button>
       }
     />
@@ -581,6 +586,7 @@ function CronDetail({
   chartData,
   onClose,
 }: PluginDetailComponentProps) {
+  const { t } = useI18n();
   const updatePluginConfig = useAppStore((state) => state.updatePluginConfig);
   const saveConfig = useAppStore((state) => state.saveConfig);
   const isConfigSaving = useAppStore((state) => state.isConfigSaving);
@@ -612,16 +618,20 @@ function CronDetail({
       plugin={plugin}
       chartData={chartData}
       onClose={onClose}
-      summaryItems={[{ label: "任务数", value: String(jobCount) }]}
+      summaryItems={[
+        { label: t(WEBUI.cron.taskCount), value: String(jobCount) },
+      ]}
       configContent={
         <Card>
           <CardHeader className="grid grid-cols-[1fr_auto] items-center p-4 pb-2">
-            <CardTitle className="text-sm">Cron 任务编排</CardTitle>
+            <CardTitle className="text-sm">
+              {t(WEBUI.cron.arrangement)}
+            </CardTitle>
             <div className="flex gap-2">
               {editing ? (
                 <>
                   <Button variant="outline" size="sm" onClick={handleCancel}>
-                    取消
+                    {t(WEBUI.common.cancel)}
                   </Button>
                   <Button
                     size="sm"
@@ -629,13 +639,15 @@ function CronDetail({
                     disabled={isConfigSaving}
                   >
                     <Save className="h-4 w-4" />
-                    {isConfigSaving ? "保存中" : "保存配置"}
+                    {isConfigSaving
+                      ? t(WEBUI.sequence.saving)
+                      : t(WEBUI.common.saveConfig)}
                   </Button>
                 </>
               ) : (
                 <Button size="sm" onClick={() => setEditing(true)}>
                   <Pencil className="h-4 w-4" />
-                  编辑配置
+                  {t(WEBUI.common.editConfig)}
                 </Button>
               )}
             </div>

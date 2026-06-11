@@ -26,6 +26,8 @@ import {
 import type { ConfigField, ConfigFieldChild } from "@/lib/plugin-definitions";
 import type { PluginInstance, PluginType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 import { ChevronDown, Info, Minus, Plus } from "lucide-react";
 import { Fragment, useState, type ReactNode } from "react";
 
@@ -60,11 +62,11 @@ interface PluginConfigFieldsEditorProps {
   readOnly?: boolean;
 }
 
-const arraySyntaxLabels: Record<ArrayItemSyntax, string> = {
-  value: "值",
-  plugin: "插件",
-  quick: "表达式",
-  domain: "域名规则",
+const ARRAY_SYNTAX_KEYS: Record<ArrayItemSyntax, string> = {
+  value: WEBUI.plugins.arraySyntaxValue,
+  plugin: WEBUI.plugins.arraySyntaxPlugin,
+  quick: WEBUI.plugins.arraySyntaxQuick,
+  domain: WEBUI.plugins.arraySyntaxDomain,
 };
 
 function InvertCheckbox({
@@ -76,6 +78,7 @@ function InvertCheckbox({
   disabled: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -86,14 +89,16 @@ function InvertCheckbox({
               ? "border-primary bg-primary text-primary-foreground"
               : "border-input bg-background text-transparent"
           } disabled:cursor-not-allowed disabled:opacity-50`}
-          aria-label="取反匹配"
+          aria-label={t(WEBUI.plugins.invertMatch)}
           disabled={disabled}
           onClick={() => onCheckedChange(!checked)}
         >
           !
         </button>
       </TooltipTrigger>
-      <TooltipContent sideOffset={6}>取反匹配</TooltipContent>
+      <TooltipContent sideOffset={6}>
+        {t(WEBUI.plugins.invertMatch)}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -239,6 +244,7 @@ export function PluginConfigFieldsEditor({
   defaultArrayObjectCollapsed = false,
   readOnly = false,
 }: PluginConfigFieldsEditorProps) {
+  const { t } = useI18n();
   const updateConfig = (key: string, value: unknown) => {
     onChange({ ...values, [key]: value });
   };
@@ -246,7 +252,7 @@ export function PluginConfigFieldsEditor({
   if (fields.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-        此插件没有独立配置项。
+        {t(WEBUI.plugins.noConfigFields)}
       </div>
     );
   }
@@ -296,6 +302,7 @@ function isFullWidthConfigField(field: ConfigField): boolean {
 }
 
 function ConfigFieldLabel({ field }: { field: ConfigField }) {
+  const { t } = useI18n();
   const docs = field.docs ?? field.description;
 
   return (
@@ -308,7 +315,9 @@ function ConfigFieldLabel({ field }: { field: ConfigField }) {
             <button
               type="button"
               className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={`${field.label} 配置说明`}
+              aria-label={t(WEBUI.plugins.configHelpLabel, {
+                label: field.label,
+              })}
             >
               <Info className="h-3.5 w-3.5" />
             </button>
@@ -327,7 +336,8 @@ function ConfigFieldLabel({ field }: { field: ConfigField }) {
 }
 
 function FieldDocsContent({ docs }: { docs: string }) {
-  const sections = parseFieldDocs(docs);
+  const { t } = useI18n();
+  const sections = parseFieldDocs(docs, t(WEBUI.plugins.docsDefaultGroup));
 
   return (
     <div className="space-y-3 text-xs leading-relaxed text-popover-foreground">
@@ -395,7 +405,10 @@ function FieldDocsBullet({ item }: { item: FieldDocsBulletItem }) {
   );
 }
 
-function parseFieldDocs(docs: string): {
+function parseFieldDocs(
+  docs: string,
+  defaultGroupTitle: string,
+): {
   spec: string[];
   summary: string[];
   groups: FieldDocsGroup[];
@@ -420,10 +433,10 @@ function parseFieldDocs(docs: string): {
       const [, label, value] = labelMatch;
       const normalizedValue = value.trim();
 
-      if (label === "类型") {
+      if (label === "类型" || label === "Type") {
         spec.push(
           ...normalizedValue
-            .split("；")
+            .split(/[；;]/)
             .map((item) => item.trim())
             .filter(Boolean),
         );
@@ -431,13 +444,20 @@ function parseFieldDocs(docs: string): {
         continue;
       }
 
-      if (label === "必填" || label === "默认值" || label === "单位") {
+      if (
+        label === "必填" ||
+        label === "默认值" ||
+        label === "单位" ||
+        label === "Required" ||
+        label === "Default" ||
+        label === "Unit"
+      ) {
         if (normalizedValue) spec.push(`${label}：${normalizedValue}`);
         currentGroup = null;
         continue;
       }
 
-      if (label === "作用") {
+      if (label === "作用" || label === "Purpose") {
         if (normalizedValue) summary.push(normalizedValue);
         currentGroup = null;
         continue;
@@ -452,7 +472,7 @@ function parseFieldDocs(docs: string): {
     }
 
     if (!currentGroup) {
-      currentGroup = { title: "说明", items: [] };
+      currentGroup = { title: defaultGroupTitle, items: [] };
       groups.push(currentGroup);
     }
 
@@ -496,6 +516,7 @@ function ConfigFieldControl({
   defaultArrayObjectCollapsed: boolean;
   readOnly: boolean;
 }) {
+  const { t } = useI18n();
   // Unset fields show their schema default as a placeholder (never pre-filled)
   // so an untouched default is not materialized into the saved config.
   const defaultPlaceholder =
@@ -617,7 +638,7 @@ function ConfigFieldControl({
           disabled={readOnly}
         >
           <SelectTrigger>
-            <SelectValue placeholder="请选择" />
+            <SelectValue placeholder={t(WEBUI.plugins.selectPlaceholder)} />
           </SelectTrigger>
           <SelectContent>
             {field.options?.map((opt) => (
@@ -689,6 +710,7 @@ function ArrayFieldEditor({
   onChange: (items: ArrayItemValue[]) => void;
   readOnly: boolean;
 }) {
+  const { t } = useI18n();
   const addItem = () => {
     onChange([
       ...value,
@@ -739,7 +761,7 @@ function ArrayFieldEditor({
               <SelectContent>
                 {getSyntaxOptions(field).map((syntax) => (
                   <SelectItem key={syntax} value={syntax}>
-                    {arraySyntaxLabels[syntax]}
+                    {t(ARRAY_SYNTAX_KEYS[syntax])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -768,14 +790,14 @@ function ArrayFieldEditor({
         ))
       ) : (
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          暂无配置项，点击下方按钮新增。
+          {t(WEBUI.plugins.emptyConfigItems)}
         </div>
       )}
 
       {!readOnly && (
         <Button type="button" variant="outline" size="sm" onClick={addItem}>
           <Plus className="mr-1.5 h-4 w-4" />
-          新增配置项
+          {t(WEBUI.plugins.addConfigItem)}
         </Button>
       )}
     </div>
@@ -829,6 +851,7 @@ function RecordFieldEditor({
   onChange: (value: RecordItemValue[]) => void;
   readOnly: boolean;
 }) {
+  const { t } = useI18n();
   const addItem = () => {
     onChange([...value, { id: createArrayItemId(), key: "", value: "" }]);
   };
@@ -882,14 +905,14 @@ function RecordFieldEditor({
         ))
       ) : (
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          暂无配置项，点击下方按钮新增。
+          {t(WEBUI.plugins.emptyConfigItems)}
         </div>
       )}
 
       {!readOnly && (
         <Button type="button" variant="outline" size="sm" onClick={addItem}>
           <Plus className="mr-1.5 h-4 w-4" />
-          新增配置项
+          {t(WEBUI.plugins.addConfigItem)}
         </Button>
       )}
     </div>
@@ -911,6 +934,7 @@ function SchemaArrayFieldEditor({
   defaultArrayObjectCollapsed: boolean;
   readOnly: boolean;
 }) {
+  const { t } = useI18n();
   const itemOptions = getArrayFieldItemOptions(field);
   const [selectedOptionKey, setSelectedOptionKey] = useState(
     getChildOptionKey(itemOptions[0]),
@@ -994,17 +1018,17 @@ function SchemaArrayFieldEditor({
                         }`}
                       />
                       <span className="truncate">
-                        {getArrayEntryLabel(entry, field, index)}
+                        {getArrayEntryLabel(entry, field, index, t)}
                       </span>
                       {isCollapsed && (
                         <span className="min-w-0 flex-1 truncate text-foreground">
-                          {getObjectSummary(child, entryValue)}
+                          {getObjectSummary(child, entryValue, t)}
                         </span>
                       )}
                     </button>
                   ) : (
                     <div className="text-xs font-medium text-muted-foreground">
-                      {getArrayEntryLabel(entry, field, index)}
+                      {getArrayEntryLabel(entry, field, index, t)}
                     </div>
                   )}
                 </div>
@@ -1041,7 +1065,7 @@ function SchemaArrayFieldEditor({
         })
       ) : (
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          暂无配置项，点击下方按钮新增。
+          {t(WEBUI.plugins.emptyConfigItems)}
         </div>
       )}
 
@@ -1061,7 +1085,7 @@ function SchemaArrayFieldEditor({
                     key={getChildOptionKey(option)}
                     value={getChildOptionKey(option)}
                   >
-                    {getChildLabel(option)}
+                    {getChildLabel(option, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1069,7 +1093,7 @@ function SchemaArrayFieldEditor({
           )}
           <Button type="button" variant="outline" size="sm" onClick={addItem}>
             <Plus className="mr-1.5 h-4 w-4" />
-            新增配置项
+            {t(WEBUI.plugins.addConfigItem)}
           </Button>
         </div>
       )}
@@ -1094,6 +1118,7 @@ function SchemaArrayItemControl({
   defaultArrayObjectCollapsed: boolean;
   readOnly: boolean;
 }) {
+  const { t } = useI18n();
   if (item.type === "object") {
     const objectValue =
       value && typeof value === "object" && !Array.isArray(value)
@@ -1115,7 +1140,11 @@ function SchemaArrayItemControl({
   if (item.type === "array") {
     return (
       <SchemaArrayFieldEditor
-        field={arrayItemToConfigField(item, placeholder)}
+        field={arrayItemToConfigField(
+          item,
+          placeholder,
+          t(WEBUI.plugins.valueLabel),
+        )}
         plugins={plugins}
         value={Array.isArray(value) ? value : []}
         onChange={onChange}
@@ -1127,7 +1156,11 @@ function SchemaArrayItemControl({
 
   return (
     <ConfigFieldControl
-      field={arrayItemToConfigField(item, placeholder)}
+      field={arrayItemToConfigField(
+        item,
+        placeholder,
+        t(WEBUI.plugins.valueLabel),
+      )}
       plugins={plugins}
       value={value}
       onChange={onChange}
@@ -1386,11 +1419,12 @@ function createDefaultArrayItemValue(item: ConfigFieldChild): unknown {
 function arrayItemToConfigField(
   item: ConfigFieldChild,
   placeholder?: string,
+  fallbackLabel?: string,
 ): ConfigField {
   return {
     key: "value",
     ...item,
-    label: item.label ?? "值",
+    label: item.label ?? fallbackLabel ?? "",
     placeholder: item.placeholder ?? placeholder,
   };
 }
@@ -1402,7 +1436,6 @@ function getArrayFieldItemOptions(field: ConfigField): ConfigFieldChild[] {
     {
       optionKey: "input",
       type: "text",
-      label: "输入值",
       placeholder: field.placeholder?.split("\n")[0],
     },
   ];
@@ -1456,20 +1489,37 @@ function setArrayEntryValue(
   return { ...current, value };
 }
 
-function getArrayEntryLabel(entry: unknown, field: ConfigField, index: number) {
+type TFn = (
+  key: string,
+  params?: Record<string, string | number | boolean | null | undefined>,
+) => string;
+
+function getArrayEntryLabel(
+  entry: unknown,
+  field: ConfigField,
+  index: number,
+  t: TFn,
+) {
   const child = getArrayEntryChild(entry, field);
-  return child.label ?? `配置项 ${index + 1}`;
+  return (
+    child.label ?? t(WEBUI.plugins.configItemFallback, { index: index + 1 })
+  );
 }
 
-function getObjectSummary(item: ConfigFieldChild, value: unknown): string {
-  if (item.type !== "object") return formatSummaryValue(value);
-  return getObjectSummaryFromFields(item.fields, item.summaryFields, value);
+function getObjectSummary(
+  item: ConfigFieldChild,
+  value: unknown,
+  t: TFn,
+): string {
+  if (item.type !== "object") return formatSummaryValue(value, t);
+  return getObjectSummaryFromFields(item.fields, item.summaryFields, value, t);
 }
 
 function getObjectSummaryFromFields(
   fields: ConfigField[],
   summaryFields: string[] | undefined,
   value: unknown,
+  t: TFn,
 ): string {
   const objectValue =
     value && typeof value === "object" && !Array.isArray(value)
@@ -1485,14 +1535,15 @@ function getObjectSummaryFromFields(
               field.fields ?? [],
               field.summaryFields,
               fieldValue,
+              t,
             )
-          : formatSummaryValue(fieldValue);
+          : formatSummaryValue(fieldValue, t);
       return formatted ? `${field.label}: ${formatted}` : "";
     })
     .filter(Boolean)
     .join(" · ");
 
-  return summary || "未配置";
+  return summary || t(WEBUI.plugins.notConfigured);
 }
 
 function getObjectSummaryFields(
@@ -1507,7 +1558,7 @@ function getObjectSummaryFields(
     .filter((field): field is ConfigField => Boolean(field));
 }
 
-function formatSummaryValue(value: unknown): string {
+function formatSummaryValue(value: unknown, t: TFn): string {
   if (value === undefined || value === null || value === "") return "";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
@@ -1524,10 +1575,12 @@ function formatSummaryValue(value: unknown): string {
     if (primitiveValues.length === value.length) {
       return primitiveValues.map(String).join(", ");
     }
-    return `${value.length} 项`;
+    return t(WEBUI.plugins.itemCount, { count: value.length });
   }
   if (typeof value === "object") {
-    const values = Object.values(value).map(formatSummaryValue).filter(Boolean);
+    const values = Object.values(value)
+      .map((v) => formatSummaryValue(v, t))
+      .filter(Boolean);
     return values.join(" · ");
   }
   return "";
@@ -1558,11 +1611,11 @@ function getChildOptionKey(item: ConfigFieldChild) {
   return item.optionKey ?? item.type;
 }
 
-function getChildLabel(item: ConfigFieldChild) {
+function getChildLabel(item: ConfigFieldChild, t: TFn) {
   if (item.label) return item.label;
-  if (item.type === "reference") return "引用";
-  if (item.type === "object") return "对象";
-  return "输入值";
+  if (item.type === "reference") return t(WEBUI.plugins.referenceLabel);
+  if (item.type === "object") return t(WEBUI.plugins.objectLabel);
+  return t(WEBUI.plugins.inputValueLabel);
 }
 
 function isEmptyConfigValue(value: unknown): boolean {

@@ -9,6 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 import { registerOxiDnsYamlLanguage } from "@/lib/oxidns-yaml-monaco";
 
 type MonacoApi = Parameters<DiffOnMount>[1];
@@ -29,12 +31,17 @@ export function ConfigDiffDialog({
   onOpenChange,
   original,
   modified,
-  originalTitle = "历史快照",
-  modifiedTitle = "当前编辑器",
+  originalTitle,
+  modifiedTitle,
 }: ConfigDiffDialogProps) {
+  const { t } = useI18n();
   const { resolvedTheme } = useTheme();
   const theme =
     resolvedTheme === "light" ? "oxidns-yaml-light" : "oxidns-yaml-dark";
+  const displayOriginalTitle =
+    originalTitle ?? t(WEBUI.configEditor.historySnapshot);
+  const displayModifiedTitle =
+    modifiedTitle ?? t(WEBUI.configEditor.currentEditor);
 
   const handleBeforeMount = (monaco: MonacoApi) => {
     registerOxiDnsYamlLanguage(monaco);
@@ -44,9 +51,12 @@ export function ConfigDiffDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(80vh,720px)] max-w-[min(1100px,calc(100vw-3rem))] flex-col gap-3 sm:max-w-[min(1100px,calc(100vw-3rem))]">
         <DialogHeader>
-          <DialogTitle>配置差异对比</DialogTitle>
+          <DialogTitle>{t(WEBUI.configEditor.diffTitle)}</DialogTitle>
           <DialogDescription>
-            左：{originalTitle} · 右：{modifiedTitle}
+            {t(WEBUI.configEditor.diffDescription, {
+              original: displayOriginalTitle,
+              modified: displayModifiedTitle,
+            })}
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-muted/30 font-mono text-sm">

@@ -22,6 +22,8 @@ import {
 } from "@/lib/oxidns-yaml-monaco";
 import type { PluginInstance } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 type MonacoApi = Parameters<OnMount>[1];
 type MonacoEditor = Parameters<OnMount>[0];
@@ -66,6 +68,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
     },
     ref,
   ) {
+    const { locale, t } = useI18n();
     const { resolvedTheme } = useTheme();
     const editorRef = useRef<MonacoEditor | null>(null);
     const monacoRef = useRef<MonacoApi | null>(null);
@@ -95,12 +98,13 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
     const context = useMemo(
       () => ({
         variant,
+        locale,
         plugins,
         pluginKind,
         fields,
         currentPluginName,
       }),
-      [variant, plugins, pluginKind, fields, currentPluginName],
+      [variant, locale, plugins, pluginKind, fields, currentPluginName],
     );
     const theme =
       resolvedTheme === "light" ? "oxidns-yaml-light" : "oxidns-yaml-dark";
@@ -183,14 +187,16 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
             setBackendDiagnostics([
               {
                 message:
-                  error instanceof Error ? error.message : "配置校验失败",
+                  error instanceof Error
+                    ? error.message
+                    : t(WEBUI.configEditor.configValidationFailed),
               },
             ]);
           });
       }, 800);
 
       return () => window.clearTimeout(timer);
-    }, [backendValidation, readOnly, value, variant]);
+    }, [backendValidation, readOnly, t, value, variant]);
 
     useEffect(() => {
       const model = modelRef.current;
@@ -256,7 +262,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
             suggestOnTriggerCharacters: true,
             fixedOverflowWidgets: true,
             contextmenu: true,
-            readOnlyMessage: { value: "当前配置为只读状态" },
+            readOnlyMessage: { value: t(WEBUI.common.readOnly) },
           }}
         />
       </div>

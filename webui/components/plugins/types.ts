@@ -52,7 +52,7 @@ export interface PluginDetailTemplateProps extends PluginDetailComponentProps {
   /**
    * Extra top-level tabs rendered after the metrics tab and before built-in metrics.
    * Use this when a plugin wants to expose a view that is conceptually peer to
-   * "配置" / "统计" rather than nested under one of them.
+   * "config" / "stats" rather than nested under one of them.
    */
   extraTabs?: PluginExtraTab[];
 }

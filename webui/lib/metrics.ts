@@ -8,8 +8,13 @@
 // alongside each plugin kind in `lib/plugin-definitions/` — this file derives
 // its runtime data structures from those definitions rather than duplicating them.
 
-import { pluginKindDefinitions } from "./plugin-definitions";
+import {
+  getLocalizedPluginKindDefinition,
+  getLocalizedPluginKindDefinitions,
+  pluginKindDefinitions,
+} from "./plugin-definitions";
 import type { DerivedMetricSpec } from "./plugin-definitions/shared";
+import { DEFAULT_LOCALE, WEBUI, t as translate, type Locale } from "./i18n";
 
 export interface MetricSeries {
   name: string;
@@ -129,19 +134,32 @@ function normalizeMetricKind(raw: string): MetricKind {
 // Derived constants from plugin definitions.
 // ---------------------------------------------------------------------------
 
-/** Friendly Chinese labels keyed by raw metric name — merged from all plugin definitions. */
-const METRIC_LABELS: Record<string, string> = Object.fromEntries(
-  pluginKindDefinitions.flatMap((def) =>
-    Object.entries(def.metrics?.metricLabels ?? {}),
-  ),
-);
+const localeMetricLabels = new Map<Locale, Record<string, string>>();
+const localeMetricHelp = new Map<Locale, Record<string, string>>();
 
-/** Frontend-defined Chinese help text keyed by raw metric name — overrides backend HELP strings. */
-const METRIC_HELP: Record<string, string> = Object.fromEntries(
-  pluginKindDefinitions.flatMap((def) =>
-    Object.entries(def.metrics?.metricHelp ?? {}),
-  ),
-);
+function metricLabelsFor(locale: Locale): Record<string, string> {
+  const cached = localeMetricLabels.get(locale);
+  if (cached) return cached;
+  const labels = Object.fromEntries(
+    getLocalizedPluginKindDefinitions(locale).flatMap((def) =>
+      Object.entries(def.metrics?.metricLabels ?? {}),
+    ),
+  );
+  localeMetricLabels.set(locale, labels);
+  return labels;
+}
+
+function metricHelpFor(locale: Locale): Record<string, string> {
+  const cached = localeMetricHelp.get(locale);
+  if (cached) return cached;
+  const help = Object.fromEntries(
+    getLocalizedPluginKindDefinitions(locale).flatMap((def) =>
+      Object.entries(def.metrics?.metricHelp ?? {}),
+    ),
+  );
+  localeMetricHelp.set(locale, help);
+  return help;
+}
 
 /**
  * Global ordered list of high-value metric names, derived by concatenating each
@@ -169,19 +187,25 @@ const HIGH_VALUE_METRICS = new Set(HIGH_VALUE_ORDER);
 // Curation: friendly labels + which metrics are worth surfacing on cards.
 // ---------------------------------------------------------------------------
 
-export function metricLabel(name: string): string {
-  if (METRIC_LABELS[name]) return METRIC_LABELS[name];
+export function metricLabel(
+  name: string,
+  locale: Locale = DEFAULT_LOCALE,
+): string {
+  const labels = metricLabelsFor(locale);
+  if (labels[name]) return labels[name];
   return name
     .replace(/_total$/, "")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const intFormatter = new Intl.NumberFormat("en-US");
-
-export function formatMetricValue(value: number): string {
+export function formatMetricValue(
+  value: number,
+  locale: Locale = DEFAULT_LOCALE,
+): string {
   if (!Number.isFinite(value)) return String(value);
-  if (Number.isInteger(value)) return intFormatter.format(value);
+  if (Number.isInteger(value))
+    return new Intl.NumberFormat(locale).format(value);
   return value.toFixed(2);
 }
 
@@ -238,14 +262,15 @@ function pushRawMetric(
   totals: Map<string, number>,
   name: string,
   limit: number,
+  locale: Locale,
 ) {
   const value = metricValue(totals, name);
   if (value === undefined) return;
   pushDisplayMetric(
     out,
     seen,
-    metricLabel(name),
-    formatMetricValue(value),
+    metricLabel(name, locale),
+    formatMetricValue(value, locale),
     limit,
   );
 }
@@ -260,8 +285,11 @@ function averageLatencyForPrefix(
   return sum / count;
 }
 
-/** Derive `平均延迟` for any `<x>_latency_sum_ms` / `<x>_latency_count` pair. */
-function derivedLatency(totals: Map<string, number>): DisplayMetric[] {
+/** Derive average latency for any `<x>_latency_sum_ms` / `<x>_latency_count` pair. */
+function derivedLatency(
+  totals: Map<string, number>,
+  locale: Locale,
+): DisplayMetric[] {
   const out: DisplayMetric[] = [];
   for (const [name, sum] of totals) {
     const m = /^(.*)_latency_sum_ms$/.exec(name);
@@ -269,7 +297,7 @@ function derivedLatency(totals: Map<string, number>): DisplayMetric[] {
     const count = totals.get(`${m[1]}_latency_count`);
     if (!count || count <= 0) continue;
     out.push({
-      label: "平均延迟",
+      label: translate(locale, WEBUI.metrics.averageLatency),
       value: `${(sum / count).toFixed(1)} ms`,
     });
   }
@@ -330,9 +358,10 @@ function pushDerivedCardMetrics(
   totals: Map<string, number>,
   pluginKind: string | undefined,
   limit: number,
+  locale: Locale,
 ) {
   if (!pluginKind) return;
-  const def = pluginKindDefinitions.find((d) => d.kind === pluginKind);
+  const def = getLocalizedPluginKindDefinition(pluginKind, locale);
   for (const spec of def?.metrics?.derivedCard ?? []) {
     if (out.length >= limit) break;
     applyDerivedSpec(spec, totals, out, seen, limit);
@@ -350,21 +379,22 @@ export function selectCardMetrics(
   series: MetricSeries[] | undefined,
   pluginKind?: string,
   limit = 4,
+  locale: Locale = DEFAULT_LOCALE,
 ): DisplayMetric[] {
   if (!series || series.length === 0) return [];
   const totals = sumByName(series);
   const result: DisplayMetric[] = [];
   const seen = new Set<string>();
 
-  pushDerivedCardMetrics(result, seen, totals, pluginKind, limit);
+  pushDerivedCardMetrics(result, seen, totals, pluginKind, limit, locale);
 
   for (const name of cardMetricPriority(pluginKind)) {
-    pushRawMetric(result, seen, totals, name, limit);
+    pushRawMetric(result, seen, totals, name, limit, locale);
     if (result.length >= limit) break;
   }
 
   if (result.length < limit) {
-    for (const dm of derivedLatency(totals)) {
+    for (const dm of derivedLatency(totals, locale)) {
       pushDisplayMetric(result, seen, dm.label, dm.value, limit);
       if (result.length >= limit) break;
     }
@@ -373,37 +403,55 @@ export function selectCardMetrics(
   return result.slice(0, limit);
 }
 
-const LABEL_LABELS: Record<string, string> = {
-  name: "名称",
-  kind: "类型",
-  reason: "原因",
-  result: "结果",
-  upstream_index: "上游",
-};
+function labelKeyLabel(key: string, locale: Locale): string {
+  switch (key) {
+    case "name":
+      return translate(locale, WEBUI.metrics.name);
+    case "kind":
+      return translate(locale, WEBUI.metrics.kind);
+    case "reason":
+      return translate(locale, WEBUI.metrics.reason);
+    case "result":
+      return translate(locale, WEBUI.metrics.result);
+    case "upstream_index":
+      return translate(locale, WEBUI.metrics.upstream);
+    default:
+      return key;
+  }
+}
 
-const LABEL_VALUE_LABELS: Record<string, Record<string, string>> = {
-  kind: {
-    fresh: "新鲜",
-    stale: "过期可用",
-  },
-  reason: {
-    truncated: "截断响应",
-    no_ttl: "无 TTL",
-  },
-  result: {
-    started: "已启动",
-    success: "成功",
-    failed: "失败",
-  },
-};
+function labelValueLabel(key: string, value: string, locale: Locale): string {
+  if (key === "kind" && value === "fresh")
+    return translate(locale, WEBUI.metrics.fresh);
+  if (key === "kind" && value === "stale")
+    return translate(locale, WEBUI.metrics.stale);
+  if (key === "reason" && value === "truncated") {
+    return translate(locale, WEBUI.metrics.truncated);
+  }
+  if (key === "reason" && value === "no_ttl")
+    return translate(locale, WEBUI.metrics.noTtl);
+  if (key === "result" && value === "started") {
+    return translate(locale, WEBUI.metrics.started);
+  }
+  if (key === "result" && value === "success") {
+    return translate(locale, WEBUI.metrics.success);
+  }
+  if (key === "result" && value === "failed") {
+    return translate(locale, WEBUI.metrics.failed);
+  }
+  return value;
+}
 
-function describeLabels(labels: Record<string, string>): string {
+function describeLabels(
+  labels: Record<string, string>,
+  locale: Locale,
+): string {
   const entries = Object.entries(labels);
   if (entries.length === 0) return "";
   return entries
     .map(([k, v]) => {
-      const key = LABEL_LABELS[k] ?? k;
-      const value = LABEL_VALUE_LABELS[k]?.[v] ?? v;
+      const key = labelKeyLabel(k, locale);
+      const value = labelValueLabel(k, v, locale);
       return `${key}=${value}`;
     })
     .join(", ");
@@ -421,7 +469,10 @@ export interface MetricRow {
 }
 
 /** Group a plugin's series by metric name for the full detail view. */
-export function groupMetricRows(series: MetricSeries[]): MetricRow[] {
+export function groupMetricRows(
+  series: MetricSeries[],
+  locale: Locale = DEFAULT_LOCALE,
+): MetricRow[] {
   const byName = new Map<string, MetricSeries[]>();
   for (const s of series) {
     const bucket = byName.get(s.name);
@@ -440,15 +491,17 @@ export function groupMetricRows(series: MetricSeries[]): MetricRow[] {
     rows.push({
       name,
       kind: list[0]?.kind,
-      help: METRIC_HELP[name] ?? list[0]?.help,
-      label: metricLabel(name),
+      help: metricHelpFor(locale)[name] ?? list[0]?.help,
+      label: metricLabel(name, locale),
       highValue: HIGH_VALUE_METRICS.has(name),
       total,
       breakdown: showBreakdown
         ? list.map((s, index) => ({
             key:
-              describeLabels(s.labels) ||
-              (list.length > 1 ? `series ${index + 1}` : "(默认)"),
+              describeLabels(s.labels, locale) ||
+              (list.length > 1
+                ? translate(locale, WEBUI.metrics.series, { index: index + 1 })
+                : translate(locale, WEBUI.metrics.defaultSeries)),
             value: s.value,
           }))
         : [],

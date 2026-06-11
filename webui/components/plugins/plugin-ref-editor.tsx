@@ -22,6 +22,8 @@ import { isPluginKindSupported } from "@/lib/build-capabilities";
 import { useAppStore } from "@/lib/store";
 import type { PluginInstance, PluginType } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 // ─── InlineSelect ─────────────────────────────────────────────────────────────
 
@@ -79,6 +81,7 @@ export function QuickSetupRow({
   readOnly: boolean;
   onChange: (next: string) => void;
 }) {
+  const { t } = useI18n();
   const buildInfo = useAppStore((s) => s.buildInfo);
   const { pluginType, param } = parseQuickSetupValue(value);
   const catalog = getPluginCatalogItemsByType(type).filter(
@@ -87,7 +90,7 @@ export function QuickSetupRow({
   const activeDef = getPluginCatalogItem(pluginType);
   const paramRefTypes = activeDef?.quickSetup?.paramReferenceTypes ?? [];
   const paramPlaceholder =
-    activeDef?.quickSetup?.paramPlaceholder ?? "参数 (可选)";
+    activeDef?.quickSetup?.paramPlaceholder ?? t(WEBUI.sequence.paramOptional);
   const accent = type === "matcher" ? "amber" : "sky";
 
   return (
@@ -113,7 +116,7 @@ export function QuickSetupRow({
           value: item.kind,
           label: isPluginKindSupported(buildInfo, item.type, item.kind)
             ? item.kind
-            : `${item.kind} · 未编译`,
+            : `${item.kind} · ${t(WEBUI.sequence.notCompiled)}`,
           disabled: !isPluginKindSupported(buildInfo, item.type, item.kind),
         }))}
       />

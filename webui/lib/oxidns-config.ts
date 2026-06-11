@@ -3,6 +3,7 @@
 import { parseDocument, stringify, isSeq, isMap } from "yaml";
 import { getPluginKindDefinition } from "@/lib/plugin-definitions";
 import type { PluginInstance, PluginType } from "@/lib/types";
+import { WEBUI, tClient } from "@/lib/i18n";
 
 export interface OxiDnsConfig {
   include?: string[];
@@ -37,18 +38,20 @@ export function parseOxiDnsYaml(text: string): OxiDnsParseResult {
 
     const value = document.toJSON();
     if (!isPlainRecord(value)) {
-      return { diagnostics: ["配置文件必须是 YAML 对象"] };
+      return { diagnostics: [tClient(WEBUI.storeErrors.yamlRootMustBeObject)] };
     }
 
     const rawPlugins = value.plugins;
     if (rawPlugins !== undefined && !Array.isArray(rawPlugins)) {
-      return { diagnostics: ["plugins 必须是数组"] };
+      return { diagnostics: [tClient(WEBUI.storeErrors.pluginsMustBeArray)] };
     }
 
     const plugins = (Array.isArray(rawPlugins) ? rawPlugins : []).map(
       (plugin, index): OxiDnsPluginConfig => {
         if (!isPlainRecord(plugin)) {
-          throw new Error(`plugins[${index}] 必须是对象`);
+          throw new Error(
+            tClient(WEBUI.storeErrors.pluginEntryMustBeObject, { index }),
+          );
         }
         return {
           tag: String(plugin.tag ?? ""),
@@ -64,7 +67,11 @@ export function parseOxiDnsYaml(text: string): OxiDnsParseResult {
     };
   } catch (error) {
     return {
-      diagnostics: [error instanceof Error ? error.message : "YAML 解析失败"],
+      diagnostics: [
+        error instanceof Error
+          ? error.message
+          : tClient(WEBUI.storeErrors.yamlParseFailed),
+      ],
     };
   }
 }
@@ -181,10 +188,15 @@ export function pluginConfigFromYaml(input: string): {
     `plugins:\n  - tag: plugin\n    type: debug_print\n    args:\n${indentYaml(input || "{}", 6)}\n`,
   );
   if (result.diagnostics.length > 0 || !result.config) {
-    return { error: result.diagnostics[0] ?? "YAML 解析失败" };
+    return {
+      error:
+        result.diagnostics[0] ?? tClient(WEBUI.storeErrors.yamlParseFailed),
+    };
   }
   const args = result.config.plugins[0]?.args;
-  if (!isPlainRecord(args)) return { error: "插件配置必须是 YAML 对象" };
+  if (!isPlainRecord(args)) {
+    return { error: tClient(WEBUI.plugins.yamlMustBeObject) };
+  }
   return { value: args };
 }
 
@@ -221,8 +233,8 @@ export function pluginArgsFromUiConfig(
 // Compare two OxiDNS YAML configs and return true when anything outside the
 // `plugins:` list differs. Top-level keys (runtime, api, log, include, …) only
 // take effect on process start — they are NOT hot-reloadable. Used by the
-// header sync control to switch the pending-change pill from "应用更改"
-// (hot reload) to "需要重启" (full process restart) whenever the diff is
+// header sync control to switch the pending-change pill from "apply changes"
+// (hot reload) to "needs restart" (full process restart) whenever the diff is
 // load-bearing for restart-only fields.
 export function topLevelConfigChanged(a: string, b: string): boolean {
   const left = stripPluginsForCompare(a);

@@ -4,6 +4,7 @@
  */
 
 import { pluginConfigFromYaml, pluginConfigToYaml } from "@/lib/oxidns-config";
+import { WEBUI, tClient } from "@/lib/i18n";
 
 export interface YamlParseResult {
   value: unknown;
@@ -49,6 +50,6 @@ export function parseArgsLevelPluginConfigYaml(
 
   return {
     value: undefined,
-    error: "插件 YAML 必须包含 args 字段",
+    error: tClient(WEBUI.storeErrors.pluginYamlRequiresArgs),
   };
 }

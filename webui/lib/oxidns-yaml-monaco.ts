@@ -2,12 +2,15 @@ import type { Monaco } from "@monaco-editor/react";
 import "@/lib/monaco-loader";
 import {
   getPluginKindDefinition,
+  getLocalizedPluginKindDefinition,
+  getLocalizedPluginKindDefinitions,
   pluginKindDefinitions,
   type ConfigField,
   type ConfigFieldChild,
 } from "@/lib/plugin-definitions";
 import type { PluginInstance, PluginType } from "@/lib/types";
-import { PLUGIN_TYPE_LABELS } from "@/lib/types";
+import { DEFAULT_LOCALE, WEBUI, t as translate, type Locale } from "@/lib/i18n";
+import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
 
 export type OxiDnsYamlEditorVariant =
   | "config"
@@ -17,6 +20,7 @@ export type OxiDnsYamlEditorVariant =
 
 export interface OxiDnsYamlEditorContext {
   variant: OxiDnsYamlEditorVariant;
+  locale?: Locale;
   plugins?: PluginInstance[];
   pluginKind?: string;
   fields?: ConfigField[];
@@ -210,6 +214,17 @@ export function clearOxiDnsYamlModelContext(model: MonacoModel) {
   contextByModel.delete(model.uri.toString());
 }
 
+function contextLocale(context: OxiDnsYamlEditorContext): Locale {
+  return context.locale ?? DEFAULT_LOCALE;
+}
+
+function localizedPluginKindDefinition(kind: string, locale: Locale) {
+  return (
+    getLocalizedPluginKindDefinition(kind, locale) ??
+    getPluginKindDefinition(kind)
+  );
+}
+
 export function updateOxiDnsYamlMarkers(
   monaco: MonacoApi,
   model: MonacoModel,
@@ -255,7 +270,7 @@ function buildCompletionItems(
   }
 
   if (valueKey === "type") {
-    suggestions.push(...pluginKindSuggestions(monaco, range));
+    suggestions.push(...pluginKindSuggestions(monaco, context, range));
   }
 
   if (
@@ -263,7 +278,7 @@ function buildCompletionItems(
     context.variant === "config" &&
     path.includes("log")
   ) {
-    suggestions.push(...logLevelSuggestions(monaco, range));
+    suggestions.push(...logLevelSuggestions(monaco, context, range));
   }
 
   const field = findFieldForKey(context.fields, valueKey);
@@ -273,7 +288,7 @@ function buildCompletionItems(
 
   if (shouldSuggestSequenceExpressions(context, path, valueKey)) {
     const types = expectedReferenceTypes(context, path, valueKey);
-    suggestions.push(...quickSetupSuggestions(monaco, range, types));
+    suggestions.push(...quickSetupSuggestions(monaco, context, range, types));
     suggestions.push(
       ...pluginReferenceSuggestions(monaco, context, range, types),
     );
@@ -310,6 +325,7 @@ function buildHover(
   position: MonacoPosition,
   context: OxiDnsYamlEditorContext,
 ): ReturnType<HoverProviderFn> {
+  const locale = contextLocale(context);
   const token = getTokenAtPosition(model, position);
   if (!token) return null;
   const clean = token.replace(/^!?\$/, "");
@@ -325,19 +341,19 @@ function buildHover(
       contents: [
         { value: `**${plugin.name}**` },
         {
-          value: `${PLUGIN_TYPE_LABELS[plugin.type]} / \`${plugin.pluginKind}\``,
+          value: `${pluginTypeLabel(plugin.type, locale)} / \`${plugin.pluginKind}\``,
         },
       ],
     };
   }
 
-  const definition = getPluginKindDefinition(clean);
+  const definition = localizedPluginKindDefinition(clean, locale);
   if (definition) {
     return {
       contents: [
         { value: `**${definition.kind}**` },
         {
-          value: `${PLUGIN_TYPE_LABELS[definition.type]} · ${definition.description}`,
+          value: `${pluginTypeLabel(definition.type, locale)} · ${definition.description}`,
         },
       ],
     };
@@ -351,6 +367,7 @@ function buildLocalDiagnosticMarkers(
   model: MonacoModel,
   context: OxiDnsYamlEditorContext,
 ) {
+  const locale = contextLocale(context);
   const markers: Parameters<MonacoApi["editor"]["setModelMarkers"]>[2] = [];
   const pluginTags = new Set(
     (context.plugins ?? []).map((plugin) => plugin.name),
@@ -374,7 +391,7 @@ function buildLocalDiagnosticMarkers(
       const startColumn = (match.index ?? 0) + 1;
       markers.push({
         severity: monaco.MarkerSeverity.Warning,
-        message: `引用的插件 '${tag}' 不存在`,
+        message: translate(locale, WEBUI.plugins.missingReference, { tag }),
         startLineNumber: lineNumber,
         startColumn,
         endLineNumber: lineNumber,
@@ -395,7 +412,9 @@ function buildLocalDiagnosticMarkers(
         const startColumn = (typeMatch?.[0].lastIndexOf(pluginKind) ?? 0) + 1;
         markers.push({
           severity: monaco.MarkerSeverity.Warning,
-          message: `插件类型 '${pluginKind}' 不存在`,
+          message: translate(locale, WEBUI.plugins.missingPluginType, {
+            kind: pluginKind,
+          }),
           startLineNumber: lineNumber,
           startColumn,
           endLineNumber: lineNumber,
@@ -417,7 +436,7 @@ function buildLocalDiagnosticMarkers(
         const startColumn = tagStart + 1;
         markers.push({
           severity: monaco.MarkerSeverity.Warning,
-          message: `引用的插件 '${tag}' 不存在`,
+          message: translate(locale, WEBUI.plugins.missingReference, { tag }),
           startLineNumber: lineNumber,
           startColumn,
           endLineNumber: lineNumber,
@@ -534,14 +553,16 @@ function keySuggestions(
 
 function pluginKindSuggestions(
   monaco: MonacoApi,
+  context: OxiDnsYamlEditorContext,
   range: MonacoRange,
 ): CompletionItem[] {
-  return pluginKindDefinitions.map((definition) => ({
+  const locale = contextLocale(context);
+  return getLocalizedPluginKindDefinitions(locale).map((definition) => ({
     label: definition.kind,
     kind: monaco.languages.CompletionItemKind.Class,
     insertText: definition.kind,
     range,
-    detail: PLUGIN_TYPE_LABELS[definition.type],
+    detail: pluginTypeLabel(definition.type, locale),
     documentation: definition.description,
     sortText: `0-${definition.type}-${definition.kind}`,
   }));
@@ -549,14 +570,16 @@ function pluginKindSuggestions(
 
 function logLevelSuggestions(
   monaco: MonacoApi,
+  context: OxiDnsYamlEditorContext,
   range: MonacoRange,
 ): CompletionItem[] {
+  const locale = contextLocale(context);
   return logLevels.map((level) => ({
     label: level,
     kind: monaco.languages.CompletionItemKind.EnumMember,
     insertText: level,
     range,
-    detail: "日志级别",
+    detail: translate(locale, WEBUI.common.logLevel),
     sortText: `0-${level}`,
   }));
 }
@@ -568,6 +591,7 @@ function pluginReferenceSuggestions(
   referenceTypes?: PluginType[],
   inverted = false,
 ): CompletionItem[] {
+  const locale = contextLocale(context);
   const prefix = inverted ? "!$" : "$";
   return (context.plugins ?? [])
     .filter((plugin) => plugin.name !== context.currentPluginName)
@@ -582,18 +606,21 @@ function pluginReferenceSuggestions(
       kind: monaco.languages.CompletionItemKind.Reference,
       insertText: `${prefix}${plugin.name}`,
       range,
-      detail: `${PLUGIN_TYPE_LABELS[plugin.type]} / ${plugin.pluginKind}`,
-      documentation: getPluginKindDefinition(plugin.pluginKind)?.description,
+      detail: `${pluginTypeLabel(plugin.type, locale)} / ${plugin.pluginKind}`,
+      documentation: localizedPluginKindDefinition(plugin.pluginKind, locale)
+        ?.description,
       sortText: `1-${plugin.type}-${plugin.name}`,
     }));
 }
 
 function quickSetupSuggestions(
   monaco: MonacoApi,
+  context: OxiDnsYamlEditorContext,
   range: MonacoRange,
   types?: PluginType[],
 ): CompletionItem[] {
-  return pluginKindDefinitions
+  const locale = contextLocale(context);
+  return getLocalizedPluginKindDefinitions(locale)
     .filter((definition) => definition.quickSetup)
     .filter(
       (definition) =>
@@ -606,7 +633,10 @@ function quickSetupSuggestions(
         ? `${definition.kind} `
         : definition.kind,
       range,
-      detail: `快捷表达式 · ${PLUGIN_TYPE_LABELS[definition.type]}`,
+      detail: `${translate(locale, WEBUI.plugins.quickSetup)} · ${pluginTypeLabel(
+        definition.type,
+        locale,
+      )}`,
       documentation:
         definition.quickSetup?.paramPlaceholder ?? definition.description,
       sortText: `2-${definition.type}-${definition.kind}`,
@@ -648,6 +678,7 @@ function jumpGotoTagSuggestions(
   range: MonacoRange,
   keyword: "jump" | "goto",
 ): CompletionItem[] {
+  const locale = contextLocale(context);
   return (context.plugins ?? [])
     .filter((plugin) => plugin.name !== context.currentPluginName)
     .filter((plugin) => plugin.type === "executor")
@@ -656,8 +687,9 @@ function jumpGotoTagSuggestions(
       kind: monaco.languages.CompletionItemKind.Reference,
       insertText: `${keyword} ${plugin.name}`,
       range,
-      detail: `${PLUGIN_TYPE_LABELS[plugin.type]} / ${plugin.pluginKind}`,
-      documentation: getPluginKindDefinition(plugin.pluginKind)?.description,
+      detail: `${pluginTypeLabel(plugin.type, locale)} / ${plugin.pluginKind}`,
+      documentation: localizedPluginKindDefinition(plugin.pluginKind, locale)
+        ?.description,
       sortText: `0-${keyword}-${plugin.name}`,
     }));
 }
@@ -668,6 +700,7 @@ function fieldValueSuggestions(
   field: ConfigField,
   range: MonacoRange,
 ): CompletionItem[] {
+  const locale = contextLocale(context);
   if (field.type === "select") {
     return (
       field.options?.map((option) => ({
@@ -700,7 +733,7 @@ function fieldValueSuggestions(
       const base = {
         kind: monaco.languages.CompletionItemKind.Reference,
         range,
-        detail: `${PLUGIN_TYPE_LABELS[plugin.type]} / ${plugin.pluginKind}`,
+        detail: `${pluginTypeLabel(plugin.type, locale)} / ${plugin.pluginKind}`,
       };
       const items: CompletionItem[] = [
         {

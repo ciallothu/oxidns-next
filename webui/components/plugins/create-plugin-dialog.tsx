@@ -28,12 +28,18 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import type { PluginType } from "@/lib/types";
-import { PLUGIN_TYPE_LABELS, PLUGIN_TYPE_DESCRIPTIONS } from "@/lib/types";
 import {
   getPluginCatalogItemsByType,
   getPluginKindIconComponent,
   type PluginCatalogItem,
 } from "@/components/plugins/catalog";
+import { LOCALES, WEBUI } from "@/lib/i18n";
+import {
+  getPluginSearchText,
+  pluginTypeDescription,
+  pluginTypeLabel,
+} from "@/lib/i18n/plugin-defined";
+import { useI18n } from "@/lib/i18n/provider";
 import {
   createDefaultPluginConfigValues,
   isPluginConfigFormValid,
@@ -87,18 +93,23 @@ export function CreatePluginDialog({
   onOpenChange,
   onCreated,
   trigger,
-  createButtonLabel = "创建插件",
-  title = "添加插件",
-  description = "选择要添加的插件类型",
+  createButtonLabel,
+  title,
+  description,
   supportedPluginKinds,
 }: CreatePluginDialogProps) {
+  const { locale, t } = useI18n();
   const visibleTypes = useMemo(
     () =>
       supportedTypes?.length
         ? supportedTypes
-        : (Object.keys(PLUGIN_TYPE_LABELS) as PluginType[]),
+        : (["server", "executor", "matcher", "provider"] as PluginType[]),
     [supportedTypes],
   );
+  const resolvedCreateButtonLabel =
+    createButtonLabel ?? t(WEBUI.plugins.create);
+  const resolvedTitle = title ?? t(WEBUI.plugins.add);
+  const resolvedDescription = description ?? t(WEBUI.plugins.addDescription);
   const initialType =
     defaultType && visibleTypes.includes(defaultType)
       ? defaultType
@@ -131,7 +142,7 @@ export function CreatePluginDialog({
       : null;
     const normalizedSearch = search.trim().toLowerCase();
     const byType = (type: PluginType) => {
-      const plugins = getPluginCatalogItemsByType(type);
+      const plugins = getPluginCatalogItemsByType(type, locale);
       const supportedPlugins = supported
         ? plugins.filter((plugin) => supported.has(plugin.kind))
         : plugins;
@@ -139,18 +150,16 @@ export function CreatePluginDialog({
       if (!normalizedSearch) return supportedPlugins;
 
       return supportedPlugins.filter((plugin) => {
-        const configText = plugin.configSchema
-          .map(
-            (field) => `${field.key} ${field.label} ${field.description ?? ""}`,
-          )
-          .join(" ");
+        const configText = getConfigSearchText(plugin.configSchema);
         const searchableText = [
           plugin.kind,
           plugin.name,
           plugin.description,
-          PLUGIN_TYPE_LABELS[plugin.type],
+          pluginTypeLabel(plugin.type, locale),
           configText,
+          getPluginSearchText(plugin, [...LOCALES]),
         ]
+          .filter(Boolean)
           .join(" ")
           .toLowerCase();
 
@@ -164,7 +173,7 @@ export function CreatePluginDialog({
       matcher: byType("matcher"),
       provider: byType("provider"),
     };
-  }, [search, supportedPluginKinds]);
+  }, [locale, search, supportedPluginKinds]);
 
   const handleSelectKind = (kind: PluginCatalogItem) => {
     if (!isPluginKindSupported(buildInfo, kind.type, kind.kind)) return;
@@ -236,7 +245,7 @@ export function CreatePluginDialog({
         key={kind.kind}
         type="button"
         disabled={!supported}
-        title={supported ? undefined : "当前编译版本不支持"}
+        title={supported ? undefined : t(WEBUI.common.unsupportedBuild)}
         onClick={() => handleSelectKind(kind)}
         className={cn(
           "flex w-full items-start gap-3 rounded-lg border border-border bg-card p-3 text-left transition-colors",
@@ -253,7 +262,7 @@ export function CreatePluginDialog({
             <div className="truncate text-sm font-medium">{kind.name}</div>
             {!supported && (
               <Badge variant="outline" className="shrink-0 text-[10px]">
-                未编译
+                {t(WEBUI.common.notCompiled)}
               </Badge>
             )}
           </div>
@@ -283,7 +292,7 @@ export function CreatePluginDialog({
           {trigger ?? (
             <Button>
               <Plus className="h-4 w-4 mr-1.5" />
-              新建插件
+              {t(WEBUI.plugins.create)}
             </Button>
           )}
         </DialogTrigger>
@@ -300,8 +309,8 @@ export function CreatePluginDialog({
         {!selectedKind ? (
           <>
             <DialogHeader className="px-6 pt-6 pb-4">
-              <DialogTitle>{title}</DialogTitle>
-              <DialogDescription>{description}</DialogDescription>
+              <DialogTitle>{resolvedTitle}</DialogTitle>
+              <DialogDescription>{resolvedDescription}</DialogDescription>
             </DialogHeader>
             <Tabs
               value={activeTab}
@@ -319,7 +328,7 @@ export function CreatePluginDialog({
                     <TabsTrigger key={type} value={type} className="gap-1.5">
                       {typeIcons[type]}
                       <span className="hidden sm:inline">
-                        {PLUGIN_TYPE_LABELS[type]}
+                        {pluginTypeLabel(type, locale)}
                       </span>
                     </TabsTrigger>
                   ))}
@@ -331,14 +340,14 @@ export function CreatePluginDialog({
                   <Input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="搜索插件名称、类型或配置项"
+                    placeholder={t(WEBUI.plugins.searchCatalogPlaceholder)}
                     className="pl-9"
                   />
                 </div>
               </div>
               <div className="px-6 pb-2">
                 <p className="text-xs text-muted-foreground">
-                  {PLUGIN_TYPE_DESCRIPTIONS[activeTab]}
+                  {pluginTypeDescription(activeTab, locale)}
                 </p>
               </div>
               <ScrollArea className="h-[min(560px,calc(90vh-180px))] px-6">
@@ -352,7 +361,7 @@ export function CreatePluginDialog({
                       pluginsByType[type].map(renderPluginKindCard)
                     ) : (
                       <div className="col-span-full rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                        没有匹配的插件
+                        {t(WEBUI.plugins.noMatches)}
                       </div>
                     )}
                   </TabsContent>
@@ -374,9 +383,11 @@ export function CreatePluginDialog({
                 </Button>
                 <div>
                   <DialogTitle className="flex items-center gap-2">
-                    配置 {selectedKind.name}
+                    {t(WEBUI.plugins.configureTitle, {
+                      name: selectedKind.name,
+                    })}
                     <Badge variant="secondary" className="font-normal">
-                      {PLUGIN_TYPE_LABELS[selectedKind.type]}
+                      {pluginTypeLabel(selectedKind.type, locale)}
                     </Badge>
                   </DialogTitle>
                   <DialogDescription className="mt-1">
@@ -390,21 +401,26 @@ export function CreatePluginDialog({
                 <FieldGroup>
                   <Field>
                     <FieldLabel>
-                      实例名称 <span className="text-destructive">*</span>
+                      {t(WEBUI.plugins.instanceName)}{" "}
+                      <span className="text-destructive">*</span>
                     </FieldLabel>
                     <Input
                       value={instanceName}
                       onChange={(e) => setInstanceName(e.target.value)}
-                      placeholder={`例如: ${selectedKind.kind}_main`}
+                      placeholder={t(WEBUI.plugins.instanceNamePlaceholder, {
+                        kind: selectedKind.kind,
+                      })}
                       className="font-mono"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      建议使用小写字母、数字和下划线
+                      {t(WEBUI.plugins.instanceNameHint)}
                     </p>
                   </Field>
 
                   <div className="border-t pt-4 mt-2">
-                    <h4 className="text-sm font-medium mb-3">插件配置</h4>
+                    <h4 className="text-sm font-medium mb-3">
+                      {t(WEBUI.plugins.configTitle)}
+                    </h4>
                     {selectedKind.kind === "sequence" ? (
                       <SequenceComposer
                         value={configValues}
@@ -437,13 +453,15 @@ export function CreatePluginDialog({
             </ScrollArea>
             <DialogFooter className="px-6 py-4 border-t">
               <Button variant="outline" onClick={handleBack}>
-                返回
+                {t(WEBUI.common.back)}
               </Button>
               <Button
                 onClick={handleCreate}
                 disabled={!isValid() || isConfigSaving}
               >
-                {isConfigSaving ? "保存中" : createButtonLabel}
+                {isConfigSaving
+                  ? t(WEBUI.common.saving)
+                  : resolvedCreateButtonLabel}
               </Button>
             </DialogFooter>
           </>
@@ -451,6 +469,46 @@ export function CreatePluginDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function getConfigSearchText(
+  fields: PluginCatalogItem["configSchema"],
+): string {
+  return fields
+    .map((field) =>
+      [
+        field.key,
+        field.label,
+        field.description,
+        field.docs,
+        field.options?.map((option) => option.label).join(" "),
+        field.item ? getConfigChildSearchText(field.item) : undefined,
+        field.itemOptions?.map(getConfigChildSearchText).join(" "),
+        field.fields ? getConfigSearchText(field.fields) : undefined,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
+    .join(" ");
+}
+
+function getConfigChildSearchText(
+  field: NonNullable<PluginCatalogItem["configSchema"][number]["item"]>,
+): string {
+  return [
+    field.label,
+    field.description,
+    field.placeholder,
+    "fields" in field ? getConfigSearchText(field.fields) : undefined,
+    "item" in field && field.item
+      ? getConfigChildSearchText(field.item)
+      : undefined,
+    "itemOptions" in field && field.itemOptions
+      ? field.itemOptions.map(getConfigChildSearchText).join(" ")
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function isSequenceFullscreenEvent(event: Event) {

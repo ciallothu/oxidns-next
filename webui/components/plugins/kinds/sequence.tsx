@@ -10,6 +10,8 @@ import { Pencil, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppStore } from "@/lib/store";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 import type {
   PluginComponentDefinition,
   PluginDetailComponentProps,
@@ -25,6 +27,7 @@ function SequenceDetail({
   chartData,
   onClose,
 }: PluginDetailComponentProps) {
+  const { t } = useI18n();
   const updatePluginConfig = useAppStore((state) => state.updatePluginConfig);
   const saveConfig = useAppStore((state) => state.saveConfig);
   const isConfigSaving = useAppStore((state) => state.isConfigSaving);
@@ -56,19 +59,21 @@ function SequenceDetail({
       onClose={onClose}
       summaryItems={[
         {
-          label: "规则数",
+          label: t(WEBUI.sequence.ruleCount),
           value: String(parseSequenceRules(plugin.config.args).length),
         },
       ]}
       configContent={
         <Card>
           <CardHeader className="grid grid-cols-[1fr_auto] items-center p-4 pb-2">
-            <CardTitle className="text-sm">Sequence 编排</CardTitle>
+            <CardTitle className="text-sm">
+              {t(WEBUI.sequence.arrangement)}
+            </CardTitle>
             <div className="flex gap-2">
               {editing ? (
                 <>
                   <Button variant="outline" size="sm" onClick={handleCancel}>
-                    取消
+                    {t(WEBUI.common.cancel)}
                   </Button>
                   <Button
                     size="sm"
@@ -76,13 +81,15 @@ function SequenceDetail({
                     disabled={isConfigSaving}
                   >
                     <Save className="h-4 w-4" />
-                    {isConfigSaving ? "保存中" : "保存配置"}
+                    {isConfigSaving
+                      ? t(WEBUI.sequence.saving)
+                      : t(WEBUI.common.saveConfig)}
                   </Button>
                 </>
               ) : (
                 <Button size="sm" onClick={() => setEditing(true)}>
                   <Pencil className="h-4 w-4" />
-                  编辑配置
+                  {t(WEBUI.common.editConfig)}
                 </Button>
               )}
             </div>

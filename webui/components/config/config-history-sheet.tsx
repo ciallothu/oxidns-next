@@ -26,6 +26,8 @@ import { GitCompare, Trash2, RotateCcw, History } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import type { ConfigSnapshot } from "@/lib/config-history";
 import { ConfigDiffDialog } from "@/components/config/config-diff-dialog";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface ConfigHistorySheetProps {
   open: boolean;
@@ -41,6 +43,7 @@ export function ConfigHistorySheet({
   open,
   onOpenChange,
 }: ConfigHistorySheetProps) {
+  const { t } = useI18n();
   const configHistory = useAppStore((s) => s.configHistory);
   const configVersion = useAppStore((s) => s.configVersion);
   const runningVersion = useAppStore((s) => s.runningVersion);
@@ -51,8 +54,7 @@ export function ConfigHistorySheet({
   const [diffEntry, setDiffEntry] = useState<ConfigSnapshot | null>(null);
 
   // Live status is derived from what's actually running / on disk, never from
-  // a frozen per-entry flag — so there is always exactly one 运行中 and at
-  // most one 待应用.
+  // a frozen per-entry flag.
   const runningContent = configHistory.find(
     (s) => s.version === runningVersion,
   )?.content;
@@ -72,10 +74,10 @@ export function ConfigHistorySheet({
         <SheetHeader className="border-b px-5 py-4">
           <SheetTitle className="flex items-center gap-2 text-base">
             <History className="h-4 w-4 text-muted-foreground" />
-            配置历史
+            {t(WEBUI.configEditor.historyTitle)}
           </SheetTitle>
           <SheetDescription>
-            仅保存在本浏览器，按服务实例隔离。「回滚此版本」会写入磁盘，并根据改动类型热重载或重启生效。
+            {t(WEBUI.configEditor.historyDesc)}
           </SheetDescription>
         </SheetHeader>
 
@@ -83,7 +85,7 @@ export function ConfigHistorySheet({
           <div className="space-y-2 p-4">
             {configHistory.length === 0 && (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                暂无历史记录
+                {t(WEBUI.configEditor.noHistory)}
               </p>
             )}
             {configHistory.map((entry) => {
@@ -105,7 +107,7 @@ export function ConfigHistorySheet({
                             variant="outline"
                             className="border-primary/30 bg-primary/10 text-primary"
                           >
-                            运行中
+                            {t(WEBUI.configEditor.runningBadge)}
                           </Badge>
                         )}
                         {isPending && (
@@ -113,7 +115,7 @@ export function ConfigHistorySheet({
                             variant="outline"
                             className="border-yellow-500/30 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
                           >
-                            待应用
+                            {t(WEBUI.configEditor.pendingBadge)}
                           </Badge>
                         )}
                       </div>
@@ -122,14 +124,22 @@ export function ConfigHistorySheet({
                           {entry.version.slice(0, 8)}
                         </code>
                         <Badge variant="outline">
-                          {entry.source === "server" ? "基线" : "保存"}
+                          {entry.source === "server"
+                            ? t(WEBUI.configEditor.baselineSource)
+                            : t(WEBUI.configEditor.savedSource)}
                         </Badge>
-                        <span>{entry.pluginCount} 插件</span>
+                        <span>
+                          {t(WEBUI.configEditor.pluginCount, {
+                            count: entry.pluginCount,
+                          })}
+                        </span>
                         <span>{formatSize(entry.size)}</span>
                       </div>
                       {entry.applyError && (
                         <p className="text-xs text-destructive">
-                          上次应用失败：{entry.applyError}
+                          {t(WEBUI.configEditor.lastApplyFailed, {
+                            error: entry.applyError,
+                          })}
                         </p>
                       )}
                     </div>
@@ -142,7 +152,7 @@ export function ConfigHistorySheet({
                       onClick={() => setDiffEntry(entry)}
                     >
                       <GitCompare className="mr-1 h-3.5 w-3.5" />
-                      差异
+                      {t(WEBUI.configEditor.diff)}
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -153,24 +163,26 @@ export function ConfigHistorySheet({
                           disabled={isRunning}
                         >
                           <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                          回滚此版本
+                          {t(WEBUI.configEditor.rollbackVersion)}
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>回滚到此版本？</AlertDialogTitle>
+                          <AlertDialogTitle>
+                            {t(WEBUI.configEditor.rollbackTitle)}
+                          </AlertDialogTitle>
                           <AlertDialogDescription>
-                            将把该版本写入磁盘配置文件；如果包含
-                            runtime、api、log
-                            等顶层配置变更，会通过重启服务生效。
+                            {t(WEBUI.configEditor.rollbackDesc)}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel>取消</AlertDialogCancel>
+                          <AlertDialogCancel>
+                            {t(WEBUI.common.cancel)}
+                          </AlertDialogCancel>
                           <AlertDialogAction
                             onClick={() => handleRollback(entry.id)}
                           >
-                            回滚并生效
+                            {t(WEBUI.configEditor.rollbackAndApply)}
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
@@ -182,7 +194,9 @@ export function ConfigHistorySheet({
                       onClick={() => deleteConfigSnapshot(entry.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      <span className="sr-only">删除该快照</span>
+                      <span className="sr-only">
+                        {t(WEBUI.configEditor.deleteSnapshot)}
+                      </span>
                     </Button>
                   </div>
                 </div>
@@ -201,20 +215,24 @@ export function ConfigHistorySheet({
                   className="w-full text-muted-foreground hover:text-destructive"
                 >
                   <Trash2 className="mr-1.5 h-4 w-4" />
-                  清空历史
+                  {t(WEBUI.configEditor.clearHistory)}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>清空配置历史？</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t(WEBUI.configEditor.clearHistoryTitle)}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    将删除本浏览器为当前服务实例保存的所有配置快照，且无法恢复。
+                    {t(WEBUI.configEditor.clearHistoryDesc)}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogCancel>
+                    {t(WEBUI.common.cancel)}
+                  </AlertDialogCancel>
                   <AlertDialogAction onClick={() => clearConfigHistory()}>
-                    清空
+                    {t(WEBUI.common.clear)}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -231,8 +249,10 @@ export function ConfigHistorySheet({
           }}
           original={runningContent ?? diffEntry.content}
           modified={diffEntry.content}
-          originalTitle="正在运行"
-          modifiedTitle={`快照 ${diffEntry.version.slice(0, 8)}`}
+          originalTitle={t(WEBUI.configEditor.runningTitle)}
+          modifiedTitle={t(WEBUI.configEditor.snapshotTitle, {
+            version: diffEntry.version.slice(0, 8),
+          })}
         />
       )}
     </Sheet>

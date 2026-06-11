@@ -15,6 +15,8 @@ import { matcherPluginDefinitions } from "./plugin-definitions/matcher";
 import { providerPluginDefinitions } from "./plugin-definitions/provider";
 import { serverPluginDefinitions } from "./plugin-definitions/server";
 import { pluginFieldDocs } from "./plugin-definitions/docs";
+import type { Locale } from "./i18n";
+import { getLocalizedPluginKindDefinition as localizePluginKindDefinition } from "./i18n/plugin-defined";
 
 function withFieldDocs(definition: PluginKindDefinition): PluginKindDefinition {
   const docs = (pluginFieldDocs as Record<string, Record<string, string>>)[
@@ -78,4 +80,22 @@ export function getPluginKindDefinition(
   kind: string,
 ): PluginKindDefinition | undefined {
   return pluginKindDefinitions.find((p) => p.kind === kind);
+}
+
+export function getLocalizedPluginKindDefinitions(
+  locale: Locale,
+): PluginKindDefinition[] {
+  return pluginKindDefinitions.map((definition) =>
+    localizePluginKindDefinition(definition, locale),
+  );
+}
+
+export function getLocalizedPluginKindDefinition(
+  kind: string,
+  locale: Locale,
+): PluginKindDefinition | undefined {
+  const definition = getPluginKindDefinition(kind);
+  return definition
+    ? localizePluginKindDefinition(definition, locale)
+    : undefined;
 }

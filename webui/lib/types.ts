@@ -42,23 +42,3 @@ export interface SystemInfo {
   logLevel: string;
   logRolling: string;
 }
-
-export const PLUGIN_TYPE_LABELS: Record<PluginType, string> = {
-  server: "Server",
-  executor: "Executor",
-  matcher: "Matcher",
-  provider: "Provider",
-};
-
-export const PLUGIN_TYPE_DESCRIPTIONS: Record<PluginType, string> = {
-  server: "入口服务",
-  executor: "执行器",
-  matcher: "匹配器",
-  provider: "数据源",
-};
-
-export const PLUGIN_STATUS_LABELS: Record<PluginStatus, string> = {
-  running: "运行中",
-  stopped: "已停止",
-  error: "异常",
-};

@@ -37,8 +37,11 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export function ConfigEditorView() {
+  const { t } = useI18n();
   const yamlConfig = useAppStore((s) => s.configText);
   const setYamlConfig = useAppStore((s) => s.setYamlConfig);
   const saveConfig = useAppStore((s) => s.saveConfig);
@@ -82,7 +85,7 @@ export function ConfigEditorView() {
 
   // Resync the dirty-tracking baseline only when the persisted config
   // changes (after load or save) — NOT on every keystroke, otherwise
-  // hasChanges collapses immediately and 保存 stays disabled.
+  // hasChanges collapses immediately and Save stays disabled.
   useEffect(() => {
     if (!configVersion) return;
     const timer = window.setTimeout(
@@ -144,15 +147,21 @@ export function ConfigEditorView() {
 
   const shortcutsBlock = (
     <div className="border-t px-3 py-3 flex-shrink-0 space-y-2">
-      <p className="text-xs text-muted-foreground font-medium mb-1.5">快捷键</p>
+      <p className="text-xs text-muted-foreground font-medium mb-1.5">
+        {t(WEBUI.configEditor.shortcuts)}
+      </p>
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">缩进</span>
+        <span className="text-muted-foreground">
+          {t(WEBUI.configEditor.indent)}
+        </span>
         <kbd className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">
           Tab
         </kbd>
       </div>
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">保存</span>
+        <span className="text-muted-foreground">
+          {t(WEBUI.configEditor.save)}
+        </span>
         <div className="flex gap-0.5">
           <kbd className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">
             {modKey}
@@ -163,7 +172,9 @@ export function ConfigEditorView() {
         </div>
       </div>
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">撤销</span>
+        <span className="text-muted-foreground">
+          {t(WEBUI.configEditor.undo)}
+        </span>
         <div className="flex gap-0.5">
           <kbd className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">
             {modKey}
@@ -182,7 +193,9 @@ export function ConfigEditorView() {
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-wrap">
           <FileCode2 className="h-5 w-5 text-muted-foreground flex-shrink-0" />
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold">配置文件编辑器</h2>
+            <h2 className="text-lg font-semibold">
+              {t(WEBUI.configEditor.title)}
+            </h2>
             <p className="text-sm text-muted-foreground truncate">
               {configPath}
             </p>
@@ -192,7 +205,7 @@ export function ConfigEditorView() {
               variant="outline"
               className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30"
             >
-              离线模式
+              {t(WEBUI.configEditor.offlineMode)}
             </Badge>
           )}
           {copied && (
@@ -201,7 +214,7 @@ export function ConfigEditorView() {
               className="bg-primary/10 text-primary border-primary/30"
             >
               <ClipboardCheck className="h-3 w-3 mr-1" />
-              已复制
+              {t(WEBUI.configEditor.copied)}
             </Badge>
           )}
           {hasChanges && (
@@ -209,7 +222,7 @@ export function ConfigEditorView() {
               variant="outline"
               className="bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/30"
             >
-              未保存
+              {t(WEBUI.configEditor.unsaved)}
             </Badge>
           )}
           {saveStatus === "success" && (
@@ -218,13 +231,13 @@ export function ConfigEditorView() {
               className="bg-primary/10 text-primary border-primary/30"
             >
               <CheckCircle2 className="h-3 w-3 mr-1" />
-              已保存
+              {t(WEBUI.configEditor.saved)}
             </Badge>
           )}
           {saveStatus === "error" && (
             <Badge variant="destructive">
               <AlertCircle className="h-3 w-3 mr-1" />
-              保存失败
+              {t(WEBUI.configEditor.saveFailed)}
             </Badge>
           )}
           {configError && (
@@ -242,7 +255,7 @@ export function ConfigEditorView() {
               onClick={() => setIndexOpen(true)}
             >
               <PanelRightOpen className="h-4 w-4 mr-1.5" />
-              索引
+              {t(WEBUI.configEditor.index)}
             </Button>
           )}
           <Button
@@ -252,7 +265,7 @@ export function ConfigEditorView() {
             disabled={!hasChanges || busy}
           >
             <RotateCcw className="h-4 w-4 mr-1.5" />
-            重置
+            {t(WEBUI.configEditor.reset)}
           </Button>
           {isOfflineMode ? (
             <>
@@ -263,7 +276,7 @@ export function ConfigEditorView() {
                 disabled={!yamlConfig}
               >
                 <Download className="h-4 w-4 mr-1.5" />
-                下载
+                {t(WEBUI.configEditor.download)}
               </Button>
               <Button
                 variant="outline"
@@ -272,11 +285,11 @@ export function ConfigEditorView() {
                 disabled={!yamlConfig}
               >
                 <Copy className="h-4 w-4 mr-1.5" />
-                复制
+                {t(WEBUI.configEditor.copy)}
               </Button>
               <Button variant="ghost" size="sm" onClick={exitOfflineMode}>
                 <LogOut className="h-4 w-4 mr-1.5" />
-                退出离线
+                {t(WEBUI.configEditor.exitOffline)}
               </Button>
             </>
           ) : (
@@ -291,7 +304,7 @@ export function ConfigEditorView() {
               ) : (
                 <Save className="h-4 w-4 mr-1.5" />
               )}
-              保存
+              {t(WEBUI.configEditor.save)}
             </Button>
           )}
         </div>
@@ -322,8 +335,12 @@ export function ConfigEditorView() {
           {!isMobile && (
             <Card className="w-80 flex-shrink-0 flex flex-col min-h-0">
               <CardHeader className="flex-shrink-0 pb-2">
-                <CardTitle className="text-sm">插件索引</CardTitle>
-                <CardDescription>点击跳转到定义行</CardDescription>
+                <CardTitle className="text-sm">
+                  {t(WEBUI.configEditor.pluginIndexTitle)}
+                </CardTitle>
+                <CardDescription>
+                  {t(WEBUI.configEditor.jumpToDefinition)}
+                </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 min-h-0 overflow-y-auto pb-2 px-3">
                 <PluginIndexPanel
@@ -345,8 +362,12 @@ export function ConfigEditorView() {
               already leaves a comfortable backdrop strip to tap-close on mobile. */}
           <SheetContent side="right" className="gap-0 p-0">
             <SheetHeader className="px-4 pt-4 pb-2">
-              <SheetTitle className="text-sm">插件索引</SheetTitle>
-              <SheetDescription>点击跳转到定义行</SheetDescription>
+              <SheetTitle className="text-sm">
+                {t(WEBUI.configEditor.pluginIndexTitle)}
+              </SheetTitle>
+              <SheetDescription>
+                {t(WEBUI.configEditor.jumpToDefinition)}
+              </SheetDescription>
             </SheetHeader>
             <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
               <PluginIndexPanel

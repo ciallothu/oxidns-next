@@ -1,22 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  List,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-} from "lucide-react";
+import { List, Loader2, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -62,15 +50,20 @@ import {
   PluginNotAppliedPlaceholder,
 } from "../plugin-detail-template";
 import { usePluginAppliedStatus } from "@/hooks/use-plugin-applied";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 const PAGE_LIMIT = 200;
 
 function DynamicDomainSetDetail(props: PluginDetailComponentProps) {
+  const { t } = useI18n();
   const config = props.plugin.config as Record<string, unknown>;
   const path = typeof config.path === "string" ? config.path : "-";
   const bootstrap = Array.isArray(config.bootstrap_rules)
-    ? `${config.bootstrap_rules.length} 条`
-    : "0 条";
+    ? t(WEBUI.dynamicDomainSet.rulesCountValue, {
+        count: config.bootstrap_rules.length,
+      })
+    : t(WEBUI.dynamicDomainSet.rulesCountValue, { count: 0 });
   const batchSize =
     typeof config.batch_size === "number" ? config.batch_size : 256;
   const flushInterval =
@@ -82,16 +75,25 @@ function DynamicDomainSetDetail(props: PluginDetailComponentProps) {
       {...props}
       icon={<List className="h-5 w-5" />}
       summaryItems={[
-        { label: "规则文件", value: path },
-        { label: "初始规则", value: bootstrap },
-        { label: "批量阈值", value: String(batchSize) },
-        { label: "Flush 间隔", value: `${flushInterval} ms` },
+        { label: t(WEBUI.dynamicDomainSet.ruleFileLabel), value: path },
+        {
+          label: t(WEBUI.dynamicDomainSet.initialRulesLabel),
+          value: bootstrap,
+        },
+        {
+          label: t(WEBUI.dynamicDomainSet.batchThresholdLabel),
+          value: String(batchSize),
+        },
+        {
+          label: t(WEBUI.dynamicDomainSet.flushIntervalLabel),
+          value: `${flushInterval} ms`,
+        },
       ]}
       extraTabs={[
         {
           value: "rules",
           icon: <List className="mr-1 h-3.5 w-3.5" />,
-          label: "规则",
+          label: t(WEBUI.dynamicDomainSet.rulesTab),
           content: <RulesPanel tag={props.plugin.name} />,
         },
       ]}
@@ -108,6 +110,7 @@ function RulesPanel({ tag }: { tag: string }) {
 }
 
 function RulesPanelInner({ tag }: { tag: string }) {
+  const { t } = useI18n();
   const [rules, setRules] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
@@ -153,7 +156,11 @@ function RulesPanelInner({ tag }: { tag: string }) {
         );
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "读取规则失败");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(WEBUI.dynamicDomainSet.readRulesFailed),
+        );
       } finally {
         if (abortRef.current === controller) {
           abortRef.current = null;
@@ -162,7 +169,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
         }
       }
     },
-    [tag],
+    [tag, t],
   );
 
   useEffect(() => {
@@ -181,7 +188,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"));
     if (lines.length === 0) {
-      setError("请至少输入一条规则");
+      setError(t(WEBUI.dynamicDomainSet.inputRequired));
       return;
     }
     setAdding(true);
@@ -190,12 +197,19 @@ function RulesPanelInner({ tag }: { tag: string }) {
     try {
       const response = await appendDynamicDomainRules(tag, lines, draftKind);
       setLastNotice(
-        `新增 ${response.added} 条，当前共 ${response.total} 条`,
+        t(WEBUI.dynamicDomainSet.addNotice, {
+          added: response.added,
+          total: response.total,
+        }),
       );
       setDraft("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "添加规则失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.dynamicDomainSet.addRulesFailed),
+      );
     } finally {
       setAdding(false);
     }
@@ -208,11 +222,18 @@ function RulesPanelInner({ tag }: { tag: string }) {
     try {
       const response = await removeDynamicDomainRules(tag, [rule]);
       setLastNotice(
-        `删除 ${response.removed} 条，当前共 ${response.total} 条`,
+        t(WEBUI.dynamicDomainSet.removeNotice, {
+          removed: response.removed,
+          total: response.total,
+        }),
       );
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除规则失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.dynamicDomainSet.removeRulesFailed),
+      );
     } finally {
       setRemoving(null);
     }
@@ -224,12 +245,20 @@ function RulesPanelInner({ tag }: { tag: string }) {
     setLastNotice(null);
     try {
       const response = await clearDynamicDomainRules(tag);
-      setLastNotice(`已清空 ${response.removed} 条`);
+      setLastNotice(
+        t(WEBUI.dynamicDomainSet.clearNotice, {
+          removed: response.removed,
+        }),
+      );
       setRules([]);
       setTotal(0);
       setNextCursor(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "清空规则失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.dynamicDomainSet.clearRulesFailed),
+      );
     } finally {
       setClearing(false);
     }
@@ -245,11 +274,11 @@ function RulesPanelInner({ tag }: { tag: string }) {
       <Card>
         <CardHeader className="grid gap-3 p-4 pb-2 sm:grid-cols-[1fr_auto] sm:items-center">
           <div className="min-w-0">
-            <CardTitle className="text-sm">添加规则</CardTitle>
+            <CardTitle className="text-sm">
+              {t(WEBUI.dynamicDomainSet.addRulesTitle)}
+            </CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              每行一条规则，支持 <code>full:</code>、<code>domain:</code>、
-              <code>keyword:</code>、<code>regexp:</code> 与无前缀域名；空行与
-              <code> # </code>开头的注释会被忽略。
+              {t(WEBUI.dynamicDomainSet.addRulesDesc)}
             </p>
           </div>
         </CardHeader>
@@ -265,7 +294,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
           />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>无前缀域名按以下类型解析：</span>
+              <span>{t(WEBUI.dynamicDomainSet.defaultKindLabel)}</span>
               <Select
                 value={draftKind}
                 onValueChange={(value) =>
@@ -288,7 +317,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              添加
+              {t(WEBUI.dynamicDomainSet.addRuleButton)}
             </Button>
           </div>
         </CardContent>
@@ -297,13 +326,17 @@ function RulesPanelInner({ tag }: { tag: string }) {
       <Card>
         <CardHeader className="grid gap-3 p-4 pb-2 sm:grid-cols-[1fr_auto] sm:items-center">
           <div className="min-w-0">
-            <CardTitle className="text-sm">当前规则</CardTitle>
+            <CardTitle className="text-sm">
+              {t(WEBUI.dynamicDomainSet.currentRulesTitle)}
+            </CardTitle>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
               <Badge variant="outline" className="bg-muted/30">
-                共 {total} 条
+                {t(WEBUI.dynamicDomainSet.totalRules, { count: total })}
               </Badge>
               <Badge variant="outline" className="bg-muted/30">
-                已载入 {rules.length} 条
+                {t(WEBUI.dynamicDomainSet.loadedRules, {
+                  count: rules.length,
+                })}
               </Badge>
               {loading && (
                 <Badge
@@ -311,7 +344,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
                   className="border-primary/30 bg-primary/10 text-primary"
                 >
                   <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  正在加载
+                  {t(WEBUI.dynamicDomainSet.loadingRules)}
                 </Badge>
               )}
               {lastNotice && !error && (
@@ -332,7 +365,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
               onClick={() => void load()}
             >
               <RefreshCw className="h-4 w-4" />
-              刷新
+              {t(WEBUI.common.refresh)}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -346,7 +379,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
                   ) : (
                     <Trash2 className="h-4 w-4" />
                   )}
-                  清空规则
+                  {t(WEBUI.dynamicDomainSet.clearRulesButton)}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -354,15 +387,16 @@ function RulesPanelInner({ tag }: { tag: string }) {
                   <AlertDialogMedia className="bg-destructive/10 text-destructive">
                     <Trash2 className="h-5 w-5" />
                   </AlertDialogMedia>
-                  <AlertDialogTitle>清空所有规则？</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t(WEBUI.dynamicDomainSet.clearRulesTitle)}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    将删除 &ldquo;{tag}&rdquo;
-                    管理文件中的所有规则，并替换为空快照。此操作无法撤销。
+                    {t(WEBUI.dynamicDomainSet.clearRulesDesc, { tag })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={clearing}>
-                    取消
+                    {t(WEBUI.common.cancel)}
                   </AlertDialogCancel>
                   <AlertDialogAction
                     variant="destructive"
@@ -372,7 +406,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
                       void handleClear();
                     }}
                   >
-                    清空规则
+                    {t(WEBUI.dynamicDomainSet.clearRulesButton)}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -385,7 +419,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
             <Input
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              placeholder="按内容过滤已加载的规则"
+              placeholder={t(WEBUI.dynamicDomainSet.filterPlaceholder)}
               className="h-8 pl-8 font-mono"
             />
           </div>
@@ -400,8 +434,10 @@ function RulesPanelInner({ tag }: { tag: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>规则</TableHead>
-                  <TableHead className="w-24 text-right">操作</TableHead>
+                  <TableHead>{t(WEBUI.dynamicDomainSet.ruleColumn)}</TableHead>
+                  <TableHead className="w-24 text-right">
+                    {t(WEBUI.dynamicDomainSet.actionColumn)}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -411,7 +447,9 @@ function RulesPanelInner({ tag }: { tag: string }) {
                       colSpan={2}
                       className="text-center text-sm text-muted-foreground"
                     >
-                      {trimmedFilter ? "没有匹配过滤条件的规则" : "暂无规则"}
+                      {trimmedFilter
+                        ? t(WEBUI.dynamicDomainSet.noFilteredRules)
+                        : t(WEBUI.dynamicDomainSet.noRules)}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -426,7 +464,9 @@ function RulesPanelInner({ tag }: { tag: string }) {
                           size="icon-sm"
                           disabled={removing === rule}
                           onClick={() => void handleRemove(rule)}
-                          aria-label={`删除规则 ${rule}`}
+                          aria-label={t(WEBUI.dynamicDomainSet.deleteRuleAria, {
+                            rule,
+                          })}
                         >
                           {removing === rule ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -453,7 +493,7 @@ function RulesPanelInner({ tag }: { tag: string }) {
                 {loadingMore ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : null}
-                加载更多
+                {t(WEBUI.common.loadMore)}
               </Button>
             </div>
           )}

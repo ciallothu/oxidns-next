@@ -4,14 +4,8 @@ import { useEffect } from "react";
 import { Loader2, Check, Power } from "lucide-react";
 import { useAppStore, type RestartPhase } from "@/lib/store";
 import { cn } from "@/lib/utils";
-
-const PHASE_LABELS: Record<RestartPhase, string> = {
-  saving: "保存配置到磁盘",
-  requesting: "发起重启请求",
-  waiting_down: "等待旧进程退出",
-  waiting_up: "等待新进程就绪",
-  reloading: "重新加载配置",
-};
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 const PHASE_ORDER: RestartPhase[] = [
   "saving",
@@ -25,6 +19,7 @@ const PHASE_ORDER: RestartPhase[] = [
 // restarted. Sits above sheets/dialogs and traps focus so the user cannot
 // click into stale UI state while DNS is briefly unavailable.
 export function RestartingOverlay() {
+  const { t } = useI18n();
   const isRestarting = useAppStore((s) => s.isRestarting);
   const restartPhase = useAppStore((s) => s.restartPhase);
 
@@ -68,13 +63,13 @@ export function RestartingOverlay() {
               id="restart-overlay-title"
               className="text-sm font-semibold leading-tight"
             >
-              正在重启 OxiDNS 服务
+              {t(WEBUI.restartOverlay.title)}
             </h2>
             <p
               id="restart-overlay-description"
               className="mt-1 text-xs text-muted-foreground"
             >
-              DNS 解析会短暂中断，完成后页面会自动恢复，请勿刷新或关闭。
+              {t(WEBUI.restartOverlay.description)}
             </p>
           </div>
         </div>
@@ -105,7 +100,7 @@ export function RestartingOverlay() {
                   )}
                 </span>
                 <span className={cn(isActive && "font-medium")}>
-                  {PHASE_LABELS[phase]}
+                  {restartPhaseLabel(phase, t)}
                 </span>
               </li>
             );
@@ -114,4 +109,22 @@ export function RestartingOverlay() {
       </div>
     </div>
   );
+}
+
+function restartPhaseLabel(
+  phase: RestartPhase,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  switch (phase) {
+    case "saving":
+      return t(WEBUI.restartOverlay.saving);
+    case "requesting":
+      return t(WEBUI.restartOverlay.requesting);
+    case "waiting_down":
+      return t(WEBUI.restartOverlay.waitingDown);
+    case "waiting_up":
+      return t(WEBUI.restartOverlay.waitingUp);
+    case "reloading":
+      return t(WEBUI.restartOverlay.reloading);
+  }
 }

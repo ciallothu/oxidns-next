@@ -12,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 import { streamLogs, type LogEntry } from "@/lib/oxidns-api";
 
 const LEVEL_COLORS: Record<
@@ -102,6 +104,7 @@ function LogLine({ entry, wrap }: { entry: LogEntry; wrap: boolean }) {
 }
 
 export function LogViewer() {
+  const { t } = useI18n();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -227,7 +230,9 @@ export function LogViewer() {
           ) : (
             <WifiOff className="size-3 text-rose-500" />
           )}
-          <span>{connected ? "已连接" : "断开"}</span>
+          <span>
+            {connected ? t(WEBUI.logs.connected) : t(WEBUI.logs.disconnected)}
+          </span>
         </div>
 
         <div className="h-4 w-px bg-border shrink-0" />
@@ -238,7 +243,7 @@ export function LogViewer() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent position="popper" sideOffset={4}>
-            <SelectItem value="all">全部级别</SelectItem>
+            <SelectItem value="all">{t(WEBUI.logs.allLevels)}</SelectItem>
             <SelectItem value="ERROR">ERROR+</SelectItem>
             <SelectItem value="WARN">WARN+</SelectItem>
             <SelectItem value="INFO">INFO+</SelectItem>
@@ -250,7 +255,7 @@ export function LogViewer() {
         {/* Search */}
         <Input
           className="h-7 w-48 text-xs"
-          placeholder="搜索消息 / target…"
+          placeholder={t(WEBUI.logs.searchPlaceholder)}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -259,9 +264,11 @@ export function LogViewer() {
 
         {/* Entry count */}
         <span className="text-xs text-muted-foreground shrink-0">
-          {filtered.length} 条
+          {t(WEBUI.logs.entryCount, { count: filtered.length })}
           {backlog > 0 && (
-            <span className="ml-1 text-amber-400">+{backlog} 待显示</span>
+            <span className="ml-1 text-amber-400">
+              {t(WEBUI.logs.pendingCount, { count: backlog })}
+            </span>
           )}
         </span>
 
@@ -271,10 +278,10 @@ export function LogViewer() {
           size="sm"
           className="h-7 px-2 text-xs"
           onClick={() => setWrap((w) => !w)}
-          title={wrap ? "关闭自动换行" : "开启自动换行"}
+          title={wrap ? t(WEBUI.logs.disableWrap) : t(WEBUI.logs.enableWrap)}
         >
           <WrapText className="size-3 mr-1" />
-          自动换行
+          {t(WEBUI.logs.wrap)}
         </Button>
 
         {/* Clear */}
@@ -285,7 +292,7 @@ export function LogViewer() {
           onClick={clearLogs}
         >
           <Trash2 className="size-3 mr-1" />
-          清空
+          {t(WEBUI.common.clear)}
         </Button>
 
         {/* Pause / Resume */}
@@ -298,12 +305,12 @@ export function LogViewer() {
           {paused ? (
             <>
               <Play className="size-3 mr-1" />
-              继续 ({backlog})
+              {t(WEBUI.logs.resume, { count: backlog })}
             </>
           ) : (
             <>
               <Pause className="size-3 mr-1" />
-              暂停
+              {t(WEBUI.logs.pause)}
             </>
           )}
         </Button>
@@ -316,7 +323,9 @@ export function LogViewer() {
       >
         {filtered.length === 0 ? (
           <div className="flex items-center justify-center h-full text-zinc-600">
-            {connected ? "等待日志…" : "正在连接后端…"}
+            {connected
+              ? t(WEBUI.logs.waiting)
+              : t(WEBUI.logs.connectingBackend)}
           </div>
         ) : (
           filtered.map((entry, index) => (

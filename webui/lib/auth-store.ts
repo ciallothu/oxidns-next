@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { WEBUI, tClient } from "./i18n";
 
 export interface ServerConfig {
   url: string;
@@ -83,7 +84,7 @@ export const useAuthStore = create<AuthState>()(
         try {
           const url = serverConfig.url.trim();
           if (!url) {
-            throw new Error("服务地址不能为空");
+            throw new Error(tClient(WEBUI.storeErrors.serviceUrlRequired));
           }
           const headers: Record<string, string> = {
             Accept: "application/json",
@@ -115,14 +116,18 @@ export const useAuthStore = create<AuthState>()(
                 serverConfig.requiresAuth &&
                 serverConfig.username &&
                 serverConfig.password
-                  ? "用户名或密码错误"
+                  ? tClient(WEBUI.storeErrors.invalidCredentials)
                   : null,
               serverConfig: { ...serverConfig, requiresAuth: true },
             });
             return false;
           }
           if (!response.ok) {
-            throw new Error(`连接失败：HTTP ${response.status}`);
+            throw new Error(
+              tClient(WEBUI.storeErrors.connectionHttpFailed, {
+                status: response.status,
+              }),
+            );
           }
           set({
             serverConfig,
@@ -139,7 +144,9 @@ export const useAuthStore = create<AuthState>()(
             isConnecting: false,
             needsCredentials: false,
             connectionError:
-              error instanceof Error ? error.message : "连接失败",
+              error instanceof Error
+                ? error.message
+                : tClient(WEBUI.storeErrors.connectionFailed),
           });
           return false;
         }

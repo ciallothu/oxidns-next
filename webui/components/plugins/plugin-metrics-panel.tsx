@@ -8,31 +8,43 @@ import {
   groupMetricRows,
   type MetricRow,
 } from "@/lib/metrics";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export function PluginMetricsPanel({ tag }: { tag: string }) {
+  const { locale, t } = useI18n();
   const series = useAppStore((s) => s.pluginMetrics[tag]);
   if (!series || series.length === 0) return null;
 
-  const rows = groupMetricRows(series);
+  const rows = groupMetricRows(series, locale);
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 p-4 pb-2">
-        <CardTitle className="text-sm">运行指标</CardTitle>
+        <CardTitle className="text-sm">
+          {t(WEBUI.plugins.metricsTitle)}
+        </CardTitle>
         <Badge variant="outline" className="font-mono text-[11px]">
           {rows.length} metrics
         </Badge>
       </CardHeader>
       <CardContent className="space-y-2 p-4 pt-0">
         {rows.map((row) => (
-          <MetricRowItem key={row.name} row={row} />
+          <MetricRowItem key={row.name} row={row} locale={locale} />
         ))}
       </CardContent>
     </Card>
   );
 }
 
-function MetricRowItem({ row }: { row: MetricRow }) {
+function MetricRowItem({
+  row,
+  locale,
+}: {
+  row: MetricRow;
+  locale: ReturnType<typeof useI18n>["locale"];
+}) {
+  const { t } = useI18n();
   return (
     <div className="rounded-md border border-border/70 bg-background/60 px-3 py-2">
       <div className="flex items-start justify-between gap-3">
@@ -49,7 +61,7 @@ function MetricRowItem({ row }: { row: MetricRow }) {
             )}
             {row.highValue && (
               <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                卡片
+                {t(WEBUI.plugins.cardBadge)}
               </Badge>
             )}
           </div>
@@ -63,7 +75,7 @@ function MetricRowItem({ row }: { row: MetricRow }) {
           )}
         </div>
         <span className="shrink-0 font-mono text-sm font-semibold tabular-nums">
-          {formatMetricValue(row.total)}
+          {formatMetricValue(row.total, locale)}
         </span>
       </div>
       {row.breakdown.length > 0 && (
@@ -77,7 +89,7 @@ function MetricRowItem({ row }: { row: MetricRow }) {
                 {item.key}
               </span>
               <span className="shrink-0 font-mono tabular-nums">
-                {formatMetricValue(item.value)}
+                {formatMetricValue(item.value, locale)}
               </span>
             </div>
           ))}

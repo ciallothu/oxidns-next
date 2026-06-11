@@ -10,6 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 export interface DnsQuestionView {
   name: string;
@@ -87,6 +89,7 @@ export function DnsRecordDetailDialog({
   error,
   wide = false,
 }: DnsRecordDetailDialogProps) {
+  const { t } = useI18n();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -125,7 +128,7 @@ export function DnsRecordDetailDialog({
             )}
 
             {questions.length > 0 && (
-              <DetailBlock title="查询问题">
+              <DetailBlock title={t(WEBUI.dnsRecord.questionSection)}>
                 <div className="space-y-2">
                   {questions.map((question, index) => (
                     <div
@@ -169,14 +172,14 @@ export function DnsRecordDetailDialog({
                   </div>
                 ) : (
                   <span className="text-muted-foreground">
-                    {section.emptyLabel ?? "无记录"}
+                    {section.emptyLabel ?? t(WEBUI.dnsRecord.noRecords)}
                   </span>
                 )}
               </DetailBlock>
             ))}
 
             {steps.length > 0 && (
-              <DetailBlock title="执行步骤">
+              <DetailBlock title={t(WEBUI.dnsRecord.executionStepsSection)}>
                 <div className="space-y-2">
                   {steps.map((step) => (
                     <div
@@ -214,7 +217,7 @@ export function DnsRecordDetailDialog({
             ))}
 
             {error && (
-              <DetailBlock title="错误">
+              <DetailBlock title={t(WEBUI.dnsRecord.errorSection)}>
                 <span className="text-destructive">{error}</span>
               </DetailBlock>
             )}

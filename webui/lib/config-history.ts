@@ -55,7 +55,7 @@ function storageKey(scope: string) {
 }
 
 // One entry per version (= per content hash), keeping the most recent
-// occurrence, newest first. Live status (运行中 / 待应用) is derived at render
+// occurrence, newest first. Live status (running / pending) is derived at render
 // time from runningVersion / configVersion, NOT from a frozen per-entry
 // applyStatus, so an old version never gets stuck looking "applied".
 function dedupeByVersion(list: ConfigSnapshot[]): ConfigSnapshot[] {

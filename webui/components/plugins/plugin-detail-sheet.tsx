@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 import { DefaultPluginDetail } from "@/components/plugins/default-plugin-detail";
 import { getPluginComponentDefinition } from "@/components/plugins/registry";
 import type { PluginMetricPoint } from "@/components/plugins/types";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 const generateChartData = (): PluginMetricPoint[] =>
   Array.from({ length: 24 }, (_, i) => ({
@@ -23,6 +25,7 @@ const generateChartData = (): PluginMetricPoint[] =>
   }));
 
 export function PluginDetailSheet() {
+  const { t } = useI18n();
   const { selectedPlugin, detailOpen, setDetailOpen } = useAppStore();
   const [chartData] = useState(generateChartData);
   const [expandedPluginId, setExpandedPluginId] = useState<string | null>(null);
@@ -76,18 +79,24 @@ export function PluginDetailSheet() {
                   <Maximize2 className="h-4 w-4" />
                 )}
                 <span className="sr-only">
-                  {expanded ? "还原详情宽度" : "放大详情"}
+                  {expanded
+                    ? t(WEBUI.pluginDetail.collapse)
+                    : t(WEBUI.pluginDetail.expand)}
                 </span>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {expanded ? "还原" : "放大"}
+              {expanded
+                ? t(WEBUI.pluginDetail.collapseLabel)
+                : t(WEBUI.pluginDetail.expandLabel)}
             </TooltipContent>
           </Tooltip>
           <SheetClose asChild>
             <Button variant="ghost" size="icon-sm">
               <X className="h-4 w-4" />
-              <span className="sr-only">关闭详情</span>
+              <span className="sr-only">
+                {t(WEBUI.pluginDetail.closeDetail)}
+              </span>
             </Button>
           </SheetClose>
         </div>

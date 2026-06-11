@@ -22,10 +22,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { PluginInstance, PluginType } from "@/lib/types";
-import { PLUGIN_TYPE_LABELS } from "@/lib/types";
 import { isPluginKindSupported } from "@/lib/build-capabilities";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { LOCALES, WEBUI } from "@/lib/i18n";
+import {
+  getPluginSearchText,
+  pluginTypeLabel,
+} from "@/lib/i18n/plugin-defined";
+import { useI18n } from "@/lib/i18n/provider";
 
 const CreatePluginDialog = dynamic(
   () =>
@@ -54,12 +59,13 @@ export function PluginReferencePicker({
   referenceTypes,
   referencePlugins,
   disabled = false,
-  placeholder = "选择插件引用",
+  placeholder,
   className,
   allowCreate = false,
   createDescription,
   onChange,
 }: PluginReferencePickerProps) {
+  const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -71,6 +77,8 @@ export function PluginReferencePicker({
   const selectedPlugin = plugins.find(
     (plugin) => plugin.name === normalizedValue,
   );
+  const resolvedPlaceholder =
+    placeholder ?? t(WEBUI.plugins.referencePlaceholder);
   const selectedSupported = selectedPlugin
     ? isPluginKindSupported(
         buildInfo,
@@ -97,15 +105,20 @@ export function PluginReferencePicker({
     }
     if (!normalizedSearch) return true;
 
-    const definition = getPluginCatalogItem(plugin.pluginKind);
+    const definition = getPluginCatalogItem(plugin.pluginKind, locale);
+    const baseDefinition = getPluginCatalogItem(plugin.pluginKind);
     return [
       plugin.name,
       plugin.pluginKind,
       plugin.type,
+      pluginTypeLabel(plugin.type, locale),
       definition?.name,
       definition?.description,
+      baseDefinition
+        ? getPluginSearchText(baseDefinition, [...LOCALES])
+        : undefined,
     ]
-      .filter(Boolean)
+      .filter((text): text is string => Boolean(text))
       .join(" ")
       .toLowerCase()
       .includes(normalizedSearch);
@@ -136,7 +149,7 @@ export function PluginReferencePicker({
               </span>
             ) : (
               <span className="text-xs text-muted-foreground">
-                {placeholder}
+                {resolvedPlaceholder}
               </span>
             )}
           </Button>
@@ -151,7 +164,7 @@ export function PluginReferencePicker({
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="搜索插件 tag、类型或说明"
+              placeholder={t(WEBUI.plugins.referenceSearchPlaceholder)}
               className="h-8 pl-9"
             />
           </div>
@@ -186,7 +199,7 @@ export function PluginReferencePicker({
             ))}
             {filteredPlugins.length === 0 && (
               <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                没有匹配的插件
+                {t(WEBUI.plugins.noMatches)}
               </div>
             )}
           </div>
@@ -203,7 +216,8 @@ export function PluginReferencePicker({
                 }}
               >
                 <Plus className="h-4 w-4" />
-                快速创建 {PLUGIN_TYPE_LABELS[createType]}
+                {t(WEBUI.plugins.quickCreate)}{" "}
+                {pluginTypeLabel(createType, locale)}
               </Button>
             </div>
           )}
@@ -220,9 +234,11 @@ export function PluginReferencePicker({
           defaultName={search.trim()}
           onCreated={onChange}
           trigger={null}
-          title="快速创建插件"
-          description={createDescription ?? "创建后会立即回填到当前引用中。"}
-          createButtonLabel="创建并引用"
+          title={t(WEBUI.plugins.quickCreate)}
+          description={
+            createDescription ?? t(WEBUI.plugins.quickCreateDescription)
+          }
+          createButtonLabel={t(WEBUI.plugins.createAndReference)}
         />
       )}
     </>
@@ -265,11 +281,12 @@ function PluginReferenceOption({
   supported: boolean;
   onPick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
       disabled={!supported}
-      title={supported ? undefined : "当前编译版本不支持"}
+      title={supported ? undefined : t(WEBUI.common.unsupportedBuild)}
       className={cn(
         "flex w-full items-center gap-2 rounded-md border bg-background p-2 text-left",
         supported
@@ -290,7 +307,8 @@ function PluginReferenceCompact({
   plugin: PluginInstance;
   supported?: boolean;
 }) {
-  const definition = getPluginCatalogItem(plugin.pluginKind);
+  const { locale, t } = useI18n();
+  const definition = getPluginCatalogItem(plugin.pluginKind, locale);
 
   return (
     <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -309,13 +327,13 @@ function PluginReferenceCompact({
           {plugin.name}
         </span>
         <span className="block truncate text-[10px] leading-tight text-muted-foreground">
-          {PLUGIN_TYPE_LABELS[plugin.type]} ·{" "}
+          {pluginTypeLabel(plugin.type, locale)} ·{" "}
           {definition?.name ?? plugin.pluginKind}
         </span>
       </span>
       {!supported && (
         <span className="shrink-0 rounded border px-1 py-0.5 text-[10px] text-muted-foreground">
-          未编译
+          {t(WEBUI.common.notCompiled)}
         </span>
       )}
     </span>

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { Copy, Check, Server, Zap, Filter, Database } from "lucide-react";
 import { pluginKindDefinitions } from "@/lib/plugin-definitions";
 import type { PluginType } from "@/lib/types";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface PluginEntry {
   tag: string;
@@ -22,14 +24,6 @@ const CATEGORY_ORDER: (PluginType | "unknown")[] = [
   "matcher",
   "provider",
 ];
-
-const CATEGORY_LABELS: Record<PluginType | "unknown", string> = {
-  server: "服务器",
-  executor: "执行器",
-  matcher: "匹配器",
-  provider: "数据源",
-  unknown: "未知",
-};
 
 const CATEGORY_ICONS: Record<PluginType | "unknown", React.ReactNode> = {
   server: <Server className="h-3 w-3" />,
@@ -109,6 +103,7 @@ export function PluginIndexPanel({
   yamlText,
   onJumpToLine,
 }: PluginIndexPanelProps) {
+  const { t } = useI18n();
   const [copiedTag, setCopiedTag] = useState<string | null>(null);
 
   const entries = useMemo(() => parsePluginsFromYaml(yamlText), [yamlText]);
@@ -134,7 +129,7 @@ export function PluginIndexPanel({
   if (entries.length === 0) {
     return (
       <div className="flex items-center justify-center h-16 text-xs text-muted-foreground">
-        暂无插件
+        {t(WEBUI.configEditor.noPlugins)}
       </div>
     );
   }
@@ -151,7 +146,7 @@ export function PluginIndexPanel({
                 {CATEGORY_ICONS[cat]}
               </span>
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {CATEGORY_LABELS[cat]}
+                {pluginCategoryLabel(cat, t)}
               </span>
               <span className="ml-auto text-xs tabular-nums text-muted-foreground/50">
                 {items.length}
@@ -170,7 +165,9 @@ export function PluginIndexPanel({
                   <button
                     className="hidden group-hover:flex items-center p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
                     onClick={(e) => handleCopy(entry.tag, e)}
-                    title={`复制 $${entry.tag}`}
+                    title={t(WEBUI.configEditor.copyReferenceTitle, {
+                      tag: entry.tag,
+                    })}
                   >
                     {copiedTag === entry.tag ? (
                       <Check className="h-3 w-3 text-primary" />
@@ -189,4 +186,22 @@ export function PluginIndexPanel({
       })}
     </div>
   );
+}
+
+function pluginCategoryLabel(
+  category: PluginType | "unknown",
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  switch (category) {
+    case "server":
+      return t(WEBUI.pluginTypes.server);
+    case "executor":
+      return t(WEBUI.pluginTypes.executor);
+    case "matcher":
+      return t(WEBUI.pluginTypes.matcher);
+    case "provider":
+      return t(WEBUI.pluginTypes.provider);
+    case "unknown":
+      return t(WEBUI.configEditor.unknownCategory);
+  }
 }

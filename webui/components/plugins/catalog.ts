@@ -2,9 +2,12 @@ import type { PluginType } from "@/lib/types";
 import type { PluginKindDefinition } from "@/lib/plugin-definitions";
 import { createElement, type SVGProps } from "react";
 import {
+  getLocalizedPluginKindDefinition,
+  getLocalizedPluginKindDefinitions,
   getPluginKindsByType,
   pluginKindDefinitions,
 } from "@/lib/plugin-definitions";
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n";
 import {
   ArrowUpRight,
   Ban,
@@ -65,23 +68,34 @@ export const pluginCatalog: PluginCatalogItem[] = pluginKindDefinitions;
 
 export function getPluginCatalogItem(
   kind: string,
+  locale: Locale = DEFAULT_LOCALE,
 ): PluginCatalogItem | undefined {
-  return pluginCatalog.find((plugin) => plugin.kind === kind);
+  return getLocalizedPluginKindDefinition(kind, locale);
 }
 
 export function getPluginCatalogItemsByType(
   type: PluginType,
+  locale: Locale = DEFAULT_LOCALE,
 ): PluginCatalogItem[] {
-  return getPluginKindsByType(type);
+  if (locale === DEFAULT_LOCALE) return getPluginKindsByType(type);
+  return getLocalizedPluginKindDefinitions(locale).filter(
+    (p) => p.type === type,
+  );
 }
 
 export function getSupportedPluginCatalog(
   supportedKinds?: string[],
+  locale: Locale = DEFAULT_LOCALE,
 ): PluginCatalogItem[] {
-  if (!supportedKinds || supportedKinds.length === 0) return pluginCatalog;
+  const catalog =
+    locale === DEFAULT_LOCALE
+      ? pluginCatalog
+      : getLocalizedPluginKindDefinitions(locale);
+
+  if (!supportedKinds || supportedKinds.length === 0) return catalog;
 
   const supported = new Set(supportedKinds);
-  return pluginCatalog.filter((plugin) => supported.has(plugin.kind));
+  return catalog.filter((plugin) => supported.has(plugin.kind));
 }
 
 export function getPluginKindIconComponent(icon: string) {

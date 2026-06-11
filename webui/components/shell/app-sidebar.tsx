@@ -15,7 +15,11 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAuthStore } from "@/lib/auth-store";
 import {
   BookOpen,
@@ -27,31 +31,34 @@ import {
   Settings,
   User,
 } from "lucide-react";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 const navItems = [
   {
-    title: "仪表盘",
+    titleKey: WEBUI.shell.dashboard,
     href: "/",
     icon: LayoutDashboard,
   },
   {
-    title: "插件中心",
+    titleKey: WEBUI.shell.plugins,
     href: "/plugins",
     icon: Puzzle,
   },
   {
-    title: "运行日志",
+    titleKey: WEBUI.shell.logs,
     href: "/logs",
     icon: ScrollText,
   },
   {
-    title: "系统配置",
+    titleKey: WEBUI.shell.settings,
     href: "/settings",
     icon: Settings,
   },
 ];
 
 export function AppSidebar() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const isConnected = useAuthStore((s) => s.isConnected);
   const serverConfig = useAuthStore((s) => s.serverConfig);
@@ -84,7 +91,9 @@ export function AppSidebar() {
                 </div>
                 <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-semibold">OxiDNS</span>
-                  <span className="text-xs text-muted-foreground">控制台</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t(WEBUI.shell.console)}
+                  </span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -94,7 +103,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>导航</SidebarGroupLabel>
+          <SidebarGroupLabel>{t(WEBUI.shell.navigation)}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
@@ -102,7 +111,7 @@ export function AppSidebar() {
                   <SidebarMenuButton asChild isActive={pathname === item.href}>
                     <Link href={item.href}>
                       <item.icon className="size-4" />
-                      <span>{item.title}</span>
+                      <span>{t(item.titleKey)}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -128,10 +137,12 @@ export function AppSidebar() {
                       className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     >
                       <LogOut className="size-3.5" />
-                      <span className="sr-only">退出登录</span>
+                      <span className="sr-only">{t(WEBUI.shell.logout)}</span>
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="right">退出登录</TooltipContent>
+                  <TooltipContent side="right">
+                    {t(WEBUI.shell.logout)}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </SidebarMenuItem>
@@ -145,7 +156,7 @@ export function AppSidebar() {
                 className="text-muted-foreground"
               >
                 <BookOpen className="size-4" />
-                <span>文档站</span>
+                <span>{t(WEBUI.shell.docs)}</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>

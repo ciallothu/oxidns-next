@@ -106,10 +106,13 @@ import {
   PluginNotAppliedPlaceholder,
 } from "../plugin-detail-template";
 import { usePluginAppliedStatus } from "@/hooks/use-plugin-applied";
+import { useI18n } from "@/lib/i18n/provider";
+import { WEBUI } from "@/lib/i18n/keys";
 import { DnsRecordDetailDialog } from "../dns-record-detail-dialog";
 import { QueryRecordFlowCanvas } from "../query-record-flow";
 
 function QueryRecorderDetail(props: PluginDetailComponentProps) {
+  const { t } = useI18n();
   return (
     <PluginDetailTemplate
       {...props}
@@ -117,12 +120,19 @@ function QueryRecorderDetail(props: PluginDetailComponentProps) {
       summaryItems={[
         { label: "SQLite", value: String(props.plugin.config.path ?? "-") },
         {
-          label: "内存 Tail",
-          value: String(props.plugin.config.memory_tail ?? "默认"),
+          label: t(WEBUI.queryRecorder.memoryTailLabel),
+          value: String(
+            props.plugin.config.memory_tail ?? t(WEBUI.common.defaultValue),
+          ),
         },
         {
-          label: "保留",
-          value: `${String(props.plugin.config.retention_days ?? "默认")}天`,
+          label: t(WEBUI.queryRecorder.retentionLabel),
+          value: t(WEBUI.queryRecorder.retentionDays, {
+            days: String(
+              props.plugin.config.retention_days ??
+                t(WEBUI.common.defaultValue),
+            ),
+          }),
         },
       ]}
       metricsContent={<QueryRecordsPanel tag={props.plugin.name} />}
@@ -130,7 +140,7 @@ function QueryRecorderDetail(props: PluginDetailComponentProps) {
         {
           value: "insights",
           icon: <BarChart3 className="mr-1 h-3.5 w-3.5" />,
-          label: "聚合",
+          label: t(WEBUI.queryRecorder.insightsTab),
           content: <QueryRecorderInsightsPanel tag={props.plugin.name} />,
         },
       ]}
@@ -198,13 +208,13 @@ const TOP_PAGE_SIZE = 20;
 const CHART_ROW_HEIGHT = 24;
 const CHART_MIN_HEIGHT = 240;
 const CHART_VERTICAL_PADDING = 16;
-// Cap the chart's visible footprint. When "加载更多" pushes the row count past
+// Cap the chart's visible footprint. When Load more pushes the row count past
 // what fits here, the chart keeps its full per-row height and the container
-// scrolls instead of growing without bound — so labels stay 1:1 either way.
+// scrolls instead of growing without bound, so labels stay 1:1 either way.
 const CHART_MAX_HEIGHT = 640;
 
 // ---------------------------------------------------------------------------
-// 「统计」Tab — original layout: MatcherStatsCard on top, QueryRecordsPanel
+// Statistics tab: MatcherStatsCard on top, QueryRecordsPanel
 // below, sharing a single filter form (incl. matcherTag).
 // ---------------------------------------------------------------------------
 
@@ -217,6 +227,7 @@ function QueryRecordsPanel({ tag }: { tag: string }) {
 }
 
 function QueryRecordsPanelInner({ tag }: { tag: string }) {
+  const { t } = useI18n();
   const [records, setRecords] = useState<QueryRecordRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [matcherStats, setMatcherStats] = useState<
@@ -269,7 +280,11 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
         setNextCursor(response.next_cursor);
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(err instanceof Error ? err.message : "读取查询记录失败");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(WEBUI.queryRecorder.readRecordsFailed),
+        );
       } finally {
         if (recordsAbortRef.current === controller) {
           recordsAbortRef.current = null;
@@ -277,7 +292,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
         }
       }
     },
-    [tag],
+    [tag, t],
   );
 
   const loadMatcherStats = useCallback(
@@ -300,7 +315,9 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       } catch (err) {
         if (controller.signal.aborted) return;
         setStatsError(
-          err instanceof Error ? err.message : "读取 matcher 命中率失败",
+          err instanceof Error
+            ? err.message
+            : t(WEBUI.queryRecorder.readMatcherStatsFailed),
         );
       } finally {
         if (statsAbortRef.current === controller) {
@@ -309,7 +326,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
         }
       }
     },
-    [tag],
+    [tag, t],
   );
 
   const refresh = useCallback(
@@ -353,7 +370,11 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       const detail = await fetchQueryRecordDetail(tag, record.id);
       setSelected(detail.record);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "读取记录详情失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.queryRecorder.readDetailFailed),
+      );
     }
   };
 
@@ -374,7 +395,11 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       setLastClearCount(response.cleared_records);
       await refresh(appliedFilters);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "清空查询历史失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.queryRecorder.clearHistoryFailed),
+      );
     } finally {
       setClearing(false);
     }
@@ -401,7 +426,9 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
         },
       );
       if (!response.ok || !response.body) {
-        throw new Error(`流式连接失败：HTTP ${response.status}`);
+        throw new Error(
+          t(WEBUI.queryRecorder.streamHttpFailed, { status: response.status }),
+        );
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -419,14 +446,16 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
           const event = parseSseEvent(chunk);
           if (event.event === "error") {
             setError(
-              event.data ? parseSseErrorMessage(event.data) : "实时流返回错误",
+              event.data
+                ? parseSseErrorMessage(event.data, t)
+                : t(WEBUI.queryRecorder.streamError),
             );
             continue;
           }
           if (!event.data) continue;
           const record = parseStreamRecord(event.data);
           if (!record) {
-            setError("实时事件格式无效，已跳过一条记录");
+            setError(t(WEBUI.queryRecorder.streamInvalidEvent));
             continue;
           }
           if (!recordMatchesFilters(record, filtersRef.current)) continue;
@@ -440,7 +469,11 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       }
     } catch (err) {
       if (!controller.signal.aborted) {
-        setError(err instanceof Error ? err.message : "流式连接失败");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(WEBUI.queryRecorder.streamConnFailed),
+        );
       }
     } finally {
       if (abortRef.current === controller) {
@@ -474,39 +507,49 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       <Card>
         <CardHeader className="grid gap-3 p-4 pb-2 sm:grid-cols-[1fr_auto] sm:items-center">
           <div className="min-w-0">
-            <CardTitle className="text-sm">查询记录</CardTitle>
+            <CardTitle className="text-sm">
+              {t(WEBUI.queryRecorder.recordsTitle)}
+            </CardTitle>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                已载入 {records.length} 条
+                {t(WEBUI.queryRecorder.loadedRecords, {
+                  count: records.length,
+                })}
               </span>
               {activeFilterCount > 0 && (
                 <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-primary">
-                  筛选 {activeFilterCount} 项
+                  {t(WEBUI.queryRecorder.activeFilters, {
+                    count: activeFilterCount,
+                  })}
                 </span>
               )}
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                错误 {records.filter((record) => record.error).length} 条
+                {t(WEBUI.queryRecorder.errorCount, {
+                  count: records.filter((record) => record.error).length,
+                })}
               </span>
               {loading && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-primary">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  正在加载…
+                  {t(WEBUI.queryRecorder.loadingIndicator)}
                 </span>
               )}
               {clearing && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-destructive">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  正在清空…
+                  {t(WEBUI.queryRecorder.clearingIndicator)}
                 </span>
               )}
               {lastClearCount !== null && !clearing && (
                 <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-destructive">
-                  已清空 {lastClearCount} 条
+                  {t(WEBUI.queryRecorder.clearedCount, {
+                    count: lastClearCount,
+                  })}
                 </span>
               )}
               {streaming && (
                 <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-primary">
-                  实时接收中
+                  {t(WEBUI.queryRecorder.streamingStatus)}
                 </span>
               )}
             </div>
@@ -519,7 +562,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
               onClick={() => void refresh(appliedFilters)}
             >
               <RefreshCw className="h-4 w-4" />
-              刷新
+              {t(WEBUI.common.refresh)}
             </Button>
             <Button
               variant={streaming ? "secondary" : "outline"}
@@ -528,7 +571,9 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
               onClick={() => void toggleStream()}
             >
               <Radio className="h-4 w-4" />
-              {streaming ? "停止实时" : "实时"}
+              {streaming
+                ? t(WEBUI.queryRecorder.stopStreaming)
+                : t(WEBUI.queryRecorder.startStreaming)}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -538,7 +583,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                   ) : (
                     <Trash2 className="h-4 w-4" />
                   )}
-                  清空历史
+                  {t(WEBUI.queryRecorder.clearHistoryButton)}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -546,23 +591,23 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                   <AlertDialogMedia className="bg-destructive/10 text-destructive">
                     <Trash2 className="h-5 w-5" />
                   </AlertDialogMedia>
-                  <AlertDialogTitle>清空查询历史？</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t(WEBUI.queryRecorder.clearHistoryTitle)}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    将删除插件 &ldquo;{tag}&rdquo;
-                    已持久化的所有查询记录和执行路径事件，并清空内存
-                    tail。此操作无法撤销。
+                    {t(WEBUI.queryRecorder.clearHistoryDesc, { tag })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={clearing}>
-                    取消
+                    {t(WEBUI.common.cancel)}
                   </AlertDialogCancel>
                   <AlertDialogAction
                     variant="destructive"
                     disabled={clearing}
                     onClick={() => void handleClearHistory()}
                   >
-                    清空历史
+                    {t(WEBUI.queryRecorder.clearHistoryButton)}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -578,7 +623,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
             }}
           >
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <FilterField label="QNAME 包含">
+              <FilterField label={t(WEBUI.queryRecorder.qnameFilter)}>
                 <Input
                   value={filterForm.qname}
                   onChange={(event) =>
@@ -602,7 +647,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="all">{t(WEBUI.common.all)}</SelectItem>
                     {QTYPE_OPTIONS.map((qtype) => (
                       <SelectItem key={qtype} value={qtype}>
                         {qtype}
@@ -611,7 +656,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                   </SelectContent>
                 </Select>
               </FilterField>
-              <FilterField label="客户端 IP 包含">
+              <FilterField label={t(WEBUI.queryRecorder.clientIpFilter)}>
                 <Input
                   value={filterForm.clientIp}
                   onChange={(event) =>
@@ -620,7 +665,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                       clientIp: event.target.value,
                     }))
                   }
-                  placeholder="192.168 或 ::1"
+                  placeholder="192.168 / ::1"
                   className="h-8 font-mono"
                 />
               </FilterField>
@@ -635,7 +680,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="all">{t(WEBUI.common.all)}</SelectItem>
                     {RCODE_OPTIONS.map((rcode) => (
                       <SelectItem key={rcode} value={rcode}>
                         {rcode}
@@ -644,7 +689,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                   </SelectContent>
                 </Select>
               </FilterField>
-              <FilterField label="状态">
+              <FilterField label={t(WEBUI.queryRecorder.statusFilter)}>
                 <Select
                   value={filterForm.status}
                   onValueChange={(status) =>
@@ -658,14 +703,20 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="error">错误</SelectItem>
-                    <SelectItem value="has_response">有响应</SelectItem>
-                    <SelectItem value="no_response">无响应</SelectItem>
+                    <SelectItem value="all">{t(WEBUI.common.all)}</SelectItem>
+                    <SelectItem value="error">
+                      {t(WEBUI.queryRecorder.statusError)}
+                    </SelectItem>
+                    <SelectItem value="has_response">
+                      {t(WEBUI.queryRecorder.statusHasResponse)}
+                    </SelectItem>
+                    <SelectItem value="no_response">
+                      {t(WEBUI.queryRecorder.statusNoResponse)}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </FilterField>
-              <FilterField label="开始">
+              <FilterField label={t(WEBUI.queryRecorder.startTimeFilter)}>
                 <DateTimePicker
                   value={filterForm.sinceLocal}
                   onChange={(sinceLocal) =>
@@ -674,10 +725,10 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                       sinceLocal,
                     }))
                   }
-                  placeholder="开始时间"
+                  placeholder={t(WEBUI.queryRecorder.startTimePlaceholder)}
                 />
               </FilterField>
-              <FilterField label="结束">
+              <FilterField label={t(WEBUI.queryRecorder.endTimeFilter)}>
                 <DateTimePicker
                   value={filterForm.untilLocal}
                   onChange={(untilLocal) =>
@@ -686,13 +737,13 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                       untilLocal,
                     }))
                   }
-                  placeholder="结束时间"
+                  placeholder={t(WEBUI.queryRecorder.endTimePlaceholder)}
                 />
               </FilterField>
               <div className="flex items-end gap-2">
                 <Button type="submit" size="sm" className="h-8">
                   <Filter className="h-4 w-4" />
-                  应用
+                  {t(WEBUI.common.apply)}
                 </Button>
                 <Button
                   type="button"
@@ -702,7 +753,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                   onClick={clearFilters}
                 >
                   <X className="h-4 w-4" />
-                  清空
+                  {t(WEBUI.common.clear)}
                 </Button>
               </div>
             </div>
@@ -721,27 +772,27 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
               >
                 <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/95 px-3 py-1.5 text-xs text-primary shadow-sm">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  正在加载查询记录…
+                  {t(WEBUI.queryRecorder.loadingOverlay)}
                 </div>
               </div>
             )}
             <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead>查询</TableHead>
-                  <TableHead>客户端</TableHead>
-                  <TableHead>时间</TableHead>
-                  <TableHead>结果</TableHead>
-                  <TableHead>耗时</TableHead>
+                  <TableHead>{t(WEBUI.queryRecorder.queryColumn)}</TableHead>
+                  <TableHead>{t(WEBUI.queryRecorder.clientColumn)}</TableHead>
+                  <TableHead>{t(WEBUI.queryRecorder.timeColumn)}</TableHead>
+                  <TableHead>{t(WEBUI.queryRecorder.resultColumn)}</TableHead>
+                  <TableHead>{t(WEBUI.queryRecorder.elapsedColumn)}</TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
-                      记录数
+                      {t(WEBUI.queryRecorder.recordCountColumn)}
                       <Popover>
                         <PopoverTrigger asChild>
                           <button
                             type="button"
                             className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
-                            aria-label="记录数说明"
+                            aria-label={t(WEBUI.queryRecorder.recordCountAria)}
                           >
                             <Info className="h-3.5 w-3.5" />
                           </button>
@@ -750,7 +801,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                           side="top"
                           className="w-auto max-w-[16rem] p-2 text-xs"
                         >
-                          Answer / Authority / Additional
+                          {t(WEBUI.dnsRecord.responseRecordsTooltip)}
                         </PopoverContent>
                       </Popover>
                     </span>
@@ -792,7 +843,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                           "inline-flex min-w-16 justify-center rounded border px-1.5 py-0.5 text-xs font-medium tabular-nums",
                           queryElapsedClassName(record.elapsed_ms),
                         )}
-                        title={queryElapsedTitle(record.elapsed_ms)}
+                        title={queryElapsedTitle(record.elapsed_ms, t)}
                       >
                         {record.elapsed_ms}ms
                       </span>
@@ -813,7 +864,9 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                       colSpan={6}
                       className="h-24 text-center text-muted-foreground"
                     >
-                      {loading ? "正在读取查询记录..." : "暂无查询记录"}
+                      {loading
+                        ? t(WEBUI.queryRecorder.loadingRecords)
+                        : t(WEBUI.queryRecorder.noRecords)}
                     </TableCell>
                   </TableRow>
                 )}
@@ -828,7 +881,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
               disabled={loading}
               onClick={() => void loadRecords(appliedFilters, nextCursor)}
             >
-              加载更多
+              {t(WEBUI.common.loadMore)}
             </Button>
           )}
         </CardContent>
@@ -865,29 +918,33 @@ function MatcherStatsCard({
   onSelectMatcher: (matcherTag: string | undefined) => void;
   onRefresh: () => void;
 }) {
+  const { t } = useI18n();
+
   return (
     <Card>
       <CardHeader className="grid gap-3 p-4 pb-2 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="min-w-0">
           <CardTitle className="flex items-center gap-2 text-sm">
             <BarChart3 className="h-4 w-4 text-primary" />
-            Matcher 命中率
+            {t(WEBUI.queryRecorder.matcherStatsTitle)}
           </CardTitle>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              样本 {queryTotal} 条
+              {t(WEBUI.queryRecorder.sampleCount, { count: queryTotal })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              Matcher {stats.length} 个
+              {t(WEBUI.queryRecorder.matcherCount, { count: stats.length })}
             </span>
             {selectedMatcher && (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-primary hover:bg-primary/20"
                 onClick={() => onSelectMatcher(undefined)}
-                title="清除选中的 matcher 筛选"
+                title={t(WEBUI.queryRecorder.clearMatcherFilterTitle)}
               >
-                已筛选: {selectedMatcher}
+                {t(WEBUI.queryRecorder.selectedMatcher, {
+                  matcher: selectedMatcher,
+                })}
                 <X className="h-3 w-3" />
               </button>
             )}
@@ -900,7 +957,7 @@ function MatcherStatsCard({
           onClick={onRefresh}
         >
           <RefreshCw className="h-4 w-4" />
-          刷新
+          {t(WEBUI.common.refresh)}
         </Button>
       </CardHeader>
       <CardContent className="p-4 pt-0">
@@ -914,10 +971,10 @@ function MatcherStatsCard({
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead>Matcher</TableHead>
-                <TableHead>检查次数</TableHead>
-                <TableHead>命中</TableHead>
-                <TableHead>命中率</TableHead>
-                <TableHead>查询占比</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.checkedColumn)}</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.hitColumn)}</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.hitRateColumn)}</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.queryShareColumn)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -941,8 +998,8 @@ function MatcherStatsCard({
                     title={
                       selectable
                         ? isSelected
-                          ? "点击取消筛选"
-                          : "点击筛选下方匹配此 matcher 的查询"
+                          ? t(WEBUI.queryRecorder.clickToCancelFilter)
+                          : t(WEBUI.queryRecorder.clickToFilter)
                         : undefined
                     }
                   >
@@ -957,7 +1014,9 @@ function MatcherStatsCard({
                             {recordsLoading && (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             )}
-                            {recordsLoading ? "加载中" : "已选"}
+                            {recordsLoading
+                              ? t(WEBUI.queryRecorder.loadingBadge)
+                              : t(WEBUI.queryRecorder.selectedBadge)}
                           </Badge>
                         )}
                       </div>
@@ -979,7 +1038,9 @@ function MatcherStatsCard({
                     colSpan={5}
                     className="h-20 text-center text-muted-foreground"
                   >
-                    {loading ? "正在读取命中率..." : "暂无 matcher 统计"}
+                    {loading
+                      ? t(WEBUI.queryRecorder.loadingMatcherStats)
+                      : t(WEBUI.queryRecorder.noMatcherStats)}
                   </TableCell>
                 </TableRow>
               )}
@@ -992,18 +1053,30 @@ function MatcherStatsCard({
 }
 
 // ---------------------------------------------------------------------------
-// 「聚合」Tab — top-level aggregate insights. Independent from the 统计 Tab's
+// Aggregate tab: top-level insights independent from the Statistics tab's
 // filter form. Only knob is a preset time range; sub-tabs render charts.
 // ---------------------------------------------------------------------------
 
 type InsightsRangeKey = "10m" | "1h" | "24h" | "all";
+type TFn = (
+  key: string,
+  params?: Record<string, string | number | boolean | null | undefined>,
+) => string;
 
-const RANGE_PRESETS: Array<{ key: InsightsRangeKey; label: string }> = [
-  { key: "10m", label: "最近 10 分钟" },
-  { key: "1h", label: "最近 1 小时" },
-  { key: "24h", label: "最近 24 小时" },
-  { key: "all", label: "全部" },
-];
+const RANGE_PRESET_KEYS: InsightsRangeKey[] = ["10m", "1h", "24h", "all"];
+
+function rangePresetLabel(range: InsightsRangeKey, t: TFn) {
+  switch (range) {
+    case "10m":
+      return t(WEBUI.queryRecorder.rangePreset10m);
+    case "1h":
+      return t(WEBUI.queryRecorder.rangePreset1h);
+    case "24h":
+      return t(WEBUI.queryRecorder.rangePreset24h);
+    case "all":
+      return t(WEBUI.queryRecorder.rangePresetAll);
+  }
+}
 
 function rangeToFilters(range: InsightsRangeKey): QueryRecordFilters {
   if (range === "all") return {};
@@ -1027,15 +1100,13 @@ function QueryRecorderInsightsPanel({ tag }: { tag: string }) {
 }
 
 function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
+  const { t } = useI18n();
   const [range, setRange] = useState<InsightsRangeKey>("1h");
   // `nonce` lets the user force a refresh of every sub-tab without changing
   // the range; we bump it on the toolbar refresh button.
   const [nonce, setNonce] = useState(0);
   const filters = useMemo(() => rangeToFilters(range), [range]);
-  const rangeLabel = useMemo(
-    () => RANGE_PRESETS.find((preset) => preset.key === range)?.label ?? "",
-    [range],
-  );
+  const rangeLabel = useMemo(() => rangePresetLabel(range, t), [range, t]);
 
   return (
     <div className="space-y-4">
@@ -1044,14 +1115,14 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
           <div className="min-w-0">
             <CardTitle className="flex items-center gap-2 text-sm">
               <BarChart3 className="h-4 w-4 text-primary" />
-              聚合视图
+              {t(WEBUI.queryRecorder.insightsViewTitle)}
             </CardTitle>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
                 {rangeLabel}
               </span>
               <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-                与「统计」Tab 筛选相互独立
+                {t(WEBUI.queryRecorder.insightsIndependent)}
               </span>
             </div>
           </div>
@@ -1063,7 +1134,7 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
               onClick={() => setNonce((value) => value + 1)}
             >
               <RefreshCw className="h-4 w-4" />
-              刷新
+              {t(WEBUI.common.refresh)}
             </Button>
           </div>
         </CardHeader>
@@ -1073,11 +1144,11 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
         <TabsList className="flex w-full flex-nowrap justify-start gap-1 overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="clients" className="shrink-0">
             <Users className="h-3.5 w-3.5" />
-            客户端
+            {t(WEBUI.queryRecorder.clientsTab)}
           </TabsTrigger>
           <TabsTrigger value="qnames" className="shrink-0">
             <Globe className="h-3.5 w-3.5" />
-            域名
+            {t(WEBUI.queryRecorder.domainsTab)}
           </TabsTrigger>
           <TabsTrigger value="qtype" className="shrink-0">
             <BarChart3 className="h-3.5 w-3.5" />
@@ -1089,28 +1160,28 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
           </TabsTrigger>
           <TabsTrigger value="latency" className="shrink-0">
             <Timer className="h-3.5 w-3.5" />
-            延迟
+            {t(WEBUI.queryRecorder.latencyTab)}
           </TabsTrigger>
           <TabsTrigger value="timeseries" className="shrink-0">
             <TrendingUp className="h-3.5 w-3.5" />
-            趋势
+            {t(WEBUI.queryRecorder.trendTab)}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="clients" className="min-h-[40rem]">
           <TopBucketsCard
             key={`clients-${tag}-${range}-${nonce}`}
-            title="客户端 IP 排行"
+            title={t(WEBUI.queryRecorder.topClientsTitle)}
             icon={<Users className="h-4 w-4 text-primary" />}
             tag={tag}
             filters={filters}
             fetcher={fetchQueryRecorderTopClients}
-            keyLabel="客户端 IP"
+            keyLabel={t(WEBUI.queryRecorder.clientIpKeyLabel)}
           />
         </TabsContent>
         <TabsContent value="qnames" className="min-h-[40rem]">
           <TopBucketsCard
             key={`qnames-${tag}-${range}-${nonce}`}
-            title="查询域名排行"
+            title={t(WEBUI.queryRecorder.topDomainsTitle)}
             icon={<Globe className="h-4 w-4 text-primary" />}
             tag={tag}
             filters={filters}
@@ -1121,7 +1192,7 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
         <TabsContent value="qtype" className="min-h-[40rem]">
           <DistributionCard
             key={`qtype-${tag}-${range}-${nonce}`}
-            title="QTYPE 分布"
+            title={t(WEBUI.queryRecorder.qtypeDistTitle)}
             icon={<BarChart3 className="h-4 w-4 text-primary" />}
             tag={tag}
             filters={filters}
@@ -1133,7 +1204,7 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
         <TabsContent value="rcode" className="min-h-[40rem]">
           <DistributionCard
             key={`rcode-${tag}-${range}-${nonce}`}
-            title="RCODE 分布"
+            title={t(WEBUI.queryRecorder.rcodeDistTitle)}
             icon={<PieChartIcon className="h-4 w-4 text-primary" />}
             tag={tag}
             filters={filters}
@@ -1169,15 +1240,16 @@ function PresetRangePicker({
   value: InsightsRangeKey;
   onChange: (next: InsightsRangeKey) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="inline-flex h-8 items-center rounded-md border bg-muted/30 p-0.5">
-      {RANGE_PRESETS.map((preset) => {
-        const active = preset.key === value;
+      {RANGE_PRESET_KEYS.map((presetKey) => {
+        const active = presetKey === value;
         return (
           <button
-            key={preset.key}
+            key={presetKey}
             type="button"
-            onClick={() => onChange(preset.key)}
+            onClick={() => onChange(presetKey)}
             className={cn(
               "rounded px-2 py-1 text-xs transition-colors",
               active
@@ -1185,7 +1257,7 @@ function PresetRangePicker({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {preset.label}
+            {rangePresetLabel(presetKey, t)}
           </button>
         );
       })}
@@ -1211,6 +1283,7 @@ function TopBucketsCard({
   ) => Promise<QueryRecorderTopResponse>;
   keyLabel: string;
 }) {
+  const { t } = useI18n();
   const [data, setData] = useState<QueryRecorderTopResponse | null>(null);
   const [limit, setLimit] = useState(TOP_PAGE_SIZE);
   const [loading, setLoading] = useState(false);
@@ -1239,7 +1312,11 @@ function TopBucketsCard({
         if (controller.signal.aborted || abortRef.current !== controller) {
           return;
         }
-        setError(err instanceof Error ? err.message : "读取统计失败");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(WEBUI.queryRecorder.readStatsFailed),
+        );
       } finally {
         if (abortRef.current === controller) {
           abortRef.current = null;
@@ -1247,7 +1324,7 @@ function TopBucketsCard({
         }
       }
     },
-    [tag, filters, fetcher],
+    [tag, filters, fetcher, t],
   );
 
   useEffect(() => {
@@ -1288,7 +1365,9 @@ function TopBucketsCard({
           </CardTitle>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              样本 {data?.sample_size ?? 0} 条
+              {t(WEBUI.queryRecorder.sampleCount, {
+                count: data?.sample_size ?? 0,
+              })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
               Top {chartData.length}
@@ -1302,7 +1381,7 @@ function TopBucketsCard({
           onClick={() => void load(limit)}
         >
           <RefreshCw className="h-4 w-4" />
-          刷新
+          {t(WEBUI.common.refresh)}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
@@ -1353,9 +1432,12 @@ function TopBucketsCard({
                       fontSize: 12,
                     }}
                     formatter={(value: number, _name, props) => [
-                      `${value} 次 (${formatPercent(
-                        (props.payload?.share as number) ?? 0,
-                      )})`,
+                      t(WEBUI.queryRecorder.timesWithPercent, {
+                        count: value,
+                        pct: formatPercent(
+                          (props.payload?.share as number) ?? 0,
+                        ),
+                      }),
                       keyLabel,
                     ]}
                   />
@@ -1375,8 +1457,8 @@ function TopBucketsCard({
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-12">#</TableHead>
                 <TableHead>{keyLabel}</TableHead>
-                <TableHead>次数</TableHead>
-                <TableHead>占比</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.countColumn)}</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.shareColumn)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1398,7 +1480,9 @@ function TopBucketsCard({
                     colSpan={4}
                     className="h-20 text-center text-muted-foreground"
                   >
-                    {loading ? "正在读取统计..." : "暂无数据"}
+                    {loading
+                      ? t(WEBUI.queryRecorder.loadingStats)
+                      : t(WEBUI.queryRecorder.noData)}
                   </TableCell>
                 </TableRow>
               )}
@@ -1412,7 +1496,7 @@ function TopBucketsCard({
             disabled={loading}
             onClick={() => void load(limit + TOP_PAGE_SIZE)}
           >
-            加载更多
+            {t(WEBUI.common.loadMore)}
           </Button>
         )}
       </CardContent>
@@ -1440,6 +1524,7 @@ function DistributionCard({
   keyLabel: string;
   preferBarChart: boolean;
 }) {
+  const { t } = useI18n();
   const [data, setData] = useState<QueryRecorderDistributionResponse | null>(
     null,
   );
@@ -1466,14 +1551,18 @@ function DistributionCard({
       if (controller.signal.aborted || abortRef.current !== controller) {
         return;
       }
-      setError(err instanceof Error ? err.message : "读取分布失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.queryRecorder.readDistFailed),
+      );
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         setLoading(false);
       }
     }
-  }, [tag, filters, fetcher]);
+  }, [tag, filters, fetcher, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1497,10 +1586,12 @@ function DistributionCard({
           </CardTitle>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              样本 {data?.sample_size ?? 0} 条
+              {t(WEBUI.queryRecorder.sampleCount, {
+                count: data?.sample_size ?? 0,
+              })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              分桶 {rows.length} 个
+              {t(WEBUI.queryRecorder.bucketCount, { count: rows.length })}
             </span>
           </div>
         </div>
@@ -1511,7 +1602,7 @@ function DistributionCard({
           onClick={() => void load()}
         >
           <RefreshCw className="h-4 w-4" />
-          刷新
+          {t(WEBUI.common.refresh)}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
@@ -1549,9 +1640,12 @@ function DistributionCard({
                       fontSize: 12,
                     }}
                     formatter={(value: number, _name, props) => [
-                      `${value} 次 (${formatPercent(
-                        (props.payload?.share as number) ?? 0,
-                      )})`,
+                      t(WEBUI.queryRecorder.timesWithPercent, {
+                        count: value,
+                        pct: formatPercent(
+                          (props.payload?.share as number) ?? 0,
+                        ),
+                      }),
                       keyLabel,
                     ]}
                   />
@@ -1572,9 +1666,12 @@ function DistributionCard({
                       fontSize: 12,
                     }}
                     formatter={(value: number, _name, props) => [
-                      `${value} 次 (${formatPercent(
-                        (props.payload?.share as number) ?? 0,
-                      )})`,
+                      t(WEBUI.queryRecorder.timesWithPercent, {
+                        count: value,
+                        pct: formatPercent(
+                          (props.payload?.share as number) ?? 0,
+                        ),
+                      }),
                       props.payload?.key ?? keyLabel,
                     ]}
                   />
@@ -1604,8 +1701,8 @@ function DistributionCard({
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead>{keyLabel}</TableHead>
-                <TableHead>次数</TableHead>
-                <TableHead>占比</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.countColumn)}</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.shareColumn)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1624,7 +1721,9 @@ function DistributionCard({
                     colSpan={3}
                     className="h-20 text-center text-muted-foreground"
                   >
-                    {loading ? "正在读取分布..." : "暂无数据"}
+                    {loading
+                      ? t(WEBUI.queryRecorder.loadingDist)
+                      : t(WEBUI.queryRecorder.noData)}
                   </TableCell>
                 </TableRow>
               )}
@@ -1643,6 +1742,7 @@ function LatencyCard({
   tag: string;
   filters: QueryRecordFilters;
 }) {
+  const { t } = useI18n();
   const [data, setData] = useState<QueryRecorderLatencySummary | null>(null);
   const [slowLimit, setSlowLimit] = useState(TOP_PAGE_SIZE);
   const [loading, setLoading] = useState(false);
@@ -1671,7 +1771,11 @@ function LatencyCard({
         if (controller.signal.aborted || abortRef.current !== controller) {
           return;
         }
-        setError(err instanceof Error ? err.message : "读取延迟统计失败");
+        setError(
+          err instanceof Error
+            ? err.message
+            : t(WEBUI.queryRecorder.readLatencyFailed),
+        );
       } finally {
         if (abortRef.current === controller) {
           abortRef.current = null;
@@ -1679,7 +1783,7 @@ function LatencyCard({
         }
       }
     },
-    [tag, filters],
+    [tag, filters, t],
   );
 
   useEffect(() => {
@@ -1726,11 +1830,13 @@ function LatencyCard({
         <div className="min-w-0">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Timer className="h-4 w-4 text-primary" />
-            延迟分布
+            {t(WEBUI.queryRecorder.latencyDistTitle)}
           </CardTitle>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              样本 {data?.sample_size ?? 0} 条
+              {t(WEBUI.queryRecorder.sampleCount, {
+                count: data?.sample_size ?? 0,
+              })}
             </span>
           </div>
         </div>
@@ -1741,7 +1847,7 @@ function LatencyCard({
           onClick={() => void load(slowLimit)}
         >
           <RefreshCw className="h-4 w-4" />
-          刷新
+          {t(WEBUI.common.refresh)}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
@@ -1755,10 +1861,13 @@ function LatencyCard({
           <MetricChip label="P95" value={`${data?.p95_ms ?? 0} ms`} />
           <MetricChip label="P99" value={`${data?.p99_ms ?? 0} ms`} />
           <MetricChip
-            label="平均"
+            label={t(WEBUI.queryRecorder.avgMetricLabel)}
             value={`${data ? data.avg_ms.toFixed(1) : "0.0"} ms`}
           />
-          <MetricChip label="最大" value={`${data?.max_ms ?? 0} ms`} />
+          <MetricChip
+            label={t(WEBUI.queryRecorder.maxMetricLabel)}
+            value={`${data?.max_ms ?? 0} ms`}
+          />
         </div>
         {histogram.length > 0 && (
           <div className="h-[260px] w-full">
@@ -1800,16 +1909,20 @@ function LatencyCard({
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
             <ServerCrash className="h-3.5 w-3.5" />
-            慢查询 Top（按平均耗时）
+            {t(WEBUI.queryRecorder.slowQueriesHeader)}
           </div>
           <div className="overflow-hidden rounded-md border">
             <Table className="min-w-[600px]">
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
                   <TableHead>QNAME</TableHead>
-                  <TableHead>次数</TableHead>
-                  <TableHead>平均耗时</TableHead>
-                  <TableHead>最大耗时</TableHead>
+                  <TableHead>{t(WEBUI.queryRecorder.countColumn)}</TableHead>
+                  <TableHead>
+                    {t(WEBUI.queryRecorder.avgElapsedColumn)}
+                  </TableHead>
+                  <TableHead>
+                    {t(WEBUI.queryRecorder.maxElapsedColumn)}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1829,7 +1942,9 @@ function LatencyCard({
                       colSpan={4}
                       className="h-20 text-center text-muted-foreground"
                     >
-                      {loading ? "正在读取慢查询..." : "暂无数据"}
+                      {loading
+                        ? t(WEBUI.queryRecorder.loadingSlowQueries)
+                        : t(WEBUI.queryRecorder.noData)}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1844,7 +1959,7 @@ function LatencyCard({
               disabled={loading}
               onClick={() => void load(slowLimit + TOP_PAGE_SIZE)}
             >
-              加载更多
+              {t(WEBUI.common.loadMore)}
             </Button>
           )}
         </div>
@@ -1862,6 +1977,7 @@ function TimeseriesCard({
   filters: QueryRecordFilters;
   defaultBucket: QueryRecorderTimeseriesBucket;
 }) {
+  const { t } = useI18n();
   const [data, setData] = useState<QueryRecorderTimeseriesResponse | null>(
     null,
   );
@@ -1895,14 +2011,18 @@ function TimeseriesCard({
       if (controller.signal.aborted || abortRef.current !== controller) {
         return;
       }
-      setError(err instanceof Error ? err.message : "读取趋势失败");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t(WEBUI.queryRecorder.readTrendFailed),
+      );
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null;
         setLoading(false);
       }
     }
-  }, [tag, filters, bucket]);
+  }, [tag, filters, bucket, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1928,14 +2048,18 @@ function TimeseriesCard({
         <div className="min-w-0">
           <CardTitle className="flex items-center gap-2 text-sm">
             <TrendingUp className="h-4 w-4 text-primary" />
-            查询趋势
+            {t(WEBUI.queryRecorder.trendTitle)}
           </CardTitle>
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              样本 {data?.sample_size ?? 0} 条
+              {t(WEBUI.queryRecorder.sampleCount, {
+                count: data?.sample_size ?? 0,
+              })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              桶大小 {bucket === "minute" ? "1 分钟" : "1 小时"}
+              {bucket === "minute"
+                ? t(WEBUI.queryRecorder.bucketSizeMinute)
+                : t(WEBUI.queryRecorder.bucketSizeHour)}
             </span>
           </div>
         </div>
@@ -1951,8 +2075,12 @@ function TimeseriesCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="minute">按分钟</SelectItem>
-              <SelectItem value="hour">按小时</SelectItem>
+              <SelectItem value="minute">
+                {t(WEBUI.queryRecorder.byMinuteOption)}
+              </SelectItem>
+              <SelectItem value="hour">
+                {t(WEBUI.queryRecorder.byHourOption)}
+              </SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -1962,7 +2090,7 @@ function TimeseriesCard({
             onClick={() => void load()}
           >
             <RefreshCw className="h-4 w-4" />
-            刷新
+            {t(WEBUI.common.refresh)}
           </Button>
         </div>
       </CardHeader>
@@ -2013,7 +2141,7 @@ function TimeseriesCard({
                   yAxisId="left"
                   type="monotone"
                   dataKey="total"
-                  name="总查询"
+                  name={t(WEBUI.queryRecorder.totalQueriesSeries)}
                   stroke="var(--chart-1)"
                   dot={false}
                   strokeWidth={2}
@@ -2022,7 +2150,7 @@ function TimeseriesCard({
                   yAxisId="left"
                   type="monotone"
                   dataKey="error_count"
-                  name="错误数"
+                  name={t(WEBUI.queryRecorder.errorSeries)}
                   stroke="var(--chart-5)"
                   dot={false}
                   strokeWidth={2}
@@ -2042,7 +2170,9 @@ function TimeseriesCard({
           </div>
         ) : (
           <div className="rounded-md border bg-muted/20 px-3 py-8 text-center text-sm text-muted-foreground">
-            {loading ? "正在读取趋势..." : "暂无数据"}
+            {loading
+              ? t(WEBUI.queryRecorder.loadingTrend)
+              : t(WEBUI.queryRecorder.noData)}
           </div>
         )}
       </CardContent>
@@ -2083,6 +2213,7 @@ function RecordDetailDialog({
   record: QueryRecordDetail | null;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const dependencyGraph = useAppStore((state) => state.dependencyGraph);
   const plugins = useAppStore((state) => state.plugins);
 
@@ -2090,30 +2221,38 @@ function RecordDetailDialog({
     <DnsRecordDetailDialog
       open={Boolean(record)}
       onOpenChange={(open) => !open && onClose()}
-      title={`查询详情 #${record?.id ?? ""}`}
+      title={t(WEBUI.queryRecorder.detailTitle, { id: record?.id ?? "" })}
       subtitle={record ? formatFullTime(record.created_at_ms) : undefined}
       status={record ? queryStatusBadge(record) : undefined}
       summaryItems={
         record
           ? [
-              { label: "客户端", value: record.client_ip, mono: true },
               {
-                label: "请求 ID",
+                label: t(WEBUI.queryRecorder.clientLabel),
+                value: record.client_ip,
+                mono: true,
+              },
+              {
+                label: t(WEBUI.queryRecorder.requestIdLabel),
                 value: String(record.request_id),
                 mono: true,
               },
-              { label: "耗时", value: `${record.elapsed_ms}ms`, mono: true },
+              {
+                label: t(WEBUI.queryRecorder.elapsedLabel),
+                value: `${record.elapsed_ms}ms`,
+                mono: true,
+              },
               { label: "RCODE", value: record.rcode ?? "-", mono: true },
               {
                 label: (
                   <span className="inline-flex items-center gap-1">
-                    响应记录
+                    {t(WEBUI.dnsRecord.responseRecordsLabel)}
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
                           className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none"
-                          aria-label="响应记录说明"
+                          aria-label={t(WEBUI.dnsRecord.responseRecordsAria)}
                         >
                           <Info className="h-3.5 w-3.5" />
                         </button>
@@ -2122,7 +2261,7 @@ function RecordDetailDialog({
                         side="top"
                         className="w-auto max-w-[16rem] p-2 text-xs"
                       >
-                        Answer / Authority / Additional
+                        {t(WEBUI.dnsRecord.responseRecordsTooltip)}
                       </PopoverContent>
                     </Popover>
                   </span>
@@ -2131,13 +2270,13 @@ function RecordDetailDialog({
                 mono: true,
               },
               {
-                label: "请求标志",
+                label: t(WEBUI.queryRecorder.reqFlagsLabel),
                 value: `RD=${flag(record.req_rd)} CD=${flag(record.req_cd)} AD=${flag(record.req_ad)}`,
                 mono: true,
                 wide: true,
               },
               {
-                label: "响应标志",
+                label: t(WEBUI.queryRecorder.respFlagsLabel),
                 value: record.has_response
                   ? `AA=${flag(record.resp_aa)} TC=${flag(record.resp_tc)} RA=${flag(record.resp_ra)} AD=${flag(record.resp_ad)} CD=${flag(record.resp_cd)}`
                   : "-",
@@ -2152,24 +2291,24 @@ function RecordDetailDialog({
         record
           ? [
               {
-                title: "应答记录",
+                title: t(WEBUI.dnsRecord.answerSection),
                 records: record.answers_json,
-                emptyLabel: "无 answer",
+                emptyLabel: t(WEBUI.dnsRecord.emptyAnswer),
               },
               {
-                title: "权威记录",
+                title: t(WEBUI.dnsRecord.authoritySection),
                 records: record.authorities_json,
-                emptyLabel: "无 authority",
+                emptyLabel: t(WEBUI.dnsRecord.emptyAuthority),
               },
               {
-                title: "附加记录",
+                title: t(WEBUI.dnsRecord.additionalSection),
                 records: record.additionals_json,
-                emptyLabel: "无 additional",
+                emptyLabel: t(WEBUI.dnsRecord.emptyAdditional),
               },
               {
-                title: "签名记录",
+                title: t(WEBUI.dnsRecord.signatureSection),
                 records: record.signature_json,
-                emptyLabel: "无 signature",
+                emptyLabel: t(WEBUI.dnsRecord.emptySignature),
               },
             ]
           : []
@@ -2179,7 +2318,7 @@ function RecordDetailDialog({
         record
           ? [
               {
-                title: "执行流程",
+                title: t(WEBUI.queryRecorder.executionFlowTitle),
                 children: (
                   <QueryRecordFlowCanvas
                     record={record}
@@ -2219,11 +2358,11 @@ function queryElapsedClassName(elapsedMs: number) {
   return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
 }
 
-function queryElapsedTitle(elapsedMs: number) {
-  if (elapsedMs < 20) return "低延迟：< 20ms";
-  if (elapsedMs < 100) return "正常：20-99ms";
-  if (elapsedMs < 300) return "偏慢：100-299ms";
-  return "慢查询：>= 300ms";
+function queryElapsedTitle(elapsedMs: number, t: TFn) {
+  if (elapsedMs < 20) return t(WEBUI.queryRecorder.latencyFast);
+  if (elapsedMs < 100) return t(WEBUI.queryRecorder.latencyNormal);
+  if (elapsedMs < 300) return t(WEBUI.queryRecorder.latencySlow);
+  return t(WEBUI.queryRecorder.latencyVerySlow);
 }
 
 function filtersFromForm(form: QueryRecordFilterForm): QueryRecordFilters {
@@ -2275,7 +2414,7 @@ function parseSseEvent(chunk: string): SseEvent {
   return { event, data: data.join("\n") };
 }
 
-function parseSseErrorMessage(data: string) {
+function parseSseErrorMessage(data: string, t: TFn) {
   try {
     const parsed = JSON.parse(data) as unknown;
     if (
@@ -2289,7 +2428,7 @@ function parseSseErrorMessage(data: string) {
   } catch {
     // Fall through to the raw server payload preview.
   }
-  return `实时流返回错误：${truncateText(data)}`;
+  return t(WEBUI.queryRecorder.streamErrorPrefix, { data: truncateText(data) });
 }
 
 function parseStreamRecord(data: string): QueryRecordDetail | null {

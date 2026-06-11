@@ -21,6 +21,8 @@ import {
   PluginConfigFieldsEditor,
   serializePluginConfigValues,
 } from "@/components/plugins/plugin-config-fields-editor";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface PluginConfigModeEditorProps {
   fields: ConfigField[];
@@ -44,11 +46,13 @@ export function PluginConfigModeEditor({
   onValidityChange,
   readOnly = false,
   defaultArrayObjectCollapsed = false,
-  fieldLabel = "字段",
+  fieldLabel,
   yamlLabel = "YAML",
   pluginKind,
   currentPluginName,
 }: PluginConfigModeEditorProps) {
+  const { t } = useI18n();
+  const resolvedFieldLabel = fieldLabel ?? t(WEBUI.common.fields);
   const alreadyArgsLevel = isAlreadyArgsLevelSchema(fields);
   const [mode, setMode] = useState<"fields" | "yaml">("fields");
   const [yamlText, setYamlText] = useState(() =>
@@ -103,7 +107,7 @@ export function PluginConfigModeEditor({
       return;
     }
 
-    setYamlError("插件配置必须是 YAML 对象");
+    setYamlError(t(WEBUI.plugins.yamlMustBeObject));
     onValidityChange?.(false);
   };
 
@@ -115,7 +119,7 @@ export function PluginConfigModeEditor({
           onValueChange={(value) => handleModeChange(value as typeof mode)}
         >
           <TabsList className="grid w-44 grid-cols-2">
-            <TabsTrigger value="fields">{fieldLabel}</TabsTrigger>
+            <TabsTrigger value="fields">{resolvedFieldLabel}</TabsTrigger>
             <TabsTrigger value="yaml">{yamlLabel}</TabsTrigger>
           </TabsList>
         </Tabs>

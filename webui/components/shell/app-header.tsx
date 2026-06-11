@@ -12,7 +12,14 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, Code2, LayoutDashboard, ArrowUpCircle } from "lucide-react";
+import {
+  Moon,
+  Sun,
+  Code2,
+  LayoutDashboard,
+  ArrowUpCircle,
+  Languages,
+} from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAppStore } from "@/lib/store";
 import { useAuthStore } from "@/lib/auth-store";
@@ -23,6 +30,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 
 interface AppHeaderProps {
   title: string;
@@ -31,6 +40,7 @@ interface AppHeaderProps {
 
 export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
   const { theme, setTheme } = useTheme();
+  const { locale, t, toggleLocale } = useI18n();
   const router = useRouter();
   const editorMode = useAppStore((s) => s.editorMode);
   const setEditorMode = useAppStore((s) => s.setEditorMode);
@@ -38,7 +48,13 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
   const updateInfo = useUpdateStore((s) => s.updateInfo);
   const buildInfo = useAppStore((s) => s.buildInfo);
   const backendSupportsUpgrade =
-    buildInfo != null ? buildInfo.enabled_features.includes("plugin-upgrade") : null;
+    buildInfo != null
+      ? buildInfo.enabled_features.includes("plugin-upgrade")
+      : null;
+  const showUpgradeNotice =
+    isConnected &&
+    backendSupportsUpgrade === true &&
+    updateInfo?.updateAvailable === true;
   const showNavigation = !editorMode;
 
   return (
@@ -84,7 +100,7 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
 
       <div className="ml-auto flex items-center gap-2">
         <ConfigSyncControl />
-        {isConnected && (
+        {showUpgradeNotice && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -94,20 +110,50 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
                 onClick={() => router.push("/settings#upgrade")}
               >
                 <ArrowUpCircle className="h-4 w-4" />
-                {backendSupportsUpgrade && updateInfo?.updateAvailable && (
-                  <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-destructive" />
-                )}
-                <span className="sr-only">软件升级</span>
+                <span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-destructive" />
+                <span className="sr-only">{t(WEBUI.shell.upgrade)}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {backendSupportsUpgrade && updateInfo?.updateAvailable
-                ? `有新版本 ${updateInfo.latestVersion} 可用`
-                : "软件升级设置"}
+              {t(WEBUI.shell.updateAvailable, {
+                version: updateInfo.latestVersion,
+              })}
             </TooltipContent>
           </Tooltip>
         )}
         <div className="flex items-center rounded-lg border border-border/60 bg-background/80 p-0.5 shadow-sm">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="rounded-md"
+                onClick={toggleLocale}
+                aria-label={t(
+                  locale === "zh-CN"
+                    ? WEBUI.locale.toggleToEnglish
+                    : WEBUI.locale.toggleToChinese,
+                )}
+              >
+                <Languages className="h-4 w-4" />
+                <span className="sr-only">
+                  {t(
+                    locale === "zh-CN"
+                      ? WEBUI.locale.toggleToEnglish
+                      : WEBUI.locale.toggleToChinese,
+                  )}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t(
+                locale === "zh-CN"
+                  ? WEBUI.locale.toggleToEnglish
+                  : WEBUI.locale.toggleToChinese,
+              )}
+            </TooltipContent>
+          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -122,12 +168,16 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
                   <Code2 className="h-4 w-4" />
                 )}
                 <span className="sr-only">
-                  {editorMode ? "控制台模式" : "编辑器模式"}
+                  {editorMode
+                    ? t(WEBUI.shell.consoleMode)
+                    : t(WEBUI.shell.editorMode)}
                 </span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {editorMode ? "切换到控制台模式" : "切换到编辑器模式"}
+              {editorMode
+                ? t(WEBUI.shell.switchToConsole)
+                : t(WEBUI.shell.switchToEditor)}
             </TooltipContent>
           </Tooltip>
 
@@ -141,10 +191,10 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
               >
                 <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
                 <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-                <span className="sr-only">切换主题</span>
+                <span className="sr-only">{t(WEBUI.shell.toggleTheme)}</span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent>切换主题</TooltipContent>
+            <TooltipContent>{t(WEBUI.shell.toggleTheme)}</TooltipContent>
           </Tooltip>
         </div>
       </div>

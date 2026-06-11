@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/table";
 import { Search, LayoutGrid, List, Pin, PinOff, GitBranch } from "lucide-react";
 import type { PluginType } from "@/lib/types";
-import { PLUGIN_TYPE_LABELS } from "@/lib/types";
 import { isPluginKindSupported } from "@/lib/build-capabilities";
 import { cn } from "@/lib/utils";
 import {
@@ -38,6 +37,12 @@ import {
   pluginTypeIcons,
 } from "@/components/plugins/display";
 import { TopologyView } from "@/components/plugins/plugin-topology-view";
+import { LOCALES, WEBUI } from "@/lib/i18n";
+import {
+  getPluginSearchText,
+  pluginTypeLabel,
+} from "@/lib/i18n/plugin-defined";
+import { useI18n } from "@/lib/i18n/provider";
 
 export default function PluginsPage() {
   return (
@@ -48,6 +53,7 @@ export default function PluginsPage() {
 }
 
 function PluginsPageContent() {
+  const { locale, t } = useI18n();
   const searchParams = useSearchParams();
   const initialType = searchParams.get("type") as PluginType | null;
   const [activeTab, setActiveTab] = useState<PluginType | "all">(
@@ -65,15 +71,25 @@ function PluginsPageContent() {
     useAppStore();
 
   const filteredPlugins = plugins.filter((p) => {
-    const definition = getPluginCatalogItem(p.pluginKind);
+    const definition = getPluginCatalogItem(p.pluginKind, locale);
+    const baseDefinition = getPluginCatalogItem(p.pluginKind);
     const normalizedSearch = search.toLowerCase();
     const matchesType = activeTab === "all" || p.type === activeTab;
-    const matchesSearch =
-      p.name.toLowerCase().includes(normalizedSearch) ||
-      p.pluginKind.toLowerCase().includes(normalizedSearch) ||
-      (definition?.name.toLowerCase().includes(normalizedSearch) ?? false) ||
-      (definition?.description.toLowerCase().includes(normalizedSearch) ??
-        false);
+    const searchableText = [
+      p.name,
+      p.pluginKind,
+      p.type,
+      pluginTypeLabel(p.type, locale),
+      definition?.name,
+      definition?.description,
+      baseDefinition
+        ? getPluginSearchText(baseDefinition, [...LOCALES])
+        : undefined,
+    ]
+      .filter((text): text is string => Boolean(text))
+      .join(" ")
+      .toLowerCase();
+    const matchesSearch = searchableText.includes(normalizedSearch);
     return matchesType && matchesSearch;
   });
 
@@ -91,7 +107,7 @@ function PluginsPageContent() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <AppHeader title="插件中心" />
+      <AppHeader title={t(WEBUI.plugins.centerTitle)} />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Tabs
           value={activeTab}
@@ -105,7 +121,7 @@ function PluginsPageContent() {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="搜索插件名称或类型..."
+                    placeholder={t(WEBUI.plugins.searchPlaceholder)}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="pl-9"
@@ -153,7 +169,7 @@ function PluginsPageContent() {
               <div className="oxidns-no-scrollbar -mx-6 overflow-x-auto px-6">
                 <TabsList>
                   <TabsTrigger value="all">
-                    全部
+                    {t(WEBUI.common.all)}
                     <Badge variant="secondary" className="ml-1.5 text-xs">
                       {plugins.length}
                     </Badge>
@@ -161,7 +177,7 @@ function PluginsPageContent() {
                   {(Object.keys(pluginsByType) as PluginType[]).map((type) => (
                     <TabsTrigger key={type} value={type} className="gap-1.5">
                       {pluginTypeIcons[type]}
-                      {PLUGIN_TYPE_LABELS[type]}
+                      {pluginTypeLabel(type, locale)}
                       <Badge variant="secondary" className="ml-1 text-xs">
                         {pluginsByType[type].length}
                       </Badge>
@@ -186,9 +202,9 @@ function PluginsPageContent() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>名称</TableHead>
-                        <TableHead>类型</TableHead>
-                        <TableHead>插件</TableHead>
+                        <TableHead>{t(WEBUI.common.name)}</TableHead>
+                        <TableHead>{t(WEBUI.common.type)}</TableHead>
+                        <TableHead>{t(WEBUI.common.plugin)}</TableHead>
                         <TableHead className="w-[80px]" />
                       </TableRow>
                     </TableHeader>
@@ -216,7 +232,7 @@ function PluginsPageContent() {
                               )}
                             >
                               {pluginTypeIcons[plugin.type]}
-                              {PLUGIN_TYPE_LABELS[plugin.type]}
+                              {pluginTypeLabel(plugin.type, locale)}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -253,7 +269,9 @@ function PluginsPageContent() {
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="bottom">
-                                  {plugin.pinned ? "取消固定" : "固定到仪表盘"}
+                                  {plugin.pinned
+                                    ? t(WEBUI.plugins.unpinDashboard)
+                                    : t(WEBUI.plugins.pinDashboard)}
                                 </TooltipContent>
                               </Tooltip>
                               <PluginDeleteButton
@@ -277,15 +295,15 @@ function PluginsPageContent() {
 
               {viewMode !== "topology" && filteredPlugins.length === 0 && (
                 <div className="border border-dashed rounded-lg p-12 text-center text-muted-foreground">
-                  <p>没有找到匹配的插件</p>
+                  <p>{t(WEBUI.plugins.noMatches)}</p>
                   {search && (
                     <p className="text-sm mt-1">
-                      尝试调整搜索条件或
+                      {t(WEBUI.plugins.tryAdjustSearch)}
                       <button
                         onClick={() => setSearch("")}
                         className="text-primary hover:underline ml-1"
                       >
-                        清除搜索
+                        {t(WEBUI.common.clearSearch)}
                       </button>
                     </p>
                   )}
@@ -300,12 +318,13 @@ function PluginsPageContent() {
 }
 
 function PluginsPageFallback() {
+  const { t } = useI18n();
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <AppHeader title="插件中心" />
+      <AppHeader title={t(WEBUI.plugins.centerTitle)} />
       <main className="oxidns-dialog-scrollbar min-h-0 flex-1 overflow-auto p-6">
         <div className="rounded-lg border border-dashed p-12 text-center text-sm text-muted-foreground">
-          正在加载插件中心...
+          {t(WEBUI.common.loading)}
         </div>
       </main>
     </div>
@@ -319,7 +338,8 @@ function PluginKindBadge({
   pluginKind: string;
   supported: boolean;
 }) {
-  const definition = getPluginCatalogItem(pluginKind);
+  const { locale, t } = useI18n();
+  const definition = getPluginCatalogItem(pluginKind, locale);
 
   return (
     <Badge
@@ -332,7 +352,7 @@ function PluginKindBadge({
       {definition &&
         renderPluginKindIcon(definition.icon, { className: "h-3 w-3" })}
       {definition?.name ?? pluginKind}
-      {!supported && " · 未编译"}
+      {!supported && ` · ${t(WEBUI.common.notCompiled)}`}
     </Badge>
   );
 }

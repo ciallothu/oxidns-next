@@ -4,14 +4,14 @@ import * as React from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
 function pad(value: number) {
   return value.toString().padStart(2, "0");
@@ -40,12 +40,6 @@ function formatValue(date: Date): string {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function formatDisplay(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function sameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -64,9 +58,10 @@ interface DateTimePickerProps {
 function DateTimePicker({
   value,
   onChange,
-  placeholder = "选择日期",
+  placeholder,
   className,
 }: DateTimePickerProps) {
+  const { formatDateTime, t } = useI18n();
   const [open, setOpen] = React.useState(false);
   const selected = React.useMemo(() => parseValue(value), [value]);
 
@@ -75,6 +70,27 @@ function DateTimePicker({
   const [viewDate, setViewDate] = React.useState<Date>(
     () => selected ?? new Date(),
   );
+
+  const weekdays = React.useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) =>
+        formatDateTime(new Date(2024, 0, 7 + index), { weekday: "short" }),
+      ),
+    [formatDateTime],
+  );
+  const monthLabel = formatDateTime(viewDate, {
+    year: "numeric",
+    month: "long",
+  });
+  const selectedLabel = selected
+    ? formatDateTime(selected, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : (placeholder ?? t(WEBUI.dateTime.placeholder));
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
@@ -158,13 +174,13 @@ function DateTimePicker({
               !selected && "text-muted-foreground",
             )}
           >
-            {selected ? formatDisplay(selected) : placeholder}
+            {selectedLabel}
           </span>
           {selected ? (
             <span
               role="button"
               tabIndex={-1}
-              aria-label="清除"
+              aria-label={t(WEBUI.common.clear)}
               onClick={clear}
               className="grid size-4 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
             >
@@ -183,7 +199,7 @@ function DateTimePicker({
             type="button"
             variant="ghost"
             size="icon-xs"
-            aria-label="上个月"
+            aria-label={t(WEBUI.dateTime.previousMonth)}
             onClick={() =>
               setViewDate(
                 new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1),
@@ -192,14 +208,12 @@ function DateTimePicker({
           >
             <ChevronLeft />
           </Button>
-          <span className="text-sm font-medium">
-            {viewDate.getFullYear()}年{viewDate.getMonth() + 1}月
-          </span>
+          <span className="text-sm font-medium">{monthLabel}</span>
           <Button
             type="button"
             variant="ghost"
             size="icon-xs"
-            aria-label="下个月"
+            aria-label={t(WEBUI.dateTime.nextMonth)}
             onClick={() =>
               setViewDate(
                 new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1),
@@ -211,7 +225,7 @@ function DateTimePicker({
         </div>
 
         <div className="grid grid-cols-7 gap-0.5">
-          {WEEKDAYS.map((label) => (
+          {weekdays.map((label) => (
             <div
               key={label}
               className="grid h-7 place-items-center text-xs text-muted-foreground"
@@ -244,11 +258,13 @@ function DateTimePicker({
         </div>
 
         <div className="flex items-center justify-between border-t border-border pt-2.5">
-          <span className="text-xs text-muted-foreground">时间</span>
+          <span className="text-xs text-muted-foreground">
+            {t(WEBUI.dateTime.time)}
+          </span>
           <div className="flex items-center gap-1 font-mono text-sm">
             <input
               inputMode="numeric"
-              aria-label="时"
+              aria-label={t(WEBUI.dateTime.hour)}
               value={selected ? pad(selected.getHours()) : "--"}
               onChange={(event) => handleTimeChange("h", event.target.value)}
               className="h-7 w-9 rounded-md border border-input bg-transparent text-center outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
@@ -256,7 +272,7 @@ function DateTimePicker({
             <span className="text-muted-foreground">:</span>
             <input
               inputMode="numeric"
-              aria-label="分"
+              aria-label={t(WEBUI.dateTime.minute)}
               value={selected ? pad(selected.getMinutes()) : "--"}
               onChange={(event) => handleTimeChange("m", event.target.value)}
               className="h-7 w-9 rounded-md border border-input bg-transparent text-center outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
@@ -271,10 +287,10 @@ function DateTimePicker({
             size="xs"
             onClick={() => onChange("")}
           >
-            清空
+            {t(WEBUI.common.clear)}
           </Button>
           <Button type="button" variant="ghost" size="xs" onClick={goToToday}>
-            此刻
+            {t(WEBUI.dateTime.now)}
           </Button>
         </div>
       </PopoverContent>

@@ -51,6 +51,7 @@ import {
   recordSnapshot,
   type ConfigSnapshot,
 } from "./config-history";
+import { WEBUI, tClient } from "./i18n";
 
 type StoreSet = (
   partial: Partial<AppState> | ((state: AppState) => Partial<AppState>),
@@ -218,7 +219,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         configText: config,
         yamlConfig: config,
-        configError: parsed.diagnostics[0] ?? "配置解析失败",
+        configError:
+          parsed.diagnostics[0] ?? tClient(WEBUI.storeErrors.configParseFailed),
         configDiagnostics: parsed.diagnostics,
       });
       return;
@@ -246,7 +248,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       isOfflineMode: true,
       offlineFileName: fileName ?? null,
-      configPath: fileName ?? "未命名配置（离线）",
+      configPath: fileName ?? tClient(WEBUI.storeErrors.unnamedOfflineConfig),
       configVersion: null,
       runningVersion: null,
       dependencyGraph: null,
@@ -288,7 +290,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       set({
         configError:
-          error instanceof Error ? error.message : "读取配置文件失败",
+          error instanceof Error
+            ? error.message
+            : tClient(WEBUI.storeErrors.readConfigFailed),
       });
     } finally {
       set({ isConfigLoading: false });
@@ -322,7 +326,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       system: nextSystem ?? get().system,
       reloadStatus: nextReload,
       // The backend authoritatively reports what config it is running; prefer
-      // it over the load-time disk-version guess so the "未应用" state
+      // it over the load-time disk-version guess so the "not applied" state
       // survives page reloads. Falls back to the prior value for older
       // backends that don't report running_version.
       ...(nextReload?.running_version
@@ -349,7 +353,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const response = await validateConfigText(state.configText);
       applyConfigValidationResponse(response, set);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "配置校验失败";
+      const message =
+        error instanceof Error
+          ? error.message
+          : tClient(WEBUI.configEditor.configValidationFailed);
       set({
         configError: message,
         configDiagnostics: [message],
@@ -394,7 +401,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         await get().refreshRuntimeState();
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "保存配置文件失败";
+          error instanceof Error
+            ? error.message
+            : tClient(WEBUI.storeErrors.saveConfigFailed);
         set({ configError: message });
         throw error;
       }
@@ -427,7 +436,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         // and never recovered) — surface it as a failed apply instead of a
         // silent no-op so the pill turns red rather than staying unchanged.
         const message =
-          error instanceof Error ? error.message : "应用失败：无法触发热重载";
+          error instanceof Error
+            ? error.message
+            : tClient(WEBUI.storeErrors.hotReloadTriggerFailed);
         if (version) {
           annotateApply(scope, version, "apply-failed", message);
           set({ configHistory: listSnapshots(scope) });
@@ -456,7 +467,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       await get().refreshRuntimeState();
       if (failed) {
-        throw new Error(snapshot.last_error || "应用失败：热重载未成功");
+        throw new Error(
+          snapshot.last_error ||
+            tClient(WEBUI.storeErrors.hotReloadNotSuccessful),
+        );
       }
     } finally {
       set({ isApplying: false });
@@ -497,7 +511,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           scope,
           savedVersion,
           "apply-failed",
-          error instanceof Error ? error.message : "重启失败",
+          error instanceof Error
+            ? error.message
+            : tClient(WEBUI.storeErrors.restartFailed),
         );
         set({ configHistory: listSnapshots(scope) });
       }
@@ -508,7 +524,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // Load a historical snapshot back into the editor only. It is NOT persisted
-  // or applied — the operator still goes through 保存 → 应用, so a rollback
+  // or applied; the operator still goes through Save -> Apply, so a rollback
   // also produces its own history entry.
   restoreSnapshot: (id) => {
     const entry = get().configHistory.find((s) => s.id === id);
@@ -575,7 +591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // are refilled in the new order, so reordering within one type tab never
   // disturbs the relative position of other types. The change is staged into
   // the editor buffer and persisted to disk (mirroring add/edit/delete), then
-  // surfaced as an "应用更改" pill for the operator to hot-reload.
+  // surfaced as an "apply changes" pill for the operator to hot-reload.
   reorderPlugins: async (orderedVisibleIds) => {
     const state = get();
     if (state.configError) return;
@@ -621,12 +637,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (state.configError) {
       return {
         status: "blocked",
-        message: "当前配置有错误，请先在编辑器中修复后再删除插件",
+        message: tClient(WEBUI.storeErrors.configHasErrorsBeforeDelete),
       };
     }
     const plugin = state.plugins.find((p) => p.id === id);
     if (!plugin) {
-      return { status: "blocked", message: "插件不存在或已被删除" };
+      return {
+        status: "blocked",
+        message: tClient(WEBUI.storeErrors.pluginMissing),
+      };
     }
 
     await get().validateCurrentConfig();
@@ -646,10 +665,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().validateCurrentConfig();
     const state = get();
     const plugin = state.plugins.find((p) => p.id === id);
-    if (!plugin) throw new Error("插件不存在或已被删除");
+    if (!plugin) throw new Error(tClient(WEBUI.storeErrors.pluginMissing));
     const references = incomingReferences(state, plugin.name);
     if (references.length > 0) {
-      throw new Error("该插件仍被其它插件引用，无法直接删除");
+      throw new Error(tClient(WEBUI.storeErrors.pluginStillReferenced));
     }
     set((current) => deletePluginFromState(current, id));
     await get().saveConfig();
@@ -660,15 +679,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const plugin = state.plugins.find((p) => p.id === id);
     const replacement = state.plugins.find((p) => p.name === replacementTag);
-    if (!plugin) throw new Error("插件不存在或已被删除");
-    if (!replacement) throw new Error("替换目标不存在");
+    if (!plugin) throw new Error(tClient(WEBUI.storeErrors.pluginMissing));
+    if (!replacement)
+      throw new Error(tClient(WEBUI.storeErrors.replacementMissing));
     const references = incomingReferences(state, plugin.name);
     if (
       !replacementCandidates(state, plugin, references).some(
         (candidate) => candidate.name === replacementTag,
       )
     ) {
-      throw new Error("替换目标类型不兼容");
+      throw new Error(tClient(WEBUI.storeErrors.replacementIncompatible));
     }
 
     const replaced = replacePluginReferences(
@@ -691,7 +711,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().validateCurrentConfig();
     const state = get();
     const plugin = state.plugins.find((p) => p.id === id);
-    if (!plugin) throw new Error("插件不存在或已被删除");
+    if (!plugin) throw new Error(tClient(WEBUI.storeErrors.pluginMissing));
     const references = incomingReferences(state, plugin.name);
     if (references.length === 0) {
       set((current) => deletePluginFromState(current, id));
@@ -699,7 +719,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     if (!references.every((edge) => edge.removable)) {
-      throw new Error("存在无法安全移除的引用，请改用替换或编辑器手动修复");
+      throw new Error(tClient(WEBUI.storeErrors.unsafeReferences));
     }
 
     const removed = removeSafePluginReferences(state.configModel, references);
@@ -733,18 +753,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextName = name.trim();
     const state = get();
     const plugin = state.plugins.find((p) => p.id === id);
-    if (!plugin) return { status: "invalid", message: "插件不存在或已被删除" };
-    if (!nextName) return { status: "invalid", message: "插件名称不能为空" };
+    if (!plugin) {
+      return {
+        status: "invalid",
+        message: tClient(WEBUI.storeErrors.pluginMissing),
+      };
+    }
+    if (!nextName) {
+      return {
+        status: "invalid",
+        message: tClient(WEBUI.storeErrors.pluginNameRequired),
+      };
+    }
     if (nextName === plugin.name) {
-      return { status: "invalid", message: "插件名称没有变化" };
+      return {
+        status: "invalid",
+        message: tClient(WEBUI.storeErrors.pluginNameUnchanged),
+      };
     }
     if (state.plugins.some((p) => p.id !== id && p.name === nextName)) {
-      return { status: "invalid", message: "插件名称已存在" };
+      return {
+        status: "invalid",
+        message: tClient(WEBUI.storeErrors.pluginNameExists),
+      };
     }
     if (state.configError) {
       return {
         status: "invalid",
-        message: "当前配置有错误，请先在编辑器中修复后再重命名",
+        message: tClient(WEBUI.storeErrors.configHasErrorsBeforeRename),
       };
     }
 
@@ -787,7 +823,8 @@ function applyConfigFileResponse(response: ConfigFileResponse, set: StoreSet) {
       yamlConfig: response.content,
       configVersion: response.version,
       configPath: response.path,
-      configError: parsed.diagnostics[0] ?? "配置解析失败",
+      configError:
+        parsed.diagnostics[0] ?? tClient(WEBUI.storeErrors.configParseFailed),
       configDiagnostics: parsed.diagnostics,
     });
     return;
@@ -1014,9 +1051,9 @@ async function pollReconnect(
   }
 
   if (!sawDown) {
-    throw new Error("重启未生效：未观察到服务停机，请检查后端日志");
+    throw new Error(tClient(WEBUI.storeErrors.restartNotObserved));
   }
-  throw new Error("重启超时，请刷新页面后手动重新连接");
+  throw new Error(tClient(WEBUI.storeErrors.restartTimeout));
 }
 
 // Poll the reload status until the backend settles on a new completion.
