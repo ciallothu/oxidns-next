@@ -203,9 +203,10 @@ export const enUSDocs = {
       "- Type: `integer`; Required: No; Default: `3600`\n- Unit: seconds\n- Function: Define preferred status cache duration.",
   },
   black_hole: {
-    ips: "- Type: `array`; Required: No; Default: empty array\n- Function: Define a set of local synthetic return addresses.\n- Operational impact:\n  - IPv4 address is used only for A replies.\n  - IPv6 addresses are used only for AAAA responses.",
+    mode: "- Type: `string`; Required: No; Default: `nxdomain` when `ips` is empty, `custom` when `ips` is configured\n- Values: `nxdomain`, `nodata`, `null`, `custom`, `refused`\n- Function: Defines the black_hole interception response type and covers every qtype.",
+    ips: "- Type: `array`; Required: No; Default: empty array\n- Function: Define local synthetic return addresses for `custom` mode.\n- Operational impact:\n  - IPv4 addresses are used only for A responses.\n  - IPv6 addresses are used only for AAAA responses.\n  - Non-address qtypes and missing address families return NODATA.",
     short_circuit:
-      "- Type: `bool`; required: no; default value: `false`\n- Function: After hitting and generating a local response, whether to immediately stop the subsequent executor chain.",
+      "- Type: `bool`; Required: No; Default: `false`\n- Function: After generating an interception response, whether to immediately stop the subsequent executor chain.",
   },
   drop_resp: {
     args: "No independent configuration fields.",

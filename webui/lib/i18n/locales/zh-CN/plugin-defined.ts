@@ -823,11 +823,23 @@ export const zhCNPluginDefined = {
     },
     black_hole: {
       name: "Black Hole",
-      description: "对命中的 A / AAAA 请求直接返回预设地址",
+      description: "按模式生成全 qtype 本地拦截响应",
       fields: {
+        mode: {
+          label: "拦截模式",
+          description:
+            "定义拦截响应类型；未配置 ips 时默认 nxdomain，配置 ips 时默认 custom。",
+          options: {
+            nxdomain: "NXDOMAIN",
+            nodata: "NODATA",
+            null: "Null 地址",
+            custom: "自定义地址",
+            refused: "REFUSED",
+          },
+        },
         ips: {
-          label: "返回地址",
-          description: "定义本地合成返回地址集合。",
+          label: "自定义返回地址",
+          description: "定义 custom 模式使用的本地合成返回地址集合。",
           placeholder: "0.0.0.0\n::",
         },
         "ips[]": {
@@ -836,18 +848,18 @@ export const zhCNPluginDefined = {
         },
         short_circuit: {
           label: "命中后停止后续执行",
-          description: "命中并生成本地应答后，是否立即停止后续 executor 链。",
+          description: "生成拦截响应后，是否立即停止后续 executor 链。",
         },
       },
       quickSetup: {
-        paramPlaceholder: "0.0.0.0 :: short_circuit=true",
+        paramPlaceholder: "nxdomain short_circuit=true",
       },
       metrics: {
         labels: {
           blackhole_block_total: "拦截",
         },
         help: {
-          blackhole_block_total: "black_hole 合成本地响应的总次数。",
+          blackhole_block_total: "black_hole 生成拦截响应的总次数。",
         },
       },
     },

@@ -1211,24 +1211,9 @@ Biases dual-stack results toward one address family.
 
 ## `black_hole`
 
-<Admonition type="warning" title="Behavior will be redesigned in a future release">
-
-`black_hole` will be redefined as a **complete interceptor** in a future release:
-
-- A new `mode` field will be introduced (`nxdomain` / `nodata` / `null` / `custom` / `refused`) that covers **every** qtype.
-- The default behavior may switch to `nxdomain` (matching AdGuard Home).
-- `short_circuit` will take effect consistently on every match.
-- The legacy `ips` + `short_circuit` configuration will be mapped to `mode: custom`, preserving backward compatibility.
-
-**Why the redesign**:
-
-The essence of a "black hole" is that **no query can escape it**, yet the current implementation only covers `A` / `AAAA`, positioning the plugin more as a "response synthesizer" than an "interceptor". This diverges from the intuition the name carries and from the consensus of mainstream solutions (Pi-hole / AdGuard Home / Unbound `local-zone` / BIND RPZ). After the redesign, `black_hole` will become an interception primitive with **explicit policy, full qtype coverage, and predictable behavior**.
-
-</Admonition>
-
 ### Purpose
 
-Returns sinkhole IPs directly.
+Generates local interception responses for matched DNS queries, covering every qtype.
 
 ### Example Configuration
 
@@ -1236,36 +1221,66 @@ Returns sinkhole IPs directly.
 - tag: sinkhole
   type: black_hole
   args:
+    mode: custom
     ips:
       # Returned for A queries
       - "0.0.0.0"
       # Returned for AAAA queries
       - "::"
     short_circuit: true
+
+- tag: block_nxdomain
+  type: black_hole
+  args:
+    mode: nxdomain
+    short_circuit: true
 ```
 
 ### Configuration Details
 
+#### `mode`
+
+- Type: `string`; Required: no; Default: `nxdomain` when `ips` is empty, `custom` when `ips` is configured
+- Values:
+  - `nxdomain`: returns `NXDOMAIN` and adds an SOA authority record for negative caching.
+  - `nodata`: returns an empty `NOERROR` response and adds an SOA authority record for negative caching.
+  - `null`: returns `0.0.0.0` for `A`, `::` for `AAAA`, and NODATA for other qtypes.
+  - `custom`: returns matching address-family values from `ips` for `A` / `AAAA`; missing families and other qtypes return NODATA.
+  - `refused`: returns an empty `REFUSED` response.
+- Compatibility: legacy `ips` + `short_circuit` config does not need `mode`; it is treated as `custom`.
+
 #### `ips`
 
-- Type: `array`; Required: yes
-- Purpose: Sinkhole addresses to return.
+- Type: `array`; Required: no; Default: empty array
+- Purpose: Local synthetic addresses used by `custom` mode.
+- Operational impact:
+  - IPv4 addresses are used only for A responses.
+  - IPv6 addresses are used only for AAAA responses.
+  - `ips` is allowed only for implicit or explicit `custom` mode.
 
 #### `short_circuit`
 
 - Type: `bool`; Required: no; Default: `false`
-- Purpose: Stops the remaining executor chain after a local answer is generated.
+- Purpose: Stops the remaining executor chain after an interception response is generated.
 
 ### quick setup
 
 ```yaml
+- exec: "black_hole"
+- exec: "black_hole nxdomain short_circuit=true"
+- exec: "black_hole nodata"
+- exec: "black_hole null"
+- exec: "black_hole custom 0.0.0.0 :: short_circuit=true"
+# legacy form, equivalent to custom
 - exec: "black_hole 0.0.0.0 ::"
-- exec: "black_hole 0.0.0.0 :: short_circuit=true"
 ```
 
 ### Behavior
 
-- Generates immediate answers that point to sinkhole addresses.
+- Plain `black_hole` returns `NXDOMAIN`.
+- `nxdomain`, `nodata`, and `refused` cover every qtype.
+- `null` and `custom` return addresses for A/AAAA and NODATA for other qtypes.
+- Requests without a question pass through unchanged.
 - By default it keeps running the remaining chain after a match; enable `short_circuit` to stop immediately.
 
 ### Metrics
@@ -1276,8 +1291,9 @@ Exported through the global `GET /api/metrics` endpoint:
 
 ### Typical Uses
 
-- Blocking domains
-- Safe redirection away from real destinations
+- Blocking ads, trackers, and malicious domains
+- Returning NXDOMAIN / NODATA / REFUSED by policy
+- Returning null or custom placeholder addresses
 
 ---
 

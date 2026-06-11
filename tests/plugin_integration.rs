@@ -1256,6 +1256,127 @@ plugins:
 }
 
 #[tokio::test]
+async fn test_black_hole_quick_setup_defaults_to_nxdomain() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: main
+    type: sequence
+    args:
+      - exec: "black_hole"
+      - exec: accept
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("main")
+        .expect("main sequence should exist")
+        .to_executor();
+    let mut context = make_context_with_qtype(registry.clone(), "example.com.", RecordType::TXT);
+
+    let step = sequence.execute(&mut context).await?;
+
+    assert!(matches!(step, ExecStep::Stop));
+    let response = context
+        .response()
+        .expect("black_hole should synthesize a response");
+    assert_eq!(response.rcode(), Rcode::NXDomain);
+    assert!(response.answers().is_empty());
+    assert_eq!(response.authorities().len(), 1);
+    assert_eq!(response.authorities()[0].rr_type(), RecordType::SOA);
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_black_hole_quick_setup_nodata_short_circuit_stops_sequence() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: main
+    type: sequence
+    args:
+      - exec: "black_hole nodata short_circuit=true"
+      - exec: mark 9
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("main")
+        .expect("main sequence should exist")
+        .to_executor();
+    let mut context = make_context_with_qtype(registry.clone(), "example.com.", RecordType::TXT);
+
+    let step = sequence.execute(&mut context).await?;
+
+    assert!(matches!(step, ExecStep::Stop));
+    assert!(!context.marks().contains(&9));
+    let response = context
+        .response()
+        .expect("black_hole should synthesize a response");
+    assert_eq!(response.rcode(), Rcode::NoError);
+    assert!(response.answers().is_empty());
+    assert_eq!(response.authorities().len(), 1);
+    assert_eq!(response.authorities()[0].rr_type(), RecordType::SOA);
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_black_hole_quick_setup_legacy_custom_covers_all_qtypes() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: main
+    type: sequence
+    args:
+      - exec: "black_hole 0.0.0.0 :: short_circuit=true"
+      - exec: mark 9
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("main")
+        .expect("main sequence should exist")
+        .to_executor();
+
+    let mut a_context = make_context(registry.clone(), "example.com.");
+    let a_step = sequence.execute(&mut a_context).await?;
+    assert!(matches!(a_step, ExecStep::Stop));
+    assert!(!a_context.marks().contains(&9));
+    let a_response = a_context
+        .response()
+        .expect("A black_hole response should exist");
+    assert_eq!(a_response.rcode(), Rcode::NoError);
+    assert_eq!(a_response.answers().len(), 1);
+    assert_eq!(a_response.answers()[0].rr_type(), RecordType::A);
+
+    let mut txt_context =
+        make_context_with_qtype(registry.clone(), "example.com.", RecordType::TXT);
+    let txt_step = sequence.execute(&mut txt_context).await?;
+    assert!(matches!(txt_step, ExecStep::Stop));
+    assert!(!txt_context.marks().contains(&9));
+    let txt_response = txt_context
+        .response()
+        .expect("TXT black_hole response should exist");
+    assert_eq!(txt_response.rcode(), Rcode::NoError);
+    assert!(txt_response.answers().is_empty());
+    assert_eq!(txt_response.authorities().len(), 1);
+    assert_eq!(txt_response.authorities()[0].rr_type(), RecordType::SOA);
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_udp_server_returns_hosts_answer_for_matching_query() -> Result<()> {
     let mut registry_and_addr = None;
     for _ in 0..16 {

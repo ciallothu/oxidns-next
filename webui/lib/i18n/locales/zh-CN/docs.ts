@@ -199,9 +199,10 @@ export const zhCNDocs = {
       "- 类型：`integer`；必填：否；默认值：`3600`\n- 单位：秒\n- 作用：定义 preferred 状态缓存时长。",
   },
   black_hole: {
-    ips: "- 类型：`array`；必填：否；默认值：空数组\n- 作用：定义本地合成返回地址集合。\n- 运行影响：\n  - IPv4 地址仅用于 A 应答。\n  - IPv6 地址仅用于 AAAA 应答。",
+    mode: "- 类型：`string`；必填：否；默认值：无 `ips` 时为 `nxdomain`，配置了 `ips` 时为 `custom`\n- 可选值：`nxdomain`、`nodata`、`null`、`custom`、`refused`\n- 作用：定义 black_hole 生成的拦截响应类型，覆盖所有 qtype。",
+    ips: "- 类型：`array`；必填：否；默认值：空数组\n- 作用：定义 `custom` 模式使用的本地合成返回地址集合。\n- 运行影响：\n  - IPv4 地址仅用于 A 应答。\n  - IPv6 地址仅用于 AAAA 应答。\n  - 非地址 qtype 或缺失地址族返回 NODATA。",
     short_circuit:
-      "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：命中并生成本地应答后，是否立即停止后续 executor 链。",
+      "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：生成拦截响应后，是否立即停止后续 executor 链。",
   },
   drop_resp: {
     args: "无独立配置字段。",
