@@ -164,13 +164,13 @@ impl ChainProgram {
     async fn run_executor_instruction(
         self: &Arc<Self>,
         context: &mut DnsContext,
-        instruction: &Instruction,
+        _instruction: &Instruction,
         executor: &Arc<dyn Executor>,
     ) -> Result<InstructionFlow> {
         record_sequence_event!(
             self,
             context,
-            instruction.node_index,
+            _instruction.node_index,
             "executor",
             Some(executor.tag()),
             "entered",
@@ -180,7 +180,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "executor",
                     Some(executor.tag()),
                     "next",
@@ -191,7 +191,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "executor",
                     Some(executor.tag()),
                     exec_step_outcome(step),
@@ -202,7 +202,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "executor",
                     Some(executor.tag()),
                     "error",
@@ -215,14 +215,14 @@ impl ChainProgram {
     async fn run_executor_with_next_instruction(
         self: &Arc<Self>,
         context: &mut DnsContext,
-        instruction: &Instruction,
+        _instruction: &Instruction,
         executor: &Arc<dyn Executor>,
         pc: usize,
     ) -> Result<InstructionFlow> {
         record_sequence_event!(
             self,
             context,
-            instruction.node_index,
+            _instruction.node_index,
             "executor",
             Some(executor.tag()),
             "entered",
@@ -233,7 +233,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "executor",
                     Some(executor.tag()),
                     exec_step_outcome(step),
@@ -244,7 +244,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "executor",
                     Some(executor.tag()),
                     "error",
@@ -257,7 +257,7 @@ impl ChainProgram {
     async fn run_builtin_instruction(
         self: &Arc<Self>,
         context: &mut DnsContext,
-        instruction: &Instruction,
+        _instruction: &Instruction,
         op: &BuiltinOp,
     ) -> Result<InstructionFlow> {
         match op {
@@ -265,7 +265,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "builtin",
                     Some("accept"),
                     "stop",
@@ -276,7 +276,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "builtin",
                     Some("return"),
                     "return",
@@ -288,7 +288,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "builtin",
                     Some("reject"),
                     "stop",
@@ -300,7 +300,7 @@ impl ChainProgram {
                     record_sequence_event!(
                         self,
                         context,
-                        instruction.node_index,
+                        _instruction.node_index,
                         "builtin",
                         Some("jump"),
                         exec_step_outcome(step),
@@ -314,7 +314,7 @@ impl ChainProgram {
                     record_sequence_event!(
                         self,
                         context,
-                        instruction.node_index,
+                        _instruction.node_index,
                         "builtin",
                         Some("jump"),
                         "error",
@@ -327,7 +327,7 @@ impl ChainProgram {
                     record_sequence_event!(
                         self,
                         context,
-                        instruction.node_index,
+                        _instruction.node_index,
                         "builtin",
                         Some("goto"),
                         exec_step_outcome(step),
@@ -338,7 +338,7 @@ impl ChainProgram {
                     record_sequence_event!(
                         self,
                         context,
-                        instruction.node_index,
+                        _instruction.node_index,
                         "builtin",
                         Some("goto"),
                         "error",
@@ -351,7 +351,7 @@ impl ChainProgram {
                 record_sequence_event!(
                     self,
                     context,
-                    instruction.node_index,
+                    _instruction.node_index,
                     "builtin",
                     Some("mark"),
                     "next",
