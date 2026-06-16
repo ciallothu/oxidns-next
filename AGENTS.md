@@ -32,7 +32,7 @@
 - `tests/message_hickory_compat.rs` validates message codec compatibility behavior against Hickory.
 - `config.yaml` is the canonical runnable default configuration for the current plugin composition.
 - `README.md` and `README_EN.md` describe the architecture and capability set; keep them aligned with behavior changes.
-- WebUI-specific guidance lives in `webui/AGENTS.md`; follow it for changes under `webui/`.
+- WebUI-specific guidance lives in `ai/webui.md`; follow it for changes under `webui/`.
 
 ## Build, Test, and Development Commands
 
@@ -84,7 +84,7 @@
 ## Configuration & Documentation
 
 - If a change adds or renames plugin types, config fields, default behaviors, or supported protocols, update `README.md` and `README_EN.md` in the same change when applicable.
-- When preparing a release, follow the standalone workflow in `docs/release-process.md` for tag-based changelog generation, Cargo version bumps, and release-note updates.
+- When preparing a release, follow the standalone workflow in `ai/release-process.md` for tag-based changelog generation, Cargo version bumps, and release-note updates.
 - For the full plugin documentation and WebUI sync checklist (`docs/`, `webui/lib/plugin-definitions/`, `config.yaml`), see [PLUGIN_DEV.md](PLUGIN_DEV.md).
 
 ## Cargo Feature Conventions

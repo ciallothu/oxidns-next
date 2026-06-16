@@ -95,7 +95,56 @@ step 1. The upgrade notes must mention:
 - Any new, renamed, or behavior-changing config fields.
 - Any operational cautions, migration steps, or compatibility risks.
 
-## 4. Validate Before Tagging
+## 4. Prepare GitHub Release Notes
+
+Prepare the Markdown body that will be pasted into the GitHub Release after the
+tag workflow publishes artifacts. Keep it shorter than the full documentation
+release notes, but make it complete enough for operators deciding whether to
+upgrade. After versions, docs, GitHub Release text, and validation are all
+complete, provide the final Chinese Markdown body to the maintainer for review.
+
+Use this standard Chinese template. A small number of emoji is allowed when it
+improves scanability:
+
+```markdown
+# OxiDNS v1.3.0
+
+## 🚀 发布概览
+
+- 用一到两句话说明本次发布的定位、版本影响和最重要的变化。
+- 说明适合升级的人群或主要收益。
+
+## ✨ 主要亮点
+
+- 重要功能、行为变化或兼容性改进。
+- 关键 bug 修复、稳定性增强或运维体验改善。
+- 如适用，补充 WebUI、打包、文档或平台相关变化。
+
+## ⚠️ 升级说明
+
+- 现有配置是否可以直接升级。
+- 如有迁移步骤，在这里明确列出。
+- 如有服务管理、WebUI、平台或配置兼容性风险，在这里说明。
+
+## 📦 下载与校验
+
+- 根据平台和 bundle 选择对应 archive。
+- 替换生产环境二进制前，请使用 release assets 中的校验信息确认文件完整性。
+```
+
+Generation rules:
+
+- Base the GitHub Release text on the same latest-tag-to-HEAD evidence from
+  step 1 and the docs release notes from step 3.
+- Do not include items that were not shipped in the tagged commit.
+- Keep `Validation` limited to commands actually run for this release.
+- Write the final GitHub Release body in Chinese.
+- Mention breaking changes or config migrations in both `发布概览` and
+  `升级说明`.
+- Do not paste the full website release card verbatim; GitHub Release text
+  should be concise and action-oriented.
+
+## 5. Validate Before Tagging
 
 Run the relevant quality gates before creating the release tag:
 
@@ -113,20 +162,30 @@ cd docs && npm run build
 
 Prefer `just check` for the final full gate when time allows.
 
-## 5. Commit And Tag
+## 6. Hand Off For Commit And Tag
 
-Commit release-prep changes with a conventional message, for example:
+Do not automatically commit, tag, or push as part of release preparation.
+After versions, docs release notes, GitHub Release text, and validation are
+complete, hand the final state to the maintainer with:
+
+- A concise summary of the release-prep changes.
+- The validation commands that were actually run.
+- The final Chinese GitHub Release Markdown body.
+- Suggested manual commit and tag commands.
+
+Suggested commit message:
 
 ```text
 chore(release): prepare v1.0.2
 ```
 
-Create the release tag on the release-prep commit:
+Suggested tag command after the maintainer has reviewed and committed the
+release-prep changes:
 
 ```bash
 git tag vX.Y.Z
 ```
 
 The GitHub release workflow is triggered by pushing tags matching `v*`.
-Only push the tag after versions, docs release notes, and validation are
-complete.
+The maintainer should only push the tag after reviewing the release-prep commit
+and GitHub Release text.
