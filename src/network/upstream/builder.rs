@@ -178,7 +178,7 @@ impl UpstreamBuilder {
                 }
                 #[cfg(not(feature = "upstream-dot"))]
                 ConnectionType::DoT => {
-                    return Err(DnsError::plugin(
+                    return Err(crate::core::error::DnsError::plugin(
                         "upstream DoT is not compiled into this build; \
                          rebuild with --features upstream-dot",
                     ));
@@ -191,7 +191,7 @@ impl UpstreamBuilder {
                 }
                 #[cfg(not(feature = "upstream-doq"))]
                 ConnectionType::DoQ => {
-                    return Err(DnsError::plugin(
+                    return Err(crate::core::error::DnsError::plugin(
                         "upstream DoQ is not compiled into this build; \
                          rebuild with --features upstream-doq",
                     ));
@@ -207,7 +207,7 @@ impl UpstreamBuilder {
                         }
                         #[cfg(not(feature = "upstream-doh3"))]
                         {
-                            return Err(DnsError::plugin(
+                            return Err(crate::core::error::DnsError::plugin(
                                 "upstream DoH3 (HTTP/3) is not compiled into this build; \
                                  rebuild with --features upstream-doh3",
                             ));
@@ -220,7 +220,7 @@ impl UpstreamBuilder {
                 }
                 #[cfg(not(feature = "upstream-doh"))]
                 ConnectionType::DoH => {
-                    return Err(DnsError::plugin(
+                    return Err(crate::core::error::DnsError::plugin(
                         "upstream DoH is not compiled into this build; \
                          rebuild with --features upstream-doh",
                     ));

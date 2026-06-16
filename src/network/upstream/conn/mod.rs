@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicU16, Ordering};
 
-#[cfg(feature = "upstream-doh")]
+#[cfg(any(feature = "upstream-doh", feature = "upstream-doh3"))]
 pub(crate) mod doh;
 #[cfg(feature = "upstream-doh")]
 pub(crate) mod h2;

@@ -19,6 +19,11 @@ pub use builder::UpstreamBuilder;
 pub use config::{ConnectionInfo, ConnectionType, UpstreamConfig};
 #[cfg(feature = "_http-client")]
 pub(crate) use dial::connect_tcp_stream;
+#[cfg(any(
+    feature = "upstream-doh",
+    feature = "upstream-doh3",
+    feature = "upstream-doq"
+))]
 pub(crate) use pool::Connection;
 pub use pool::QueryDeadline;
 pub use resolver::Upstream;
