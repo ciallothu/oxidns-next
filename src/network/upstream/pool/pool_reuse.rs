@@ -100,9 +100,12 @@ impl<C: Connection> ConnectionPool<C> for ReusePool<C> {
         let mut drop_vec = Vec::new();
         let mut invalid_vec = Vec::new();
 
-        // Only log if there are connections to scan
         let check_count = self.connections.len();
         if check_count == 0 {
+            if self.active_count.load(Ordering::Relaxed) < self.min_size {
+                debug!("Reuse pool expanding to maintain minimum size");
+                let _ = self.expand(QueryDeadline::new(self.connect_timeout)).await;
+            }
             return;
         }
 
@@ -710,6 +713,23 @@ mod tests {
         assert_eq!(conn.close_calls(), 0);
         assert_eq!(pool.connections.len(), 1);
         assert_eq!(pool.active_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_maintain_expands_empty_pool_to_preserve_min_size() {
+        AppClock::start();
+        let conn = Arc::new(MockConnection::new(true, 0, AppClock::elapsed_millis()));
+        let pool = make_pool(1, 1, 10, MockBuilder::new(vec![Ok(conn.clone())]));
+
+        pool.maintain().await;
+
+        assert_eq!(pool.connections.len(), 1);
+        assert_eq!(pool.active_count.load(Ordering::Relaxed), 1);
+        let pooled = pool
+            .connections
+            .pop()
+            .expect("maintenance should create a replacement connection");
+        assert!(Arc::ptr_eq(&pooled, &conn));
     }
 
     #[tokio::test]

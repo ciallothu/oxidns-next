@@ -42,6 +42,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 #[cfg(feature = "_http-client")]
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 use url::Url;
 
@@ -159,11 +160,11 @@ pub struct UpstreamConfig {
     ///
     /// Recommended when `addr` contains a hostname instead of an IP address.
     /// Without bootstrap, hostname resolution is deferred to connection time
-    /// and uses the operating system resolver. The bootstrap server should be
+    /// and uses the operating system resolver. The bootstrap server must be
     /// specified as IP:port (e.g., "8.8.8.8:53") to avoid circular
-    /// dependencies in DNS resolution. Mutually exclusive with `dial_addr` at
-    /// runtime: when both are configured, `dial_addr` takes precedence and
-    /// bootstrap resolution is skipped.
+    /// dependencies in DNS resolution; hostnames are rejected. Mutually
+    /// exclusive with `dial_addr` at runtime: when both are configured,
+    /// `dial_addr` takes precedence and bootstrap resolution is skipped.
     ///
     /// # Example
     /// ```yaml
@@ -457,6 +458,7 @@ impl ConnectionInfo {
     const DEFAULT_MAX_CONNS_LOAD: u16 = 64;
     const DEFAULT_MAX_CONNS_SIZE: usize = 64;
     const DEFAULT_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
+    const MAX_CONFIGURED_CONNS_SIZE: usize = 4096;
 
     pub fn with_addr(addr: &str) -> Result<Self> {
         let (connection_type, host, port, path, _) = detect_connection_type(addr)?;
@@ -492,6 +494,10 @@ impl ConnectionInfo {
 
     pub fn validate_addr(addr: &str) -> Result<()> {
         detect_connection_type(addr).map(|_| ())
+    }
+
+    fn max_conns_or_default(&self) -> usize {
+        self.max_conns.unwrap_or(Self::DEFAULT_MAX_CONNS_SIZE)
     }
 }
 
@@ -530,6 +536,25 @@ impl TryFrom<UpstreamConfig> for ConnectionInfo {
         let port = config_port
             .or(port)
             .unwrap_or(connection_type.default_port());
+
+        if let Some(max_conns) = max_conns {
+            if max_conns == 0 {
+                return Err(DnsError::plugin(
+                    "upstream max_conns must be greater than 0",
+                ));
+            }
+            if max_conns > ConnectionInfo::MAX_CONFIGURED_CONNS_SIZE {
+                return Err(DnsError::plugin(format!(
+                    "upstream max_conns must be <= {}",
+                    ConnectionInfo::MAX_CONFIGURED_CONNS_SIZE
+                )));
+            }
+        }
+        if !matches!(bootstrap_version, None | Some(4) | Some(6)) {
+            return Err(DnsError::plugin(
+                "upstream bootstrap_version must be 4 or 6",
+            ));
+        }
 
         debug!(
             "Building ConnectionInfo: type={:?}, host={}, port={}, path={}",
@@ -723,9 +748,7 @@ impl UpstreamBuilder {
                     );
                     let main_pool = PipelinePool::new(
                         0,
-                        connection_info
-                            .max_conns
-                            .unwrap_or(ConnectionInfo::DEFAULT_MAX_CONNS_SIZE),
+                        connection_info.max_conns_or_default(),
                         ConnectionInfo::DEFAULT_MAX_CONNS_LOAD,
                         connection_info.idle_timeout,
                         Box::new(builder),
@@ -737,9 +760,7 @@ impl UpstreamBuilder {
                         TcpConnectionBuilder::new(&connection_info, reuse_request_map_capacity());
                     let fallback_pool = ReusePool::new(
                         0,
-                        connection_info
-                            .max_conns
-                            .unwrap_or(ConnectionInfo::DEFAULT_MAX_CONNS_SIZE),
+                        connection_info.max_conns_or_default(),
                         connection_info.idle_timeout,
                         Box::new(tcp_builder),
                         QueryTimeoutPolicy::Close,
@@ -943,9 +964,7 @@ fn create_pipeline_pool<C: Connection>(
     Box::new(PooledUpstream::<C> {
         pool: PipelinePool::new(
             min_size,
-            connection_info
-                .max_conns
-                .unwrap_or(ConnectionInfo::DEFAULT_MAX_CONNS_SIZE),
+            connection_info.max_conns_or_default(),
             ConnectionInfo::DEFAULT_MAX_CONNS_LOAD,
             connection_info.idle_timeout,
             builder,
@@ -965,9 +984,7 @@ fn create_reuse_pool<C: Connection>(
     Box::new(PooledUpstream::<C> {
         pool: ReusePool::new(
             min_size,
-            connection_info
-                .max_conns
-                .unwrap_or(ConnectionInfo::DEFAULT_MAX_CONNS_SIZE),
+            connection_info.max_conns_or_default(),
             connection_info.idle_timeout,
             builder,
             QueryTimeoutPolicy::Close,
@@ -1221,6 +1238,8 @@ struct BootstrapUpstream<C: Connection> {
     pool: ArcSwap<(Option<IpAddr>, Arc<dyn ConnectionPool<C>>)>,
     /// Factory for creating connection builders when IP changes
     builder_factory: ConnectionBuilderFactory,
+    /// Serializes cold-path pool creation after bootstrap refreshes.
+    pool_update_lock: Mutex<()>,
 }
 
 impl<C: Connection> BootstrapUpstream<C> {
@@ -1244,6 +1263,7 @@ impl<C: Connection> BootstrapUpstream<C> {
             connection_info,
             pool: ArcSwap::from_pointee((None, pool)),
             builder_factory,
+            pool_update_lock: Mutex::new(()),
         }
     }
 
@@ -1255,9 +1275,10 @@ impl<C: Connection> BootstrapUpstream<C> {
     /// - Lock-free pool updates using ArcSwap
     ///
     /// # Performance
-    /// - Fast path: single atomic load when IP hasn't changed
+    /// - Fast path: cached bootstrap IP + single atomic pool load when IP
+    ///   hasn't changed
     /// - Pool recreation only happens on IP change (rare)
-    /// - No locks or blocking operations
+    /// - Cold-path pool recreation is serialized to avoid duplicate pool builds
     async fn init_pool_if_needed(&self, deadline: QueryDeadline) -> Result<()> {
         // Fast path: atomically load current pool state (lock-free)
         let guard = &(*self.pool.load());
@@ -1270,9 +1291,24 @@ impl<C: Connection> BootstrapUpstream<C> {
         };
 
         // Check if IP has changed since last resolution
+        if let Some(current_ip) = pool_ip
+            && current_ip == ip
+        {
+            // IP unchanged, continue using current pool (hot path)
+            return Ok(());
+        }
+
+        let _update_guard = match deadline.run(self.pool_update_lock.lock()).await {
+            DeadlineOutcome::Completed(guard) => guard,
+            DeadlineOutcome::Expired => return Err(deadline.timeout_error()),
+        };
+        let guard = &(*self.pool.load());
+        let pool_ip = guard.0;
+
         if let Some(current_ip) = pool_ip {
             if current_ip == ip {
-                // IP unchanged, continue using current pool (hot path)
+                // Another waiter already refreshed the pool while we were
+                // waiting for the cold-path update lock.
                 return Ok(());
             }
 
@@ -1312,9 +1348,9 @@ impl<C: Connection> BootstrapUpstream<C> {
         let new_pool: Arc<dyn ConnectionPool<C>> = match self.connection_info.connection_type {
             ConnectionType::UDP => PipelinePool::new(
                 0,
-                1,
+                self.connection_info.max_conns_or_default(),
                 ConnectionInfo::DEFAULT_MAX_CONNS_LOAD,
-                ConnectionInfo::DEFAULT_CONN_IDLE_TIME,
+                self.connection_info.idle_timeout,
                 builder,
                 QueryTimeoutPolicy::Reuse,
                 self.connection_info.timeout,
@@ -1323,9 +1359,9 @@ impl<C: Connection> BootstrapUpstream<C> {
                 if self.connection_info.enable_pipeline.unwrap_or(false) {
                     PipelinePool::new(
                         0,
-                        1,
+                        self.connection_info.max_conns_or_default(),
                         ConnectionInfo::DEFAULT_MAX_CONNS_LOAD,
-                        ConnectionInfo::DEFAULT_CONN_IDLE_TIME,
+                        self.connection_info.idle_timeout,
                         builder,
                         QueryTimeoutPolicy::Retire,
                         self.connection_info.timeout,
@@ -1333,8 +1369,8 @@ impl<C: Connection> BootstrapUpstream<C> {
                 } else {
                     ReusePool::new(
                         0,
-                        1,
-                        ConnectionInfo::DEFAULT_CONN_IDLE_TIME,
+                        self.connection_info.max_conns_or_default(),
+                        self.connection_info.idle_timeout,
                         builder,
                         QueryTimeoutPolicy::Close,
                         self.connection_info.timeout,
@@ -1343,9 +1379,9 @@ impl<C: Connection> BootstrapUpstream<C> {
             }
             ConnectionType::DoQ | ConnectionType::DoH => PipelinePool::new(
                 0,
-                1,
+                self.connection_info.max_conns_or_default(),
                 ConnectionInfo::DEFAULT_MAX_CONNS_LOAD,
-                ConnectionInfo::DEFAULT_CONN_IDLE_TIME,
+                self.connection_info.idle_timeout,
                 builder,
                 QueryTimeoutPolicy::Retire,
                 self.connection_info.timeout,
@@ -1678,11 +1714,52 @@ mod tests {
     }
 
     #[test]
+    fn test_connection_info_rejects_invalid_bootstrap_version() {
+        let mut cfg = make_upstream_config("tls://dns.example.invalid:853");
+        cfg.bootstrap = Some("8.8.8.8:53".to_string());
+        cfg.bootstrap_version = Some(5);
+
+        let err = ConnectionInfo::try_from(cfg).expect_err("invalid bootstrap_version should fail");
+
+        assert!(
+            err.to_string().contains("bootstrap_version must be 4 or 6"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn test_max_conns_is_preserved() {
         let mut cfg = make_upstream_config("8.8.8.8");
         cfg.max_conns = Some(999);
         let info = ConnectionInfo::try_from(cfg).expect("upstream config should parse");
         assert_eq!(info.max_conns, Some(999));
+    }
+
+    #[test]
+    fn test_max_conns_rejects_zero() {
+        let mut cfg = make_upstream_config("8.8.8.8");
+        cfg.max_conns = Some(0);
+
+        let err = ConnectionInfo::try_from(cfg).expect_err("zero max_conns should be rejected");
+
+        assert!(
+            err.to_string().contains("max_conns must be greater than 0"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_max_conns_rejects_excessive_value() {
+        let mut cfg = make_upstream_config("8.8.8.8");
+        cfg.max_conns = Some(ConnectionInfo::MAX_CONFIGURED_CONNS_SIZE + 1);
+
+        let err =
+            ConnectionInfo::try_from(cfg).expect_err("excessive max_conns should be rejected");
+
+        assert!(
+            err.to_string().contains("max_conns must be <= 4096"),
+            "{err}"
+        );
     }
 
     #[tokio::test]

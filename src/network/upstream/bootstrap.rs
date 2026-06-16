@@ -12,6 +12,7 @@
 //! - Single resolver instance for multiple concurrent queries
 //! - Pre-parsed DNS queries to avoid repeated allocations
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -24,7 +25,7 @@ use crate::core::app_clock::AppClock;
 use crate::core::error::{DnsError, Result};
 use crate::network::upstream::pool::{DeadlineOutcome, QueryDeadline};
 use crate::network::upstream::{ConnectionInfo, Upstream, UpstreamBuilder};
-use crate::proto::{DNSClass, Message, MessageType, Name, Opcode, Question, RecordType};
+use crate::proto::{DNSClass, Message, MessageType, Name, Opcode, Question, Record, RecordType};
 
 // State machine constants for atomic state transitions
 const STATE_NONE: u8 = 0; // Initial state, needs query
@@ -62,6 +63,9 @@ pub(crate) struct Bootstrap {
 
     /// Pre-built DNS query message (optimization)
     message: Message,
+
+    /// Canonical query owner accepted in bootstrap answers.
+    query_name: Name,
 
     /// Domain name being resolved (for logging only)
     domain: String,
@@ -111,6 +115,12 @@ impl Bootstrap {
                 bootstrap_server, e
             ))
         })?;
+        if bootstrap_info.remote_ip.is_none() {
+            return Err(DnsError::plugin(format!(
+                "bootstrap upstream '{}' must use a literal IP address",
+                bootstrap_server
+            )));
+        }
 
         Ok(Bootstrap {
             upstream: UpstreamBuilder::with_connection_info(bootstrap_info)?,
@@ -118,6 +128,7 @@ impl Bootstrap {
             cache: RwLock::new(None),
             query_done: Notify::new(),
             message,
+            query_name: parsed_name,
             domain: domain.to_string(),
         })
     }
@@ -237,7 +248,13 @@ impl Bootstrap {
     }
 
     async fn wait_query_done(&self, deadline: QueryDeadline) -> Result<()> {
-        match deadline.run(self.query_done.notified()).await {
+        let notified = self.query_done.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.state.load(Ordering::Acquire) != STATE_QUERYING {
+            return Ok(());
+        }
+        match deadline.run(notified.as_mut()).await {
             DeadlineOutcome::Completed(()) => Ok(()),
             DeadlineOutcome::Expired => Err(deadline.timeout_error()),
         }
@@ -262,49 +279,28 @@ impl Bootstrap {
         message.set_id(random());
         match self.upstream.query_with_deadline(message, deadline).await {
             Ok(response) => {
-                for answer in response.answers() {
-                    if let Some(ip) = answer.ip_addr() {
-                        let ttl = answer.ttl() as u64 * 1000;
-                        info!(
-                            domain = %self.domain,
-                            ip = %ip,
-                            ttl,
-                            "Bootstrap DNS resolution successful"
-                        );
-
-                        let expires_at = AppClock::elapsed_millis() + ttl;
-                        *self.cache.write().await = Some(CacheData { ip, expires_at });
-                        self.state.store(STATE_CACHED, Ordering::Release);
-                        self.query_done.notify_waiters();
-                        return;
-                    }
-                }
-
                 let answers = response.answers();
 
-                // Find the first matching A (IPv4) or AAAA (IPv6) record
-                for answer in answers {
-                    if (answer.rr_type() == RecordType::A || answer.rr_type() == RecordType::AAAA)
-                        && let Some(ip) = answer.data().ip_addr()
-                    {
-                        let ttl = answer.ttl() as u64 * 1000; // Convert seconds to milliseconds
-                        info!(
-                            domain = %self.domain,
-                            ip = %ip,
-                            ttl_seconds = ttl / 1000,
-                            record_type = ?answer.rr_type(),
-                            "Bootstrap DNS resolution successful"
-                        );
+                if let Some((ip, ttl_seconds, record_type)) =
+                    select_bootstrap_answer(answers, &self.query_name)
+                {
+                    info!(
+                        domain = %self.domain,
+                        ip = %ip,
+                        ttl_seconds,
+                        record_type = ?record_type,
+                        "Bootstrap DNS resolution successful"
+                    );
 
-                        // Update cache with new IP and expiration time
-                        let expires_at = AppClock::elapsed_millis() + ttl;
-                        *self.cache.write().await = Some(CacheData { ip, expires_at });
+                    // Update cache with new IP and expiration time
+                    let ttl = ttl_seconds as u64 * 1000;
+                    let expires_at = AppClock::elapsed_millis().saturating_add(ttl);
+                    *self.cache.write().await = Some(CacheData { ip, expires_at });
 
-                        // Transition to CACHED state and wake all waiting tasks
-                        self.state.store(STATE_CACHED, Ordering::Release);
-                        self.query_done.notify_waiters();
-                        return;
-                    }
+                    // Transition to CACHED state and wake all waiting tasks
+                    self.state.store(STATE_CACHED, Ordering::Release);
+                    self.query_done.notify_waiters();
+                    return;
                 }
 
                 // No matching A/AAAA records found in response
@@ -328,6 +324,52 @@ impl Bootstrap {
             }
         }
     }
+}
+
+fn select_bootstrap_answer(
+    answers: &[Record],
+    query_name: &Name,
+) -> Option<(IpAddr, u32, RecordType)> {
+    let mut accepted_names = HashMap::new();
+    accepted_names.insert(query_name.clone(), u32::MAX);
+
+    loop {
+        let mut changed = false;
+        for answer in answers {
+            let Some(target) = answer.cname_target() else {
+                continue;
+            };
+            let Some(owner_ttl) = accepted_names.get(answer.name()).copied() else {
+                continue;
+            };
+            let ttl = owner_ttl.min(answer.ttl());
+            match accepted_names.get(target).copied() {
+                Some(existing_ttl) if existing_ttl <= ttl => {}
+                _ => {
+                    accepted_names.insert(target.clone(), ttl);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    for answer in answers {
+        if !matches!(answer.rr_type(), RecordType::A | RecordType::AAAA) {
+            continue;
+        }
+        let Some(owner_ttl) = accepted_names.get(answer.name()).copied() else {
+            continue;
+        };
+        let Some(ip) = answer.ip_addr() else {
+            continue;
+        };
+        return Some((ip, owner_ttl.min(answer.ttl()), answer.rr_type()));
+    }
+
+    None
 }
 
 struct BootstrapQueryGuard<'a> {
@@ -360,6 +402,7 @@ impl Drop for BootstrapQueryGuard<'_> {
 #[cfg(test)]
 mod tests {
     use std::future::pending;
+    use std::net::Ipv4Addr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -367,6 +410,8 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::*;
+    use crate::proto::RData;
+    use crate::proto::rdata::{A, CNAME};
 
     #[derive(Debug)]
     struct BlockingUpstream {
@@ -435,6 +480,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_new_rejects_hostname_bootstrap_server() {
+        let result = Bootstrap::new("udp://resolver.example.invalid:53", "example.com.", None);
+
+        assert!(
+            result
+                .expect_err("hostname bootstrap server should be rejected")
+                .to_string()
+                .contains("must use a literal IP address")
+        );
+    }
+
+    #[tokio::test]
     async fn test_canceled_bootstrap_query_releases_querying_state() {
         AppClock::start();
         let (started_tx, started_rx) = oneshot::channel();
@@ -448,6 +505,7 @@ mod tests {
             cache: RwLock::new(None),
             query_done: Notify::new(),
             message: Message::new(),
+            query_name: Name::from_ascii("example.com.").expect("query name should parse"),
             domain: "example.com.".to_string(),
         });
 
@@ -468,5 +526,67 @@ mod tests {
         );
 
         assert_eq!(bootstrap.state.load(Ordering::Acquire), STATE_FAILED);
+    }
+
+    #[tokio::test]
+    async fn test_wait_query_done_returns_when_state_already_changed() {
+        AppClock::start();
+        let bootstrap = Bootstrap {
+            upstream: Box::new(BlockingUpstream {
+                started: Mutex::new(None),
+                connection_info: ConnectionInfo::with_addr("udp://127.0.0.1:53")
+                    .expect("connection info should parse"),
+            }),
+            state: AtomicU8::new(STATE_CACHED),
+            cache: RwLock::new(None),
+            query_done: Notify::new(),
+            message: Message::new(),
+            query_name: Name::from_ascii("example.com.").expect("query name should parse"),
+            domain: "example.com.".to_string(),
+        };
+
+        bootstrap
+            .wait_query_done(QueryDeadline::new(Duration::from_millis(10)))
+            .await
+            .expect("changed state should not wait for a fresh notification");
+    }
+
+    #[test]
+    fn test_select_bootstrap_answer_follows_cname_and_rejects_unrelated_a() {
+        let query_name = Name::from_ascii("example.com.").expect("name should parse");
+        let alias_name = Name::from_ascii("alias.example.net.").expect("name should parse");
+        let unrelated_name = Name::from_ascii("unrelated.example.").expect("name should parse");
+        let unrelated = Record::from_rdata(
+            unrelated_name,
+            300,
+            RData::A(A(Ipv4Addr::new(192, 0, 2, 10))),
+        );
+        let cname = Record::from_rdata(
+            query_name.clone(),
+            30,
+            RData::CNAME(CNAME(alias_name.clone())),
+        );
+        let target =
+            Record::from_rdata(alias_name, 300, RData::A(A(Ipv4Addr::new(203, 0, 113, 53))));
+
+        let selected = select_bootstrap_answer(&[unrelated, cname, target], &query_name)
+            .expect("CNAME target should be accepted");
+
+        assert_eq!(selected.0, IpAddr::V4(Ipv4Addr::new(203, 0, 113, 53)));
+        assert_eq!(selected.1, 30);
+        assert_eq!(selected.2, RecordType::A);
+    }
+
+    #[test]
+    fn test_select_bootstrap_answer_rejects_unrelated_a_records() {
+        let query_name = Name::from_ascii("example.com.").expect("name should parse");
+        let unrelated_name = Name::from_ascii("unrelated.example.").expect("name should parse");
+        let unrelated = Record::from_rdata(
+            unrelated_name,
+            300,
+            RData::A(A(Ipv4Addr::new(192, 0, 2, 10))),
+        );
+
+        assert!(select_bootstrap_answer(&[unrelated], &query_name).is_none());
     }
 }
