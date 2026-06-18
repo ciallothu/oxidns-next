@@ -10,7 +10,7 @@ use fast_socks5::{AuthenticationMethod, Socks5Command};
 use tokio::net::TcpStream;
 use tracing::warn;
 
-use crate::infra::error::Result;
+use crate::infra::error::{DnsError, Result};
 use crate::infra::network::dial::{
     DialTarget, SocketOptions, TcpDialOptions, connect_tcp as dial_connect_tcp,
     try_lookup_server_name,
@@ -141,6 +141,16 @@ where
 
 pub(crate) fn parse_socks5_opt(socks5_str: &str) -> Option<Socks5Opt> {
     parse_socks5_opt_with_resolver(socks5_str, try_lookup_server_name)
+}
+
+pub(crate) fn parse_optional_socks5<F>(raw: Option<&str>, invalid: F) -> Result<Option<Socks5Opt>>
+where
+    F: FnOnce(&str) -> DnsError,
+{
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(None);
+    };
+    parse_socks5_opt(raw).map(Some).ok_or_else(|| invalid(raw))
 }
 
 pub(crate) async fn connect_tcp(

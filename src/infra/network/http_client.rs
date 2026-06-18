@@ -43,6 +43,15 @@ pub struct HttpClientOptions {
     pub socks5: Option<Socks5Opt>,
 }
 
+impl HttpClientOptions {
+    pub fn new(insecure_skip_verify: bool, socks5: Option<Socks5Opt>) -> Self {
+        Self {
+            insecure_skip_verify,
+            socks5,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HttpRequestOptions {
     pub url: String,

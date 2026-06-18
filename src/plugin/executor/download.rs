@@ -30,7 +30,7 @@ use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result};
 use crate::infra::network::http_client::{HttpClient, HttpClientOptions, HttpRequestOptions};
-use crate::infra::network::proxy::{Socks5Opt, parse_socks5_opt};
+use crate::infra::network::proxy::{Socks5Opt, parse_optional_socks5};
 use crate::infra::observability::metrics::{
     MetricLabel, MetricSample, MetricSink, MetricSource, register_metric_source,
     unregister_metric_source,
@@ -251,7 +251,10 @@ impl PluginFactory for DownloadFactory {
 
             let executor = DownloadExecutor {
                 tag: plugin_tag.clone(),
-                client: build_http_client(runtime.insecure_skip_verify, runtime.parsed_socks5),
+                client: HttpClient::new(HttpClientOptions::new(
+                    runtime.insecure_skip_verify,
+                    runtime.parsed_socks5,
+                )),
                 timeout: runtime.timeout,
                 downloads: runtime.downloads.clone(),
                 insecure_skip_verify: runtime.insecure_skip_verify,
@@ -308,7 +311,10 @@ impl PluginFactory for DownloadFactory {
 
         Ok(UninitializedPlugin::Executor(Box::new(DownloadExecutor {
             tag: plugin_config.tag.clone(),
-            client: build_http_client(runtime.insecure_skip_verify, runtime.parsed_socks5),
+            client: HttpClient::new(HttpClientOptions::new(
+                runtime.insecure_skip_verify,
+                runtime.parsed_socks5,
+            )),
             timeout: runtime.timeout,
             downloads: runtime.downloads,
             insecure_skip_verify: runtime.insecure_skip_verify,
@@ -333,7 +339,7 @@ impl PluginFactory for DownloadFactory {
 
         Ok(UninitializedPlugin::Executor(Box::new(DownloadExecutor {
             tag: tag.to_string(),
-            client: build_http_client(false, None),
+            client: HttpClient::new(HttpClientOptions::new(false, None)),
             timeout: DEFAULT_TIMEOUT,
             downloads,
             insecure_skip_verify: false,
@@ -472,20 +478,10 @@ fn filename_from_url(url: &Url) -> Option<String> {
         .map(str::to_string)
 }
 
-fn build_http_client(insecure_skip_verify: bool, socks5: Option<Socks5Opt>) -> HttpClient {
-    HttpClient::new(HttpClientOptions {
-        insecure_skip_verify,
-        socks5,
-    })
-}
-
 fn parse_socks5(raw: Option<&str>) -> Result<Option<Socks5Opt>> {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return Ok(None);
-    };
-    parse_socks5_opt(raw)
-        .map(Some)
-        .ok_or_else(|| DnsError::plugin(format!("invalid download socks5 proxy '{}'", raw)))
+    parse_optional_socks5(raw, |raw| {
+        DnsError::plugin(format!("invalid download socks5 proxy '{}'", raw))
+    })
 }
 
 #[cfg(test)]
@@ -574,7 +570,7 @@ mod tests {
     async fn test_download_executor_returns_next_for_empty_runtime_errors() {
         let plugin = DownloadExecutor {
             tag: "download".to_string(),
-            client: build_http_client(false, None),
+            client: HttpClient::new(HttpClientOptions::new(false, None)),
             timeout: Duration::from_millis(10),
             downloads: vec![DownloadTarget {
                 url: "http://127.0.0.1:9/missing.txt".to_string(),

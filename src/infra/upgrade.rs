@@ -21,7 +21,7 @@ use crate::infra::error::{DnsError, Result};
 use crate::infra::network::http_client::{
     DownloadProgress, HttpClient, HttpClientOptions, HttpRequestOptions,
 };
-use crate::infra::network::proxy::parse_socks5_opt;
+use crate::infra::network::proxy::parse_optional_socks5;
 
 const DEFAULT_REPOSITORY: &str = "svenshi/oxidns";
 const DEFAULT_TARGET: &str = "latest";
@@ -691,22 +691,13 @@ fn github_request_headers(token: Option<&str>) -> Vec<(http::header::HeaderName,
 }
 
 fn build_asset_http_client(config: &UpgradeConfig) -> Result<HttpClient> {
-    let socks5 =
-        match config
-            .socks5
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
-            Some(raw) => Some(parse_socks5_opt(raw).ok_or_else(|| {
-                DnsError::runtime(format!("invalid upgrade socks5 proxy '{raw}'"))
-            })?),
-            None => None,
-        };
-    Ok(HttpClient::new(HttpClientOptions {
-        insecure_skip_verify: config.insecure_skip_verify,
+    let socks5 = parse_optional_socks5(config.socks5.as_deref(), |raw| {
+        DnsError::runtime(format!("invalid upgrade socks5 proxy '{raw}'"))
+    })?;
+    Ok(HttpClient::new(HttpClientOptions::new(
+        config.insecure_skip_verify,
         socks5,
-    }))
+    )))
 }
 
 fn select_asset<'a>(
