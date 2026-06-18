@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::cli::{UpgradeAction, UpgradeOptions};
 use crate::infra::error::{DnsError, Result};
+use crate::infra::service;
 use crate::infra::upgrade::{
     self, ApplyDecision, UpgradeConfig, UpgradeContext, UpgradeDownloadProgressReporter,
 };
@@ -332,7 +333,9 @@ fn run_action(action: UpgradeAction, config: UpgradeConfig) -> Result<()> {
                         }
                         println!("Downloading, verifying, and replacing the current binary...");
                         let outcome = upgrade::apply_unchecked(&config, UpgradeContext::Cli).await?;
-                        if !config.no_restart {
+                        if outcome.restart_required {
+                            println!("Restarting installed service...");
+                            service::restart_installed_service()?;
                             println!("Service restart completed.");
                         }
                         println!(

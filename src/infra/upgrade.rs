@@ -16,12 +16,12 @@ use sha2::{Digest, Sha256};
 use tokio::time::timeout;
 use tracing::info;
 
+use crate::infra::VERSION;
 use crate::infra::error::{DnsError, Result};
 use crate::infra::network::http_client::{
     DownloadProgress, HttpClient, HttpClientOptions, HttpRequestOptions,
 };
 use crate::infra::network::proxy::parse_socks5_opt;
-use crate::infra::{VERSION, service};
 
 const DEFAULT_REPOSITORY: &str = "svenshi/oxidns";
 const DEFAULT_TARGET: &str = "latest";
@@ -29,7 +29,6 @@ const DEFAULT_CACHE_DIR: &str = "./upgrade-cache";
 const DEFAULT_BACKUP_DIR: &str = "./upgrade-backups";
 const DEFAULT_WEBUI_DIR: &str = "./webui";
 
-const EXIT_RESTART_REQUIRED: i32 = 75;
 const GITHUB_USER_AGENT: &str = "OxiDNS";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
@@ -131,6 +130,9 @@ pub struct ApplyOutcome {
     pub asset_name: String,
     pub backup_path: PathBuf,
     pub binary_path: PathBuf,
+    /// Whether the caller should restart the running service/process after the
+    /// binary replacement.
+    pub restart_required: bool,
     /// `Some` when the WebUI directory was installed; `None` when skipped or
     /// when the archive did not contain a `webui/` directory.
     pub webui_path: Option<PathBuf>,
@@ -224,22 +226,19 @@ where
     })
 }
 
-pub async fn apply(
-    config: &UpgradeConfig,
-    restart_context: UpgradeContext,
-) -> Result<ApplyRunOutcome> {
+pub async fn apply(config: &UpgradeConfig, context: UpgradeContext) -> Result<ApplyRunOutcome> {
     let decision = should_apply(config).await?;
-    apply_decision(config, restart_context, decision).await
+    apply_decision(config, context, decision).await
 }
 
 pub async fn apply_decision(
     config: &UpgradeConfig,
-    restart_context: UpgradeContext,
+    context: UpgradeContext,
     decision: ApplyDecision,
 ) -> Result<ApplyRunOutcome> {
     match decision {
         ApplyDecision::Apply { check } => {
-            let outcome = apply_unchecked(config, restart_context).await?;
+            let outcome = apply_unchecked(config, context).await?;
             Ok(ApplyRunOutcome::Applied { check, outcome })
         }
         ApplyDecision::Skip { check } => Ok(ApplyRunOutcome::Skipped { check }),
@@ -248,9 +247,9 @@ pub async fn apply_decision(
 
 pub(crate) async fn apply_unchecked(
     config: &UpgradeConfig,
-    restart_context: UpgradeContext,
+    context: UpgradeContext,
 ) -> Result<ApplyOutcome> {
-    print_cli_apply_step(restart_context, "Acquiring upgrade lock...");
+    print_cli_apply_step(context, "Acquiring upgrade lock...");
     let lock_path = config.cache_dir.join(".upgrade.lock");
     fs::create_dir_all(&config.cache_dir)?;
     let lock_file = File::create(&lock_path).map_err(|err| {
@@ -265,16 +264,16 @@ pub(crate) async fn apply_unchecked(
     })?;
 
     print_cli_apply_step(
-        restart_context,
+        context,
         "Downloading archive and verifying GitHub asset digest...",
     );
-    let progress_reporter = UpgradeDownloadProgressReporter::new(restart_context);
+    let progress_reporter = UpgradeDownloadProgressReporter::new(context);
     let downloaded = download(config, move |progress| {
         progress_reporter.report(progress);
     })
     .await?;
     print_cli_apply_step(
-        restart_context,
+        context,
         format!(
             "Archive ready: {} (sha256 {})",
             downloaded.archive_path.display(),
@@ -309,7 +308,7 @@ pub(crate) async fn apply_unchecked(
     }
     fs::create_dir_all(&unpack_dir)?;
     print_cli_apply_step(
-        restart_context,
+        context,
         format!("Unpacking archive into {}...", unpack_dir.display()),
     );
     #[cfg(not(windows))]
@@ -337,11 +336,11 @@ pub(crate) async fn apply_unchecked(
         .join(format!("oxidns-{}-{}.exe", VERSION, ts));
 
     print_cli_apply_step(
-        restart_context,
+        context,
         format!("Creating backup at {}...", backup_path.display()),
     );
     print_cli_apply_step(
-        restart_context,
+        context,
         format!("Replacing binary at {}...", current_exe.display()),
     );
     #[cfg(not(windows))]
@@ -362,23 +361,23 @@ pub(crate) async fn apply_unchecked(
     // replace_binary_windows() handles backup creation and rollback atomically.
     #[cfg(windows)]
     replace_binary_windows(&extracted, &current_exe, &backup_path)?;
-    print_cli_apply_step(restart_context, "Binary replacement completed.");
+    print_cli_apply_step(context, "Binary replacement completed.");
 
     let (webui_path, webui_backup_path) = if config.skip_webui {
-        print_cli_apply_step(restart_context, "Skipping WebUI upgrade (--skip-webui).");
+        print_cli_apply_step(context, "Skipping WebUI upgrade (--skip-webui).");
         (None, None)
     } else {
         match find_extracted_webui(&unpack_dir) {
             None => {
                 print_cli_apply_step(
-                    restart_context,
+                    context,
                     "Archive contains no webui directory; skipping WebUI upgrade.",
                 );
                 (None, None)
             }
             Some(src) => {
                 print_cli_apply_step(
-                    restart_context,
+                    context,
                     format!("Installing WebUI into {}...", config.webui_dir.display()),
                 );
                 let (path, backup) = replace_webui(
@@ -387,7 +386,7 @@ pub(crate) async fn apply_unchecked(
                     &config.backup_dir,
                     &downloaded.version,
                 )?;
-                print_cli_apply_step(restart_context, "WebUI upgrade completed.");
+                print_cli_apply_step(context, "WebUI upgrade completed.");
                 (Some(path), backup)
             }
         }
@@ -397,16 +396,12 @@ pub(crate) async fn apply_unchecked(
         let _ = cleanup_upgrade_artifacts(config);
     }
 
-    if !config.no_restart {
-        print_cli_apply_step(restart_context, "Restarting installed service...");
-        restart_after_apply(restart_context)?;
-    }
-
     Ok(ApplyOutcome {
         installed_version: downloaded.version,
         asset_name: downloaded.asset_name,
         backup_path,
         binary_path: current_exe,
+        restart_required: !config.no_restart,
         webui_path,
         webui_backup_path,
     })
@@ -414,7 +409,7 @@ pub(crate) async fn apply_unchecked(
 
 #[derive(Clone)]
 pub(crate) struct UpgradeDownloadProgressReporter {
-    restart_context: UpgradeContext,
+    context: UpgradeContext,
     state: std::sync::Arc<std::sync::Mutex<UpgradeDownloadProgressState>>,
 }
 
@@ -425,15 +420,15 @@ struct UpgradeDownloadProgressState {
 }
 
 impl UpgradeDownloadProgressReporter {
-    pub(crate) fn new(restart_context: UpgradeContext) -> Self {
+    pub(crate) fn new(context: UpgradeContext) -> Self {
         Self {
-            restart_context,
+            context,
             state: Default::default(),
         }
     }
 
     pub(crate) fn report(&self, progress: DownloadProgress) {
-        match self.restart_context {
+        match self.context {
             UpgradeContext::Cli => self.report_cli(progress),
             UpgradeContext::Plugin => self.report_plugin(progress),
         }
@@ -535,26 +530,10 @@ fn cleanup_dir_if_exists(path: &Path, cleaned: &mut Vec<PathBuf>) -> Result<()> 
     Ok(())
 }
 
-fn print_cli_apply_step(restart_context: UpgradeContext, message: impl AsRef<str>) {
-    match restart_context {
+fn print_cli_apply_step(context: UpgradeContext, message: impl AsRef<str>) {
+    match context {
         UpgradeContext::Cli => println!("{}", message.as_ref()),
         UpgradeContext::Plugin => info!(message = message.as_ref(), "upgrade apply step"),
-    }
-}
-
-fn restart_after_apply(restart_context: UpgradeContext) -> Result<()> {
-    match restart_context {
-        // CLI is a separate process; ask the platform service manager to restart
-        // the running daemon.
-        UpgradeContext::Cli => service::restart_installed_service(),
-        // Plugin runs inside the server process: signal the main event loop to
-        // do a graceful shutdown + exec_restart(), which loads the new binary
-        // already on disk. Fall back to exit(75) if the controller is gone.
-        UpgradeContext::Plugin => {
-            crate::plugin::request_app_restart()
-                .unwrap_or_else(|_| std::process::exit(EXIT_RESTART_REQUIRED));
-            Ok(())
-        }
     }
 }
 
