@@ -101,6 +101,7 @@ pub(super) fn table_names(tag: &str) -> TableNames {
     TableNames {
         records: format!("{prefix}_records"),
         steps: format!("{prefix}_steps"),
+        questions: format!("{prefix}_questions"),
     }
 }
 
@@ -182,10 +183,22 @@ pub(crate) fn create_schema(conn: &mut Connection, tables: &TableNames) -> rusql
             PRIMARY KEY (record_id, event_index),
             FOREIGN KEY(record_id) REFERENCES {records}(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS {questions} (
+            record_id INTEGER NOT NULL,
+            question_index INTEGER NOT NULL,
+            name_lc TEXT NOT NULL,
+            qtype TEXT NOT NULL,
+            qclass TEXT NOT NULL,
+            PRIMARY KEY (record_id, question_index),
+            FOREIGN KEY(record_id) REFERENCES {records}(id) ON DELETE CASCADE
+        );
         CREATE INDEX IF NOT EXISTS {records}_created_at_idx ON {records}(created_at_ms DESC);
         CREATE INDEX IF NOT EXISTS {records}_request_id_idx ON {records}(request_id);
         CREATE INDEX IF NOT EXISTS {records}_client_ip_idx ON {records}(client_ip);
         CREATE INDEX IF NOT EXISTS {records}_rcode_idx ON {records}(rcode);
+        CREATE INDEX IF NOT EXISTS {questions}_record_id_idx ON {questions}(record_id);
+        CREATE INDEX IF NOT EXISTS {questions}_name_idx ON {questions}(name_lc, record_id);
+        CREATE INDEX IF NOT EXISTS {questions}_qtype_idx ON {questions}(qtype, record_id);
         CREATE INDEX IF NOT EXISTS {steps}_kind_tag_outcome_idx ON {steps}(kind, tag, outcome);
         CREATE INDEX IF NOT EXISTS {steps}_record_id_idx ON {steps}(record_id);
         -- Covering index for the matcher_tag EXISTS subquery used by /records
@@ -202,8 +215,48 @@ pub(crate) fn create_schema(conn: &mut Connection, tables: &TableNames) -> rusql
         CREATE INDEX IF NOT EXISTS {steps}_record_kind_idx
             ON {steps}(record_id, kind);",
         records = tables.records,
+        questions = tables.questions,
         steps = tables.steps,
-    ))
+    ))?;
+    backfill_questions(conn, tables)
+}
+
+fn backfill_questions(conn: &Connection, tables: &TableNames) -> rusqlite::Result<()> {
+    conn.execute(
+        &format!(
+            "WITH missing_records AS (
+                SELECT r.id, r.questions_json
+                FROM {records} r
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM {questions} existing
+                    WHERE existing.record_id = r.id
+                )
+             )
+             INSERT OR IGNORE INTO {questions} (
+                record_id,
+                question_index,
+                name_lc,
+                qtype,
+                qclass
+             )
+             SELECT
+                missing_records.id,
+                CAST(q.key AS INTEGER),
+                LOWER(json_extract(q.value, '$.name')),
+                UPPER(json_extract(q.value, '$.qtype')),
+                json_extract(q.value, '$.qclass')
+             FROM missing_records
+             JOIN json_each(missing_records.questions_json) AS q
+             WHERE json_extract(q.value, '$.name') IS NOT NULL
+               AND json_extract(q.value, '$.qtype') IS NOT NULL
+               AND json_extract(q.value, '$.qclass') IS NOT NULL",
+            records = tables.records,
+            questions = tables.questions,
+        ),
+        [],
+    )?;
+    Ok(())
 }
 
 pub(super) fn run_writer_thread(
@@ -414,6 +467,28 @@ fn insert_record(
         ],
     )?;
     let record_id = tx.last_insert_rowid();
+
+    for (question_index, question) in record.questions_json.iter().enumerate() {
+        tx.execute(
+            &format!(
+                "INSERT OR IGNORE INTO {} (
+                    record_id,
+                    question_index,
+                    name_lc,
+                    qtype,
+                    qclass
+                ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                tables.questions
+            ),
+            params![
+                record_id,
+                question_index as i64,
+                question.name.to_ascii_lowercase(),
+                question.qtype.to_ascii_uppercase(),
+                question.qclass.as_str(),
+            ],
+        )?;
+    }
 
     for step in &steps {
         tx.execute(
@@ -809,7 +884,7 @@ pub(super) fn load_top_qnames(
 
     let sql = format!(
         "WITH sample_records AS (
-            SELECT r.id, r.questions_json
+            SELECT r.id
             FROM {records} r
             WHERE {where_sql}
             ORDER BY r.created_at_ms DESC, r.id DESC
@@ -820,15 +895,16 @@ pub(super) fn load_top_qnames(
          )
          SELECT
             totals.sample_size,
-            LOWER(json_extract(q.value, '$.name')) AS qname,
-            COUNT(*) AS count
+            q.name_lc AS qname,
+            COUNT(q.name_lc) AS count
          FROM totals
          LEFT JOIN sample_records ON 1 = 1
-         LEFT JOIN json_each(sample_records.questions_json) AS q ON 1 = 1
+         LEFT JOIN {questions} q ON q.record_id = sample_records.id
          GROUP BY totals.sample_size, qname
          ORDER BY count DESC, qname ASC
          LIMIT ?",
         records = backend.tables.records,
+        questions = backend.tables.questions,
     );
 
     let mut stmt = conn.prepare(&sql)?;
@@ -872,7 +948,7 @@ pub(super) fn load_qtype_distribution(
 
     let sql = format!(
         "WITH sample_records AS (
-            SELECT r.id, r.questions_json
+            SELECT r.id
             FROM {records} r
             WHERE {where_sql}
             ORDER BY r.created_at_ms DESC, r.id DESC
@@ -883,14 +959,15 @@ pub(super) fn load_qtype_distribution(
          )
          SELECT
             totals.sample_size,
-            UPPER(json_extract(q.value, '$.qtype')) AS qtype,
-            COUNT(*) AS count
+            q.qtype,
+            COUNT(q.qtype) AS count
          FROM totals
          LEFT JOIN sample_records ON 1 = 1
-         LEFT JOIN json_each(sample_records.questions_json) AS q ON 1 = 1
+         LEFT JOIN {questions} q ON q.record_id = sample_records.id
          GROUP BY totals.sample_size, qtype
          ORDER BY count DESC, qtype ASC",
         records = backend.tables.records,
+        questions = backend.tables.questions,
     );
 
     let mut stmt = conn.prepare(&sql)?;
@@ -1033,23 +1110,25 @@ pub(super) fn load_latency_summary(
     slow_params.push(Value::Integer(limit_to_i64(slow_limit)?));
     let slow_sql = format!(
         "WITH sample_records AS (
-            SELECT r.id, r.elapsed_ms, r.questions_json
+            SELECT r.id, r.elapsed_ms
             FROM {records} r
             WHERE {where_sql}
             ORDER BY r.created_at_ms DESC, r.id DESC
             LIMIT ?
          )
          SELECT
-            LOWER(json_extract(q.value, '$.name')) AS qname,
+            q.name_lc AS qname,
             COUNT(*) AS count,
             AVG(sample_records.elapsed_ms) AS avg_ms,
             MAX(sample_records.elapsed_ms) AS max_ms
-         FROM sample_records, json_each(sample_records.questions_json) AS q
+         FROM sample_records
+         JOIN {questions} q ON q.record_id = sample_records.id
          GROUP BY qname
          HAVING qname IS NOT NULL
          ORDER BY avg_ms DESC, count DESC
          LIMIT ?",
         records = backend.tables.records,
+        questions = backend.tables.questions,
         where_sql = slow_where_sql,
     );
     let mut slow_top: Vec<LatencySlowRow> = Vec::new();
@@ -1291,23 +1370,25 @@ fn record_filter_clauses(
     }
     if let Some(qname) = filter.qname.as_deref() {
         clauses.push(format!(
-            "EXISTS (
-                SELECT 1
-                FROM json_each({alias}.questions_json) AS question
-                WHERE LOWER(json_extract(question.value, '$.name')) LIKE LOWER(?) ESCAPE '\\'
-            )"
+            "{alias}.id IN (
+                SELECT q.record_id
+                FROM {questions} q
+                WHERE q.name_lc LIKE ? ESCAPE '\\'
+            )",
+            questions = tables.questions,
         ));
-        params.push(Value::Text(like_pattern(qname)));
+        params.push(Value::Text(like_pattern(&qname.to_ascii_lowercase())));
     }
     if let Some(qtype) = filter.qtype.as_deref() {
         clauses.push(format!(
-            "EXISTS (
-                SELECT 1
-                FROM json_each({alias}.questions_json) AS question
-                WHERE UPPER(json_extract(question.value, '$.qtype')) = UPPER(?)
-            )"
+            "{alias}.id IN (
+                SELECT q.record_id
+                FROM {questions} q
+                WHERE q.qtype = ?
+            )",
+            questions = tables.questions,
         ));
-        params.push(Value::Text(qtype.to_string()));
+        params.push(Value::Text(qtype.to_ascii_uppercase()));
     }
     if let Some(client_ip) = filter.client_ip.as_deref() {
         clauses.push(format!(
@@ -1467,6 +1548,7 @@ mod tests {
         let tables = TableNames {
             records: "records".to_string(),
             steps: "steps".to_string(),
+            questions: "questions".to_string(),
         };
         create_schema(&mut conn, &tables).unwrap();
 
@@ -1474,6 +1556,15 @@ mod tests {
         let tx = conn.transaction().unwrap();
         let detail = insert_record(&tx, &tables, expected.clone(), Vec::new()).unwrap();
         tx.commit().unwrap();
+
+        let question_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM questions WHERE record_id = ?1",
+                params![detail.record.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(question_count, 1);
 
         let row_columns = record_row_select_columns(None);
         let sql = format!(
@@ -1492,6 +1583,33 @@ mod tests {
             ..expected
         };
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_create_schema_backfills_missing_question_index_rows() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let tables = TableNames {
+            records: "records".to_string(),
+            steps: "steps".to_string(),
+            questions: "questions".to_string(),
+        };
+        create_schema(&mut conn, &tables).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let detail = insert_record(&tx, &tables, sample_record_row(), Vec::new()).unwrap();
+        tx.commit().unwrap();
+        conn.execute("DELETE FROM questions", []).unwrap();
+
+        create_schema(&mut conn, &tables).unwrap();
+
+        let question: (String, String) = conn
+            .query_row(
+                "SELECT name_lc, qtype FROM questions WHERE record_id = ?1",
+                params![detail.record.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(question, ("example.com.".to_string(), "A".to_string()));
     }
 
     fn sample_record_row() -> RecordRow {
