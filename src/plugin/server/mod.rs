@@ -28,7 +28,6 @@ use tracing::{Level, debug, event_enabled, warn};
 
 use crate::core::context::DnsContext;
 use crate::infra::clock::AppClock;
-pub(crate) use crate::infra::network::listen::parse_listen_addr;
 use crate::infra::observability::metrics::{MetricLabel, MetricSample, MetricSink, MetricSource};
 use crate::plugin::Plugin;
 use crate::plugin::executor::{ExecStep, Executor};
@@ -373,7 +372,6 @@ fn canonicalize_addr(addr: SocketAddr) -> SocketAddr {
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv6Addr;
     use std::sync::Mutex;
 
     use async_trait::async_trait;
@@ -382,20 +380,6 @@ mod tests {
     use crate::continue_next;
     use crate::infra::error::Result;
     use crate::proto::{Name, Question, RecordType};
-
-    #[test]
-    fn test_parse_listen_addr_accepts_port_only_shorthand() {
-        let addr = parse_listen_addr(":5337").expect("port-only shorthand should parse");
-
-        assert_eq!(addr, SocketAddr::from((Ipv6Addr::UNSPECIFIED, 5337)));
-    }
-
-    #[test]
-    fn test_parse_listen_addr_rejects_invalid_port_only_shorthand() {
-        let err = parse_listen_addr(":not-a-port").unwrap_err();
-
-        assert!(err.to_string().contains("Invalid listen address"));
-    }
 
     fn make_request(id: u16, qname: &str) -> Message {
         let mut request = Message::new();
