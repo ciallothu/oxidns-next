@@ -29,9 +29,9 @@ use tower_service::Service;
 use url::Url;
 
 use crate::infra::error::{DnsError, Result};
-use crate::infra::network::proxy::Socks5Opt;
+use crate::infra::network::dial::{DialTarget, SocketOptions};
+use crate::infra::network::proxy::{Socks5Opt, connect_tcp};
 use crate::infra::network::tls_config::{insecure_client_config, secure_client_config};
-use crate::infra::network::upstream::connect_tcp_stream;
 
 pub const DEFAULT_MAX_REDIRECTS: usize = 5;
 
@@ -41,6 +41,15 @@ type InnerClient = HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, Full
 pub struct HttpClientOptions {
     pub insecure_skip_verify: bool,
     pub socks5: Option<Socks5Opt>,
+}
+
+impl HttpClientOptions {
+    pub fn new(insecure_skip_verify: bool, socks5: Option<Socks5Opt>) -> Self {
+        Self {
+            insecure_skip_verify,
+            socks5,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -313,7 +322,8 @@ impl Service<Uri> for HttpConnector {
                     ))
                 })?;
             let remote_ip = host.parse::<IpAddr>().ok();
-            let stream = connect_tcp_stream(remote_ip, host.to_string(), port, socks5).await?;
+            let target = DialTarget::new(remote_ip, host.to_string(), port);
+            let stream = connect_tcp(target, SocketOptions::default(), socks5).await?;
             Ok(TokioIo::new(stream))
         })
     }

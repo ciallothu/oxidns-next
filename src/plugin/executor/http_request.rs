@@ -32,7 +32,7 @@ use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result};
 use crate::infra::network::http_client::{HttpClient, HttpClientOptions, HttpRequestOptions};
-use crate::infra::network::proxy::{Socks5Opt, parse_socks5_opt};
+use crate::infra::network::proxy::{Socks5Opt, parse_optional_socks5};
 use crate::infra::observability::metrics::{
     MetricLabel, MetricSample, MetricSink, MetricSource, register_metric_source,
     unregister_metric_source,
@@ -509,10 +509,10 @@ impl PluginFactory for HttpRequestFactory {
         Ok(UninitializedPlugin::Executor(Box::new(
             HttpRequestExecutor {
                 tag: plugin_config.tag.clone(),
-                client: build_http_client(
+                client: HttpClient::new(HttpClientOptions::new(
                     config.insecure_skip_verify,
                     config.parsed_socks5.clone(),
-                ),
+                )),
                 config,
                 async_tx: None,
                 stop_tx: Mutex::new(None),
@@ -608,10 +608,7 @@ fn parse_timeout(plugin_tag: &str, raw: Option<&str>) -> Result<Duration> {
 }
 
 fn parse_socks5(plugin_tag: &str, raw: Option<&str>) -> Result<Option<Socks5Opt>> {
-    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return Ok(None);
-    };
-    parse_socks5_opt(raw).map(Some).ok_or_else(|| {
+    parse_optional_socks5(raw, |raw| {
         DnsError::plugin(format!(
             "plugin '{}' field 'args.socks5' is invalid: '{}'",
             plugin_tag, raw
@@ -756,13 +753,6 @@ fn parse_body_template(
             plugin_tag
         ))),
     }
-}
-
-fn build_http_client(insecure_skip_verify: bool, socks5: Option<Socks5Opt>) -> HttpClient {
-    HttpClient::new(HttpClientOptions {
-        insecure_skip_verify,
-        socks5,
-    })
 }
 
 async fn run_async_worker(

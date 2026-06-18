@@ -27,12 +27,13 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::types::PluginConfig;
 use crate::infra::error::{DnsError, Result};
+use crate::infra::network::listen::parse_listen_addr;
 use crate::infra::network::tls_config::load_tls_config;
 use crate::infra::observability::metrics::{register_metric_source, unregister_metric_source};
 use crate::infra::system::deserialize_duration_option;
 use crate::plugin::dependency::DependencySpec;
 use crate::plugin::server::http::http_dispatcher::{DnsGetHandler, DnsPostHandler, HttpDispatcher};
-use crate::plugin::server::{RequestHandle, Server, ServerMetrics, parse_listen_addr};
+use crate::plugin::server::{RequestHandle, Server, ServerMetrics};
 use crate::plugin::{Plugin, PluginFactory};
 use crate::plugin_factory;
 
