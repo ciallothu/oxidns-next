@@ -79,7 +79,7 @@ const sequenceControls = ["accept", "return", "reject", "mark", "jump", "goto"];
 const sequenceControlExamples = [
   "reject SERVFAIL",
   "reject servfail",
-  "reject NOERROR soa",
+  "reject NOERROR",
   "reject 3",
 ];
 const logLevels = ["off", "trace", "debug", "info", "warn", "error"];

@@ -58,7 +58,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
               label: "执行动作",
               type: "text",
               placeholder:
-                "$forward_main / accept / reject SERVFAIL / reject noerror soa / reject 3 / jump seq_tag",
+                "$forward_main / accept / reject SERVFAIL / reject NOERROR / reject 3 / jump seq_tag",
             },
           ],
         },

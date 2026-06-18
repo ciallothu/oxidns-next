@@ -310,7 +310,7 @@ export const enUSPluginDefined = {
           description:
             "Defines the action to perform when the rule matches. You can reference an executor or use built-in actions such as accept, return, reject, jump, goto, and mark; reject accepts case-insensitive RCODE names and numeric values.",
           placeholder:
-            "$forward_main / accept / reject SERVFAIL / reject noerror soa / reject 3 / jump seq_tag",
+            "$forward_main / accept / reject SERVFAIL / reject NOERROR / reject 3 / jump seq_tag",
         },
       },
     },
