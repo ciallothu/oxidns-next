@@ -20,8 +20,8 @@
 //!
 //! - [`buffer_pool`]: shared reusable wire buffers for short-lived encoding and
 //!   transport writes;
-//! - [`dial`]: low-level outbound UDP/TCP/TLS/QUIC connection establishment;
-//! - [`ip`]: shared IP address normalization helpers;
+//! - `dial`: low-level outbound UDP/TCP/TLS/QUIC connection establishment;
+//! - `ip`: shared IP address normalization helpers;
 //! - [`listen`]: shared listen-address parsing helpers used by server and API
 //!   entry points.
 //! - [`proxy`]: outbound proxy parsing and proxy-aware TCP dialing;
