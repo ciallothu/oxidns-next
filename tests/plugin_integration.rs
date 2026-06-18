@@ -1092,6 +1092,41 @@ plugins:
 }
 
 #[tokio::test]
+async fn test_sequence_reject_accepts_lowercase_text_rcode() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: seq
+    type: sequence
+    args:
+      - exec: reject servfail
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("seq")
+        .expect("sequence plugin should exist")
+        .to_executor();
+    let mut context = make_context(registry.clone(), "example.com.");
+
+    let step = sequence.execute(&mut context).await?;
+
+    assert!(matches!(step, ExecStep::Stop));
+    assert_eq!(
+        context
+            .response()
+            .expect("reject should set a response")
+            .rcode(),
+        Rcode::ServFail
+    );
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_sequence_reject_zero_returns_simple_noerror_response() -> Result<()> {
     let yaml = r#"
 log:

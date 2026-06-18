@@ -36,13 +36,12 @@ enum BuiltinOp {
     Accept,
     /// Stop current sequence execution and return to caller.
     Return,
-    /// Build and set a DNS response with the specified numeric rcode, then
-    /// stop.
+    /// Build and set a DNS response with the specified rcode, then stop.
     ///
-    /// Sequence config currently accepts only decimal numeric rcode values such
-    /// as `reject 2`; mnemonic names like `SERVFAIL` are not parsed here. The
-    /// explicit `reject 0 soa` form returns a NODATA-style NOERROR response
-    /// with an SOA in the authority section.
+    /// Sequence config accepts decimal numeric rcode values such as `reject 2`
+    /// and mnemonic names such as `reject SERVFAIL`. The explicit `reject 0
+    /// soa` or `reject NOERROR soa` form returns a NODATA-style NOERROR
+    /// response with an SOA in the authority section.
     Reject { rcode: Rcode, soa: bool },
     /// Execute another sequence executor, then continue current program.
     Jump(Arc<dyn Executor>),
@@ -683,21 +682,41 @@ fn parse_reject_builtin(arg: Option<&str>) -> Result<BuiltinOp> {
         });
     };
 
-    if raw == "0 soa" {
-        return Ok(BuiltinOp::Reject {
-            rcode: Rcode::NoError,
-            soa: true,
-        });
+    let mut tokens = raw.split_whitespace();
+    let code_token = tokens
+        .next()
+        .ok_or_else(|| DnsError::plugin("invalid code argument: reject requires an rcode"))?;
+    let soa = match tokens.next() {
+        Some(option) if option.eq_ignore_ascii_case("soa") => true,
+        Some(option) => {
+            return Err(DnsError::plugin(format!(
+                "invalid reject option '{}': expected soa",
+                option
+            )));
+        }
+        None => false,
+    };
+
+    if let Some(extra) = tokens.next() {
+        return Err(DnsError::plugin(format!(
+            "invalid reject option '{}': expected at most one soa option",
+            extra
+        )));
     }
 
-    let code = raw.parse::<u16>().map_err(|_| {
-        DnsError::plugin("invalid code argument: reject expects a decimal numeric rcode")
+    let rcode = Rcode::from_token(code_token).ok_or_else(|| {
+        DnsError::plugin(
+            "invalid code argument: reject expects a decimal numeric rcode or mnemonic rcode name",
+        )
     })?;
 
-    Ok(BuiltinOp::Reject {
-        rcode: Rcode::from(code),
-        soa: false,
-    })
+    if soa && rcode != Rcode::NoError {
+        return Err(DnsError::plugin(
+            "invalid reject soa option: soa is only supported with NOERROR/0",
+        ));
+    }
+
+    Ok(BuiltinOp::Reject { rcode, soa })
 }
 
 /// Parse optional `mark` arguments into normalized mark strings.
@@ -1130,6 +1149,88 @@ mod tests {
                 soa: true
             })
         ));
+    }
+
+    #[tokio::test]
+    async fn test_parse_builtin_reject_accepts_text_rcode_case_insensitive() {
+        let registry = crate::plugin::test_utils::test_registry();
+        let create_context = PluginCreateContext::default();
+        let init_context = PluginInitContext::new(registry, "seq", &create_context);
+        let mut builder = ChainBuilder::new(&init_context, "seq".to_string());
+
+        for expr in ["reject SERVFAIL", "reject servfail", "reject ServFail"] {
+            let op = builder
+                .parse_builtin(expr, 0)
+                .await
+                .unwrap_or_else(|_| panic!("{expr} should parse"));
+
+            assert!(matches!(
+                op,
+                Some(BuiltinOp::Reject {
+                    rcode: Rcode::ServFail,
+                    soa: false
+                })
+            ));
+        }
+
+        for expr in ["reject NXDOMAIN", "reject nxdomain"] {
+            let op = builder
+                .parse_builtin(expr, 0)
+                .await
+                .unwrap_or_else(|_| panic!("{expr} should parse"));
+
+            assert!(matches!(
+                op,
+                Some(BuiltinOp::Reject {
+                    rcode: Rcode::NXDomain,
+                    soa: false
+                })
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_builtin_reject_accepts_text_noerror_soa_case_insensitive() {
+        let registry = crate::plugin::test_utils::test_registry();
+        let create_context = PluginCreateContext::default();
+        let init_context = PluginInitContext::new(registry, "seq", &create_context);
+        let mut builder = ChainBuilder::new(&init_context, "seq".to_string());
+
+        for expr in [
+            "reject NOERROR soa",
+            "reject noerror soa",
+            "reject NoError SOA",
+        ] {
+            let op = builder
+                .parse_builtin(expr, 0)
+                .await
+                .unwrap_or_else(|_| panic!("{expr} should parse"));
+
+            assert!(matches!(
+                op,
+                Some(BuiltinOp::Reject {
+                    rcode: Rcode::NoError,
+                    soa: true
+                })
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_builtin_reject_rejects_invalid_text_rcode_and_soa_pairing() {
+        let registry = crate::plugin::test_utils::test_registry();
+        let create_context = PluginCreateContext::default();
+        let init_context = PluginInitContext::new(registry, "seq", &create_context);
+        let mut builder = ChainBuilder::new(&init_context, "seq".to_string());
+
+        builder
+            .parse_builtin("reject NXDOMAIN soa", 0)
+            .await
+            .expect_err("soa should only be accepted for NOERROR");
+        builder
+            .parse_builtin("reject BAD_RCODE", 0)
+            .await
+            .expect_err("unknown text rcode should be rejected");
     }
 
     #[tokio::test]

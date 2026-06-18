@@ -431,15 +431,16 @@ api:
 
 - 立即基于当前 request 构造一个 DNS 响应，并结束当前 `sequence`。
 - 默认 `rcode` 为 `REFUSED`，所以 `reject` 等价于拒绝请求。
-- 可以显式写十进制数值，例如：
+- 可以显式写十进制数值或英文 RCODE 名称；英文名称大小写不敏感，例如：
   - `reject 2` => `SERVFAIL`
+  - `reject SERVFAIL` / `reject servfail` => `SERVFAIL`
   - `reject 3` => `NXDOMAIN`
+  - `reject NXDOMAIN` => `NXDOMAIN`
 - `reject 0` 只返回普通 `NOERROR` 响应，不会自动附加 SOA。
-- `reject 0 soa` 返回 NODATA 风格的 `NOERROR` 响应：Answer 为空，Authority 区会加入一个 synthetic SOA，用于让客户端和递归缓存明确这是“该类型无答案”，而不是域名不存在。
-- `soa` 参数只支持和 `rcode 0` 一起使用，不支持 `reject 3 soa` 这类写法。
-- `reject 0 soa` 中 SOA 记录的 class 会跟随当前 question 的 class。
+- `reject 0 soa` 或 `reject noerror soa` 返回 NODATA 风格的 `NOERROR` 响应：Answer 为空，Authority 区会加入一个 synthetic SOA，用于让客户端和递归缓存明确这是“该类型无答案”，而不是域名不存在。
+- `soa` 参数只支持和 `rcode 0` / `NOERROR` 一起使用，不支持 `reject 3 soa` 或 `reject NXDOMAIN soa` 这类写法。
+- `reject 0 soa` / `reject NOERROR soa` 中 SOA 记录的 class 会跟随当前 question 的 class。
 - synthetic SOA 的 TTL 和 SOA minimum TTL 当前固定为 300 秒，避免负缓存时间过长。
-- 当前参数只支持十进制数字，不支持 `SERVFAIL`、`NXDOMAIN` 这类名字。
 - 调用方不会继续执行后续规则。
 - 典型用法是在不否定域名存在的前提下抑制某类查询，例如：
 
