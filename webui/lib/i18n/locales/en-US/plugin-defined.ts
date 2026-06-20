@@ -156,6 +156,11 @@ export const enUSPluginDefined = {
             "Specifies the executor that handles requests for this path.",
           placeholder: "seq_main",
         },
+        "entries[].json_api": {
+          label: "JSON DNS API",
+          description:
+            "When enabled, GET requests on this path can use JSON DNS API parameters; RFC 8484 GET/POST always remains available.",
+        },
         listen: {
           label: "listening address",
           description: "Specify the HTTP/HTTPS listening address.",
@@ -921,8 +926,7 @@ export const enUSPluginDefined = {
     },
     black_hole: {
       name: "Black Hole",
-      description:
-        "Generates full-qtype local interception responses by mode",
+      description: "Generates full-qtype local interception responses by mode",
       fields: {
         mode: {
           label: "Interception mode",

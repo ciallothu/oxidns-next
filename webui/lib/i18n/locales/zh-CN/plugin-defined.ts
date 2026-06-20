@@ -136,6 +136,11 @@ export const zhCNPluginDefined = {
           description: "指定处理该路径请求的执行器。",
           placeholder: "seq_main",
         },
+        "entries[].json_api": {
+          label: "JSON DNS API",
+          description:
+            "开启后，该路径的 GET 请求可使用 JSON DNS API 参数；RFC 8484 GET/POST 始终可用。",
+        },
         listen: {
           label: "监听地址",
           description: "指定 HTTP/HTTPS 监听地址。",
