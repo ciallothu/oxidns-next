@@ -20,7 +20,7 @@ export const enUSDocs = {
   },
   http_server: {
     entries:
-      "- Type: `array`; Required: Yes; Default: None\n- Function: Define the mapping relationship between HTTP paths and executors.\n- Each element contains the following fields:\n  - `path`\n    - Type: `string`\n    - Required: Yes\n    - Function: Specify the DoH request path.\n    - Constraint: Must start with `/`.\n  - `exec`\n    - Type: `string`\n    - Required: Yes\n    - Function: Specify the executor to handle the path request.\n    - Constraint: Must reference a defined executor plugin.\n- Operational impact:\n  - Different paths can enter different strategy chains.",
+      "- Type: `array`; Required: Yes; Default: None\n- Function: Define the mapping relationship between HTTP paths and executors.\n- Each element contains the following fields:\n  - `path`\n    - Type: `string`\n    - Required: Yes\n    - Function: Specify the DoH request path.\n    - Constraint: Must start with `/`.\n  - `exec`\n    - Type: `string`\n    - Required: Yes\n    - Function: Specify the executor to handle the path request.\n    - Constraint: Must reference a defined executor plugin.\n  - `json_api`\n    - Type: `boolean`\n    - Required: No\n    - Default: `false`\n    - Function: Controls whether this path accepts the JSON DNS API.\n- Operational impact:\n  - Different paths can enter different strategy chains.",
     listen:
       "- Type: `string`; Required: Yes; Default: None\n- Function: Specify the HTTP/HTTPS listening address.",
     src_ip_header:
