@@ -67,18 +67,18 @@ impl Default for OutboundPolicy {
 #[derive(Debug, Clone)]
 enum ResolverPolicy {
     System,
-    Bootstrap(Arc<BootstrapResolver>),
+    Nameservers(Arc<BootstrapResolver>),
 }
 
 impl ResolverPolicy {
     fn resolves_before_proxy(&self) -> bool {
-        matches!(self, Self::Bootstrap(_))
+        matches!(self, Self::Nameservers(_))
     }
 
     async fn resolve_host(&self, host: &str, port: u16) -> Result<IpAddr> {
         match self {
             Self::System => resolve_system(host, port).await,
-            Self::Bootstrap(resolver) => {
+            Self::Nameservers(resolver) => {
                 resolver
                     .resolve(host, QueryDeadline::new(DEFAULT_BOOTSTRAP_TIMEOUT))
                     .await
@@ -160,21 +160,18 @@ fn policy_from_profile(name: &str, profile: &OutboundProfileConfig) -> Result<Ou
                 name, mode
             )));
         }
-        Some(OutboundResolverConfig::Bootstrap {
-            bootstrap,
-            bootstrap_version,
+        Some(OutboundResolverConfig::Nameservers {
+            nameservers,
+            ip_version,
         }) => {
-            let servers = bootstrap
+            let servers = nameservers
                 .servers()
                 .into_iter()
                 .map(str::trim)
                 .filter(|server| !server.is_empty())
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
-            ResolverPolicy::Bootstrap(Arc::new(BootstrapResolver::new(
-                servers,
-                *bootstrap_version,
-            )?))
+            ResolverPolicy::Nameservers(Arc::new(BootstrapResolver::new(servers, *ip_version)?))
         }
         None => ResolverPolicy::System,
     };
@@ -247,7 +244,7 @@ pub(crate) fn global() -> Arc<OutboundRuntime> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::{BootstrapServerConfig, NetworkOutboundConfig};
+    use crate::config::types::{NameserverConfig, NetworkOutboundConfig};
 
     #[test]
     fn test_resolve_policy_defaults_to_direct_system() {
@@ -265,9 +262,9 @@ mod tests {
             profiles: HashMap::from([(
                 "oversea".to_string(),
                 OutboundProfileConfig {
-                    resolver: Some(OutboundResolverConfig::Bootstrap {
-                        bootstrap: BootstrapServerConfig::One("1.1.1.1:53".to_string()),
-                        bootstrap_version: Some(4),
+                    resolver: Some(OutboundResolverConfig::Nameservers {
+                        nameservers: NameserverConfig::One("1.1.1.1:53".to_string()),
+                        ip_version: Some(4),
                     }),
                     proxy: Some(OutboundProxyConfig::Socks5 {
                         socks5: "127.0.0.1:1080".to_string(),

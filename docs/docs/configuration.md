@@ -193,10 +193,10 @@ network:
         proxy: none
       oversea:
         resolver:
-          bootstrap:
+          nameservers:
             - 1.1.1.1:53
             - 8.8.8.8:53
-          bootstrap_version: 4
+          ip_version: 4
         proxy:
           socks5: 127.0.0.1:1080
 ```
@@ -209,8 +209,9 @@ network:
   - 限制：如果配置，必须引用 `profiles` 中存在的名称。
 - `outbound.profiles.<name>.resolver`
   - `system`：使用系统 DNS。HTTP client 中该解析是异步执行，不会阻塞运行时工作线程。
-  - `bootstrap`：使用指定 DNS bootstrap 服务器解析 HTTP 目标域名，适合系统 DNS 指回 OxiDNS 自身、但下载或升级又必须访问外网的场景。
-  - `bootstrap_version`：可选，`4` 查询 A 记录，`6` 查询 AAAA 记录；未配置时默认 IPv4。
+  - `nameservers`：使用指定 DNS 服务器解析 HTTP 目标域名，适合系统 DNS 指回 OxiDNS 自身、但下载或升级又必须访问外网的场景。
+  - `ip_version`：可选，`4` 查询 A 记录，`6` 查询 AAAA 记录；未配置时默认 IPv4。
+  - 注意：这是 outbound resolver，只影响 `download`、`upgrade`、`http_request` 等 OxiDNS 自身 HTTP client；它不是 upstream `bootstrap`，不会为 DNS 上游连接池解析上游域名。
 - `outbound.profiles.<name>.proxy`
   - `none` 或 `direct`：直连。
   - `socks5`：通过 SOCKS5 代理连接目标地址，格式与上游 `socks5` 一致。

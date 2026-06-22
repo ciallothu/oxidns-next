@@ -192,10 +192,10 @@ network:
         proxy: none
       oversea:
         resolver:
-          bootstrap:
+          nameservers:
             - 1.1.1.1:53
             - 8.8.8.8:53
-          bootstrap_version: 4
+          ip_version: 4
         proxy:
           socks5: 127.0.0.1:1080
 ```
@@ -208,8 +208,9 @@ Field notes:
   - Constraint: If set, it must reference an existing entry in `profiles`.
 - `outbound.profiles.<name>.resolver`
   - `system`: Use system DNS. HTTP clients perform this lookup asynchronously so it does not block runtime worker threads.
-  - `bootstrap`: Resolve HTTP target names through the configured DNS bootstrap servers. This is useful when system DNS points back to OxiDNS itself but downloads or upgrades still need external resolution.
-  - `bootstrap_version`: Optional, `4` queries A records and `6` queries AAAA records. When omitted, IPv4 is used.
+  - `nameservers`: Resolve HTTP target names through the configured DNS servers. This is useful when system DNS points back to OxiDNS itself but downloads or upgrades still need external resolution.
+  - `ip_version`: Optional, `4` queries A records and `6` queries AAAA records. When omitted, IPv4 is used.
+  - Note: This is the outbound resolver for OxiDNS-owned HTTP clients such as `download`, `upgrade`, and `http_request`; it is not upstream `bootstrap` and does not resolve DNS upstream server names for upstream connection pools.
 - `outbound.profiles.<name>.proxy`
   - `none` or `direct`: Connect directly.
   - `socks5`: Connect through a SOCKS5 proxy. The format is the same as upstream `socks5`.

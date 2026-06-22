@@ -174,7 +174,7 @@ impl Config {
 /// Shared network configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct NetworkConfig {
-    /// Named outbound connection profiles shared by HTTP clients and upstreams.
+    /// Named outbound connection profiles for OxiDNS-owned HTTP clients.
     #[serde(default)]
     pub outbound: NetworkOutboundConfig,
 }
@@ -246,13 +246,18 @@ impl OutboundProfileConfig {
 }
 
 /// Resolver policy for an outbound profile.
+///
+/// This resolver is only used by OxiDNS-owned outbound clients such as
+/// downloads, upgrades, and HTTP callbacks. It is intentionally separate from
+/// upstream `bootstrap`, which resolves DNS upstream server names for upstream
+/// connection pools.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum OutboundResolverConfig {
     Mode(String),
-    Bootstrap {
-        bootstrap: BootstrapServerConfig,
-        bootstrap_version: Option<u8>,
+    Nameservers {
+        nameservers: NameserverConfig,
+        ip_version: Option<u8>,
     },
 }
 
@@ -264,28 +269,28 @@ impl OutboundResolverConfig {
                 "profile '{}' has invalid resolver mode '{}'",
                 profile_name, mode
             ))),
-            Self::Bootstrap {
-                bootstrap,
-                bootstrap_version,
+            Self::Nameservers {
+                nameservers,
+                ip_version,
             } => {
-                let servers = bootstrap.servers();
+                let servers = nameservers.servers();
                 if servers.is_empty() || servers.iter().any(|server| server.trim().is_empty()) {
                     return Err(ConfigError::InvalidNetworkOutbound(format!(
-                        "profile '{}' bootstrap resolver requires at least one server",
+                        "profile '{}' outbound resolver requires at least one nameserver",
                         profile_name
                     )));
                 }
                 for server in servers {
                     if server.trim().parse::<SocketAddr>().is_err() {
                         return Err(ConfigError::InvalidNetworkOutbound(format!(
-                            "profile '{}' bootstrap resolver server '{}' must be a literal IP:port",
+                            "profile '{}' outbound resolver nameserver '{}' must be a literal IP:port",
                             profile_name, server
                         )));
                     }
                 }
-                if !matches!(bootstrap_version, None | Some(4) | Some(6)) {
+                if !matches!(ip_version, None | Some(4) | Some(6)) {
                     return Err(ConfigError::InvalidNetworkOutbound(format!(
-                        "profile '{}' bootstrap_version must be 4 or 6",
+                        "profile '{}' ip_version must be 4 or 6",
                         profile_name
                     )));
                 }
@@ -295,15 +300,15 @@ impl OutboundResolverConfig {
     }
 }
 
-/// One or more bootstrap DNS servers.
+/// One or more DNS servers used by an outbound resolver profile.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
-pub enum BootstrapServerConfig {
+pub enum NameserverConfig {
     One(String),
     Many(Vec<String>),
 }
 
-impl BootstrapServerConfig {
+impl NameserverConfig {
     pub fn servers(&self) -> Vec<&str> {
         match self {
             Self::One(server) => vec![server.as_str()],
@@ -705,10 +710,10 @@ network:
     profiles:
       oversea:
         resolver:
-          bootstrap:
+          nameservers:
             - 1.1.1.1:53
             - 8.8.8.8:53
-          bootstrap_version: 4
+          ip_version: 4
         proxy:
           socks5: 127.0.0.1:1080
 plugins:
@@ -722,7 +727,7 @@ plugins:
     }
 
     #[test]
-    fn test_validate_rejects_hostname_bootstrap_outbound_server() {
+    fn test_validate_rejects_hostname_outbound_nameserver() {
         let config: Config = serde_yaml_ng::from_str(
             r#"
 network:
@@ -730,7 +735,7 @@ network:
     profiles:
       oversea:
         resolver:
-          bootstrap: resolver.example.com:53
+          nameservers: resolver.example.com:53
 plugins:
   - tag: ok
     type: debug_print
@@ -740,12 +745,31 @@ plugins:
 
         let err = config
             .validate()
-            .expect_err("hostname bootstrap server should fail validation");
+            .expect_err("hostname nameserver should fail validation");
         assert!(matches!(err, ConfigError::InvalidNetworkOutbound(_)));
     }
 
     #[test]
-    fn test_validate_rejects_bootstrap_outbound_server_without_port() {
+    fn test_deserialize_rejects_legacy_outbound_bootstrap_resolver_field() {
+        let result = serde_yaml_ng::from_str::<Config>(
+            r#"
+network:
+  outbound:
+    profiles:
+      oversea:
+        resolver:
+          bootstrap: 1.1.1.1:53
+plugins:
+  - tag: ok
+    type: debug_print
+"#,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_outbound_nameserver_without_port() {
         let config: Config = serde_yaml_ng::from_str(
             r#"
 network:
@@ -753,7 +777,7 @@ network:
     profiles:
       oversea:
         resolver:
-          bootstrap: 1.1.1.1
+          nameservers: 1.1.1.1
 plugins:
   - tag: ok
     type: debug_print
@@ -763,7 +787,7 @@ plugins:
 
         let err = config
             .validate()
-            .expect_err("bootstrap server without port should fail validation");
+            .expect_err("nameserver without port should fail validation");
         assert!(matches!(err, ConfigError::InvalidNetworkOutbound(_)));
     }
 

@@ -1,7 +1,11 @@
 // SPDX-FileCopyrightText: 2025 Sven Shi
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Bootstrap DNS resolver for outbound name resolution.
+//! Literal-DNS resolver used by network clients that must avoid system DNS.
+//!
+//! This is a shared implementation detail. Outbound profiles expose it as a
+//! `nameservers` resolver for OxiDNS-owned HTTP clients, while upstream keeps
+//! its separate `bootstrap` configuration for DNS upstream server names.
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -40,7 +44,7 @@ struct CacheData {
     expires_at: u64,
 }
 
-/// Shared bootstrap resolver backed by one or more literal-IP DNS servers.
+/// Shared resolver backed by one or more literal-IP DNS servers.
 #[derive(Debug)]
 pub(crate) struct BootstrapResolver {
     clients: Vec<Arc<dyn BootstrapQueryClient>>,
