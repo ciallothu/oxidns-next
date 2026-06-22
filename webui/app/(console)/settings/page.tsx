@@ -406,7 +406,6 @@ export default function SettingsPage() {
       nextOutboundProfileName(outboundProfiles),
     );
     setOutboundProfiles((profiles) => [...profiles, profile]);
-    if (!outboundDefault.trim()) setOutboundDefault(profile.name);
   };
 
   const updateOutboundProfile = (
@@ -1943,18 +1942,12 @@ function buildNetworkOutboundConfig(
             dial_addr: nameserver.dialAddr.trim() || undefined,
           }))
           .filter((nameserver) => nameserver.addr);
-        if (nameservers.length > 0) {
-          profileConfig.resolver = {
-            nameservers,
-            ip_version: Number(profile.ipVersion),
-            ...(profile.timeout.trim()
-              ? { timeout: profile.timeout.trim() }
-              : {}),
-            ...(profile.resolverProxy === "profile"
-              ? { proxy: "profile" }
-              : {}),
-          };
-        }
+        profileConfig.resolver = {
+          nameservers,
+          ip_version: Number(profile.ipVersion),
+          ...(profile.timeout.trim() ? { timeout: profile.timeout.trim() } : {}),
+          ...(profile.resolverProxy === "profile" ? { proxy: "profile" } : {}),
+        };
       }
       if (profile.socks5.trim()) {
         profileConfig.proxy = { socks5: profile.socks5.trim() };
