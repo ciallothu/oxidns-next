@@ -17,7 +17,7 @@ export const zhCNDocs = {
   },
   http_server: {
     entries:
-      "- 类型：`array`；必填：是；默认值：无\n- 作用：定义 HTTP 路径到执行器的映射关系。\n- 每个元素包含以下字段：\n  - `path`\n    - 类型：`string`\n    - 必填：是\n    - 作用：指定 DoH 请求路径。\n    - 约束：必须以 `/` 开头。\n  - `exec`\n    - 类型：`string`\n    - 必填：是\n    - 作用：指定处理该路径请求的执行器。\n    - 约束：必须引用已定义的执行器插件。\n- 运行影响：\n  - 不同路径可进入不同策略链。",
+      "- 类型：`array`；必填：是；默认值：无\n- 作用：定义 HTTP 路径到执行器的映射关系。\n- 每个元素包含以下字段：\n  - `path`\n    - 类型：`string`\n    - 必填：是\n    - 作用：指定 DoH 请求路径。\n    - 约束：必须以 `/` 开头。\n  - `exec`\n    - 类型：`string`\n    - 必填：是\n    - 作用：指定处理该路径请求的执行器。\n    - 约束：必须引用已定义的执行器插件。\n  - `json_api`\n    - 类型：`boolean`\n    - 必填：否\n    - 默认值：`false`\n    - 作用：控制该路径是否接受 JSON DNS API。\n- 运行影响：\n  - 不同路径可进入不同策略链。",
     listen:
       "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 HTTP/HTTPS 监听地址。",
     src_ip_header:
