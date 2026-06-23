@@ -420,7 +420,13 @@ impl<C: Connection> BootstrapUpstream<C> {
         let pool_ip = guard.0;
 
         // Resolve domain name via bootstrap (cached with TTL)
-        let ip = match self.bootstrap.resolve(&self.server_name, deadline).await {
+        let bootstrap_deadline =
+            bootstrap_deadline(deadline, self.connection_info.bootstrap_timeout);
+        let ip = match self
+            .bootstrap
+            .resolve(&self.server_name, bootstrap_deadline)
+            .await
+        {
             Ok(value) => value,
             Err(value) => return Err(value),
         };
@@ -528,6 +534,18 @@ impl<C: Connection> BootstrapUpstream<C> {
         self.pool.swap(Arc::from((Some(ip), new_pool)));
 
         Ok(())
+    }
+}
+
+fn bootstrap_deadline(deadline: QueryDeadline, timeout: Option<Duration>) -> QueryDeadline {
+    let Some(timeout) = timeout else {
+        return deadline;
+    };
+    let timeout_deadline = QueryDeadline::new(timeout);
+    if timeout_deadline.expires_at_ms < deadline.expires_at_ms {
+        timeout_deadline
+    } else {
+        deadline
     }
 }
 

@@ -341,7 +341,7 @@ impl Service<Uri> for HttpConnector {
                 })?;
             let mut remote_ip = parse_uri_host_ip_literal(host);
             let socks5 = outbound.proxy();
-            if remote_ip.is_none() && socks5.is_none() {
+            if remote_ip.is_none() && (outbound.has_custom_resolver() || socks5.is_none()) {
                 remote_ip = Some(outbound.resolve_host(host, port).await?);
             }
             let target = DialTarget::new(remote_ip, host.to_string(), port);

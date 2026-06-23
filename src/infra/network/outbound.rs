@@ -43,11 +43,16 @@ impl OutboundPolicy {
         self.proxy.socks5()
     }
 
-    pub(crate) fn resolver(&self) -> Option<Arc<NameResolver>> {
+    pub(crate) fn resolver(&self) -> Option<(Arc<NameResolver>, Duration)> {
         match &self.resolver {
             ResolverPolicy::System => None,
-            ResolverPolicy::Bootstrap { resolver, .. } => Some(resolver.clone()),
+            ResolverPolicy::Bootstrap { resolver, timeout } => Some((resolver.clone(), *timeout)),
         }
+    }
+
+    #[cfg_attr(not(feature = "_http-client"), allow(dead_code))]
+    pub(crate) fn has_custom_resolver(&self) -> bool {
+        matches!(self.resolver, ResolverPolicy::Bootstrap { .. })
     }
 
     #[cfg_attr(not(feature = "_http-client"), allow(dead_code))]

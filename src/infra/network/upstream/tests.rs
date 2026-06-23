@@ -156,7 +156,7 @@ fn install_test_outbound_config() {
                             dial_addr: None,
                         }],
                         ip_version: Some(4),
-                        timeout: None,
+                        timeout: Some("500ms".to_string()),
                         proxy: None,
                     },
                 )),
@@ -242,6 +242,7 @@ fn test_connection_info_uses_outbound_resolver_for_domain() {
 
     assert!(info.remote_ip.is_none());
     assert!(info.bootstrap.is_some());
+    assert_eq!(info.bootstrap_timeout, Some(Duration::from_millis(500)));
     outbound::clear_global();
 }
 
@@ -284,6 +285,21 @@ fn test_connection_info_uses_outbound_proxy_when_local_socks5_absent() {
             .port(),
         1080
     );
+    outbound::clear_global();
+}
+
+#[test]
+fn test_connection_info_rejects_outbound_proxy_for_udp_upstream() {
+    let _guard = outbound_test_lock()
+        .lock()
+        .expect("outbound test lock should not be poisoned");
+    install_test_outbound_config();
+
+    let mut cfg = make_upstream_config("8.8.8.8");
+    cfg.outbound = Some("oversea".to_string());
+    let err = ConnectionInfo::try_from(cfg).expect_err("UDP upstream should reject profile proxy");
+
+    assert!(err.to_string().contains("does not support UDP"), "{err}");
     outbound::clear_global();
 }
 
