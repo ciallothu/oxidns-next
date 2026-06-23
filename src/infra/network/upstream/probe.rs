@@ -738,6 +738,7 @@ fn connection_error_results(
     round: usize,
     error: String,
 ) -> Vec<ProbeQueryResult> {
+    let error_kind = connection_error_kind(error.as_str());
     (0..config.pipeline_concurrency)
         .map(|index| {
             let global_index = round * config.pipeline_concurrency + index;
@@ -749,7 +750,7 @@ fn connection_error_results(
                 global_index,
                 query_id,
                 query_name,
-                ERROR_KIND_PROTOCOL,
+                error_kind,
                 error.clone(),
                 None,
             )
@@ -807,7 +808,13 @@ impl PipelineProbeReport {
         let mismatch_count = count_error_kind(&results, ERROR_KIND_MISMATCH);
         let error_count = results
             .iter()
-            .filter(|result| !result.ok && result.error_kind.as_deref() != Some(ERROR_KIND_TIMEOUT))
+            .filter(|result| {
+                !result.ok
+                    && !matches!(
+                        result.error_kind.as_deref(),
+                        Some(ERROR_KIND_TIMEOUT | ERROR_KIND_MISMATCH)
+                    )
+            })
             .count();
         let verdict = pipeline_verdict(total_queries, success_count, timeout_count, mismatch_count);
         let average_latency_ms = average_latency(&results);
@@ -970,11 +977,24 @@ fn query_error_result(
 }
 
 fn query_error_kind(error: &str) -> &'static str {
-    if error.to_ascii_lowercase().contains("timeout") {
+    if is_timeout_error(error) {
         ERROR_KIND_TIMEOUT
     } else {
         ERROR_KIND_QUERY
     }
+}
+
+fn connection_error_kind(error: &str) -> &'static str {
+    if is_timeout_error(error) {
+        ERROR_KIND_TIMEOUT
+    } else {
+        ERROR_KIND_PROTOCOL
+    }
+}
+
+fn is_timeout_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("timeout") || error.contains("timed out")
 }
 
 fn unexpected_response_result(response: Message) -> ProbeQueryResult {
@@ -1323,6 +1343,57 @@ mod tests {
     #[test]
     fn pipeline_verdict_marks_mismatch_unstable() {
         assert_eq!(pipeline_verdict(4, 3, 0, 1), ProbeVerdict::Unstable);
+    }
+
+    #[test]
+    fn query_error_kind_recognizes_timed_out_errors() {
+        assert_eq!(
+            query_error_kind("UDP query timed out after retries"),
+            ERROR_KIND_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn connection_error_results_preserve_timeout_kind() {
+        let config = UpstreamProbeConfig {
+            upstream: make_upstream_config(
+                "tcp://127.0.0.1:53".to_string(),
+                Duration::from_millis(10),
+            ),
+            qname: "example.com.".to_string(),
+            qtype: RecordType::A,
+            serial_samples: 1,
+            pipeline_concurrency: 2,
+            pipeline_rounds: 1,
+        };
+
+        let results =
+            connection_error_results(&config, 0, "DNS query timeout after 10ms".to_string());
+
+        assert_eq!(count_error_kind(&results, ERROR_KIND_TIMEOUT), 2);
+        assert!(
+            results
+                .iter()
+                .all(|result| { result.error_kind.as_deref() == Some(ERROR_KIND_TIMEOUT) })
+        );
+    }
+
+    #[test]
+    fn pipeline_report_does_not_double_count_mismatches_as_other_errors() {
+        let results = vec![query_error_result(
+            0,
+            1,
+            "example.com.".to_string(),
+            ERROR_KIND_MISMATCH,
+            "response ID mismatch: expected 1, got 2".to_string(),
+            Some(1),
+        )];
+
+        let report = PipelineProbeReport::from_results(true, 1, 1, results, Vec::new());
+
+        assert_eq!(report.mismatch_count, 1);
+        assert_eq!(report.error_count, 0);
+        assert_eq!(report.verdict, ProbeVerdict::Unstable);
     }
 
     #[test]

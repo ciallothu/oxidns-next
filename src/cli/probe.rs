@@ -3,10 +3,13 @@
 
 //! CLI support for runtime diagnostics.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
 
 use crate::cli::{ProbeCommand, ProbeOptions, ProbeUpstreamOptions};
-use crate::config;
+use crate::config::env_expand;
+use crate::config::types::NetworkOutboundConfig;
 use crate::infra::error::{DnsError, Result};
 use crate::infra::network::outbound;
 use crate::infra::network::upstream::UpstreamConfig;
@@ -86,12 +89,56 @@ fn prepare_working_dir(working_dir: Option<&PathBuf>) -> Result<()> {
 
 fn prepare_outbound(config_path: Option<&PathBuf>) -> Result<()> {
     if let Some(config_path) = config_path {
-        let config = config::init(config_path)?;
-        outbound::install_global(&config.network.outbound)?;
+        let outbound_config = read_probe_outbound_config(config_path)?;
+        outbound::install_global(&outbound_config)?;
     } else {
         outbound::clear_global();
     }
     Ok(())
+}
+
+fn read_probe_outbound_config(config_path: &Path) -> Result<NetworkOutboundConfig> {
+    let string = std::fs::read_to_string(config_path).map_err(|err| {
+        DnsError::config(format!(
+            "failed to read probe config {}: {}",
+            config_path.display(),
+            err
+        ))
+    })?;
+    let mut value: serde_yaml_ng::Value = serde_yaml_ng::from_str(&string).map_err(|err| {
+        DnsError::config(format!(
+            "failed to parse probe config {}: {}",
+            config_path.display(),
+            err
+        ))
+    })?;
+    env_expand::expand_env_in_value(&mut value).map_err(|err| {
+        DnsError::config(format!(
+            "env expansion failed in probe config {}: {}",
+            config_path.display(),
+            err
+        ))
+    })?;
+    let config: ProbeRuntimeConfig = serde_yaml_ng::from_value(value).map_err(|err| {
+        DnsError::config(format!(
+            "failed to deserialize network.outbound from probe config {}: {}",
+            config_path.display(),
+            err
+        ))
+    })?;
+    Ok(config.network.outbound)
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ProbeRuntimeConfig {
+    #[serde(default)]
+    network: ProbeNetworkConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ProbeNetworkConfig {
+    #[serde(default)]
+    outbound: NetworkOutboundConfig,
 }
 
 fn print_human_report(report: &UpstreamProbeReport) {
@@ -301,5 +348,68 @@ fn verdict_label(verdict: ProbeVerdict) -> &'static str {
         ProbeVerdict::Unstable => "unstable",
         ProbeVerdict::Inconclusive => "inconclusive",
         ProbeVerdict::NotApplicable => "not_applicable",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::infra::network::outbound::TestGlobalGuard;
+    use crate::infra::network::upstream::ConnectionInfo;
+
+    #[test]
+    fn prepare_outbound_loads_only_network_outbound_from_config() {
+        let _guard = TestGlobalGuard::clean();
+        let tmp = tempfile::TempDir::new().expect("temp dir should create");
+        let config_path = tmp.path().join("config.yaml");
+        std::fs::write(
+            &config_path,
+            r#"
+network:
+  outbound:
+    profiles:
+      remote:
+        resolver:
+          nameservers:
+            - addr: 1.1.1.1:53
+plugins:
+  - tag: ""
+    type: ""
+"#,
+        )
+        .expect("config should write");
+
+        prepare_outbound(Some(&config_path)).expect("outbound-only config should load");
+
+        let info = ConnectionInfo::try_from(UpstreamConfig {
+            tag: None,
+            addr: "tls://dns.example.invalid:853".to_string(),
+            outbound: Some("remote".to_string()),
+            dial_addr: None,
+            port: None,
+            bootstrap: None,
+            bootstrap_version: None,
+            socks5: None,
+            idle_timeout: None,
+            max_conns: None,
+            min_conns: None,
+            insecure_skip_verify: None,
+            timeout: Some(Duration::from_secs(1)),
+            enable_pipeline: None,
+            enable_http3: None,
+            so_mark: None,
+            bind_to_device: None,
+        })
+        .expect("outbound resolver should be available to upstream config");
+
+        assert_eq!(
+            info.bootstrap
+                .as_ref()
+                .expect("outbound resolver should be injected")
+                .profile(),
+            "remote"
+        );
     }
 }
