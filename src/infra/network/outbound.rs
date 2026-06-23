@@ -307,6 +307,34 @@ pub(crate) fn test_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+#[cfg(test)]
+pub(crate) struct TestGlobalGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    previous: Arc<OutboundRuntime>,
+}
+
+#[cfg(test)]
+impl TestGlobalGuard {
+    pub(crate) fn clean() -> Self {
+        let lock = test_lock()
+            .lock()
+            .expect("outbound test lock should not be poisoned");
+        let previous = global();
+        clear_global();
+        Self {
+            _lock: lock,
+            previous,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestGlobalGuard {
+    fn drop(&mut self) {
+        restore_global(self.previous.clone());
+    }
+}
+
 pub(crate) fn global() -> Arc<OutboundRuntime> {
     global_slot()
         .lock()

@@ -216,14 +216,6 @@ impl NetworkMetrics {
         profiles.push(metrics.clone());
         metrics
     }
-
-    #[cfg(test)]
-    fn reset(&self) {
-        self.profiles
-            .lock()
-            .expect("network metrics profiles poisoned")
-            .clear();
-    }
 }
 
 impl MetricSource for NetworkMetrics {
@@ -376,12 +368,6 @@ fn normalized_profile_label(outbound_profile: &str) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn reset_for_tests() {
-    network_metrics().reset();
-    NETWORK_METRICS_REGISTERED.store(false, Ordering::Release);
-}
-
-#[cfg(test)]
 #[derive(Debug, Clone)]
 pub(crate) struct NetworkMetricsSnapshot {
     pub(crate) resolver_cache_hit_total: u64,
@@ -432,7 +418,6 @@ mod tests {
         let _guard = metrics_test_guard();
         AppClock::start();
         reset_metrics_for_tests();
-        reset_for_tests();
         init().expect("network metrics should register");
 
         let profile = profile_scope("oversea");
