@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
@@ -19,7 +19,7 @@ use crate::infra::error::{DnsError, Result};
 use crate::infra::network::dial::{DialTarget, SocketOptions, try_lookup_server_name};
 #[cfg(feature = "upstream-dot")]
 use crate::infra::network::dial::{TlsDialOptions, connect_tls};
-use crate::infra::network::proxy::connect_tcp;
+use crate::infra::network::proxy::{Socks5Opt, connect_tcp, parse_socks5_opt};
 #[cfg(feature = "upstream-dot")]
 use crate::infra::network::transport::tcp::TcpTransport;
 use crate::infra::network::transport::tcp::{TcpTransportReader, TcpTransportWriter};
@@ -190,9 +190,10 @@ where
     });
 
     let base_name = parse_name(&config.qname)?;
-    let mut connection_info = ConnectionInfo::try_from(config.upstream.clone())?;
+    let upstream = prepare_probe_upstream_config(config.upstream.clone()).await?;
+    let mut connection_info = ConnectionInfo::try_from(upstream.clone())?;
     let uses_bootstrap = connection_info.bootstrap.is_some();
-    let resolution = resolve_remote_ip(&connection_info, config.upstream.dial_addr.is_some()).await;
+    let resolution = resolve_remote_ip(&connection_info, upstream.dial_addr.is_some()).await;
     if let Some(ip) = resolution.ip
         && resolution.apply_to_connection
     {
@@ -206,6 +207,7 @@ where
         source: resolution.source.clone(),
         error: resolution.error.clone(),
     });
+    let block_direct_probe = resolution_blocks_direct_probe(&connection_info, &resolution);
 
     let target = UpstreamProbeTarget {
         address: connection_info.raw_addr.clone(),
@@ -218,7 +220,19 @@ where
         resolution_error: resolution.error,
     };
 
-    let serial = run_serial_probe(&connection_info, &config, &base_name, &mut progress).await?;
+    let serial = if block_direct_probe {
+        run_resolution_failure_serial_probe(
+            &config,
+            &base_name,
+            target
+                .resolution_error
+                .as_deref()
+                .unwrap_or("system resolver failed"),
+            &mut progress,
+        )
+    } else {
+        run_serial_probe(&connection_info, &config, &base_name, &mut progress).await?
+    };
     let pipeline = run_pipeline_probe(
         &connection_info,
         &config,
@@ -299,6 +313,44 @@ fn pipeline_sample_count(config: &UpstreamProbeConfig) -> Result<usize> {
         .ok_or_else(|| DnsError::config("probe pipeline sample count overflowed"))
 }
 
+async fn prepare_probe_upstream_config(mut upstream: UpstreamConfig) -> Result<UpstreamConfig> {
+    if let Some(socks5) = upstream.socks5.as_deref() {
+        let timeout = upstream
+            .timeout
+            .unwrap_or(ConnectionInfo::DEFAULT_QUERY_TIMEOUT);
+        upstream.socks5 = Some(resolve_probe_socks5(socks5, timeout).await?);
+    }
+    Ok(upstream)
+}
+
+async fn resolve_probe_socks5(raw: &str, timeout: Duration) -> Result<String> {
+    resolve_probe_socks5_with(raw, timeout, |raw| parse_socks5_opt(raw.as_str())).await
+}
+
+async fn resolve_probe_socks5_with<F>(raw: &str, timeout: Duration, parse: F) -> Result<String>
+where
+    F: FnOnce(String) -> Option<Socks5Opt> + Send + 'static,
+{
+    let raw_owned = raw.to_string();
+    match tokio::time::timeout(
+        timeout,
+        tokio::task::spawn_blocking(move || parse(raw_owned)),
+    )
+    .await
+    {
+        Ok(Ok(Some(socks5))) => Ok(socks5.to_resolved_config_string()),
+        Ok(Ok(None)) => Err(DnsError::plugin(format!(
+            "upstream has invalid socks5 proxy '{raw}'"
+        ))),
+        Ok(Err(err)) => Err(DnsError::plugin(format!(
+            "SOCKS5 proxy resolver task failed: {err}"
+        ))),
+        Err(_) => Err(DnsError::plugin(format!(
+            "SOCKS5 proxy resolution timed out after {timeout:?}"
+        ))),
+    }
+}
+
 async fn resolve_remote_ip(info: &ConnectionInfo, has_dial_addr: bool) -> ResolutionProbe {
     if let Some(ip) = info.remote_ip {
         let source = if has_dial_addr {
@@ -374,6 +426,15 @@ async fn resolve_remote_ip(info: &ConnectionInfo, has_dial_addr: bool) -> Resolu
     }
 }
 
+fn resolution_blocks_direct_probe(info: &ConnectionInfo, resolution: &ResolutionProbe) -> bool {
+    resolution.ip.is_none()
+        && resolution.error.is_some()
+        && resolution.source.as_deref() == Some("system")
+        && info.remote_ip.is_none()
+        && info.bootstrap.is_none()
+        && info.socks5.is_none()
+}
+
 async fn run_serial_probe<F>(
     connection_info: &ConnectionInfo,
     config: &UpstreamProbeConfig,
@@ -426,6 +487,34 @@ where
     };
 
     Ok(ProbeStageReport::from_results(verdict, results))
+}
+
+fn run_resolution_failure_serial_probe<F>(
+    config: &UpstreamProbeConfig,
+    base_name: &Name,
+    error: &str,
+    progress: &mut F,
+) -> ProbeStageReport
+where
+    F: FnMut(ProbeProgress),
+{
+    progress(ProbeProgress::SerialStarted {
+        samples: config.serial_samples,
+    });
+    let mut results = Vec::with_capacity(config.serial_samples);
+    for index in 0..config.serial_samples {
+        let result = query_error_result(
+            index,
+            probe_query_id(0, index),
+            base_name.to_fqdn(),
+            query_error_kind(error),
+            error.to_string(),
+            None,
+        );
+        progress(ProbeProgress::SerialSampleFinished { index, ok: false });
+        results.push(result);
+    }
+    ProbeStageReport::from_results(ProbeVerdict::Unreachable, results)
 }
 
 async fn run_pipeline_probe<F>(
@@ -1435,6 +1524,59 @@ mod tests {
     #[test]
     fn pipeline_verdict_marks_mismatch_unstable() {
         assert_eq!(pipeline_verdict(4, 3, 0, 1), ProbeVerdict::Unstable);
+    }
+
+    #[test]
+    fn system_resolution_failure_blocks_direct_probe_without_proxy() {
+        let info =
+            ConnectionInfo::with_addr("tcp://dns.example.invalid:53").expect("addr should parse");
+        let resolution = ResolutionProbe {
+            ip: None,
+            source: Some("system".to_string()),
+            error: Some("system resolver timed out after 10ms".to_string()),
+            apply_to_connection: false,
+        };
+
+        assert!(resolution_blocks_direct_probe(&info, &resolution));
+    }
+
+    #[test]
+    fn system_resolution_failure_does_not_block_proxied_probe() {
+        let mut info =
+            ConnectionInfo::with_addr("tcp://dns.example.invalid:53").expect("addr should parse");
+        info.socks5 = Some(Socks5Opt {
+            username: None,
+            password: None,
+            socket_addr: SocketAddr::from((Ipv4Addr::LOCALHOST, 1080)),
+        });
+        let resolution = ResolutionProbe {
+            ip: None,
+            source: Some("system".to_string()),
+            error: Some("system resolver timed out after 10ms".to_string()),
+            apply_to_connection: false,
+        };
+
+        assert!(!resolution_blocks_direct_probe(&info, &resolution));
+    }
+
+    #[tokio::test]
+    async fn resolve_probe_socks5_respects_timeout() {
+        let started = Instant::now();
+
+        let error = resolve_probe_socks5_with(
+            "proxy.example.invalid:1080",
+            Duration::from_millis(10),
+            |_raw| {
+                std::thread::sleep(Duration::from_millis(200));
+                None
+            },
+        )
+        .await
+        .expect_err("slow SOCKS5 resolution should time out")
+        .to_string();
+
+        assert!(started.elapsed() < Duration::from_millis(150));
+        assert!(error.contains("SOCKS5 proxy resolution timed out"));
     }
 
     #[test]
