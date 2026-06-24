@@ -196,8 +196,9 @@ Sends DNS queries to upstreams.
 #### `concurrent`
 
 - Type: `integer`; Required: no; Default: `1`
-- Runtime range is clamped to `1..=3`.
+- Runtime range is clamped to `1..=32` and never exceeds the upstream count.
 - Purpose: Number of concurrent upstream fan-out requests.
+- Recommendation: use `2..=8` for routine racing; higher values are intended for short-term observation or explicit multi-protocol racing.
 
 #### `response_selection`
 

@@ -32,7 +32,7 @@ use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::plugin_factory;
 use crate::proto::{Message, Rcode};
 
-const MAX_CONCURRENT_QUERIES: usize = 3;
+const MAX_CONCURRENT_QUERIES: usize = 32;
 const BALANCED_NEGATIVE_GRACE: Duration = Duration::from_millis(100);
 const CONSENSUS_NEGATIVE_VOTES: usize = 2;
 
@@ -755,8 +755,9 @@ fn build_upstream(upstream_config: UpstreamConfig) -> Result<Box<dyn Upstream>> 
 }
 
 #[inline]
-fn resolve_active_concurrent(concurrent: Option<usize>) -> usize {
-    concurrent.unwrap_or(1).clamp(1, MAX_CONCURRENT_QUERIES)
+fn resolve_active_concurrent(concurrent: Option<usize>, total_upstreams: usize) -> usize {
+    let upper = total_upstreams.clamp(1, MAX_CONCURRENT_QUERIES);
+    concurrent.unwrap_or(1).clamp(1, upper)
 }
 
 fn parse_quick_setup_param(param: Option<String>) -> Result<(Vec<String>, bool)> {
@@ -841,7 +842,7 @@ fn make_default_upstream_config(addr: String) -> UpstreamConfig {
 pub struct ForwardConfig {
     /// Number of upstreams to query concurrently in multi-upstream mode.
     ///
-    /// Defaults to `1`, and clamped to `1..=3`.
+    /// Defaults to `1`, and clamped to `1..=32` and the upstream count.
     pub concurrent: Option<usize>,
 
     /// Concurrent upstream response selection mode.
@@ -893,7 +894,10 @@ impl PluginFactory for ForwardFactory {
                 },
             )))
         } else {
-            let active_concurrent = resolve_active_concurrent(forward_config.concurrent);
+            let active_concurrent = resolve_active_concurrent(
+                forward_config.concurrent,
+                forward_config.upstreams.len(),
+            );
 
             let mut upstreams = Vec::with_capacity(forward_config.upstreams.len());
 
@@ -960,7 +964,10 @@ impl PluginFactory for ForwardFactory {
             Ok(UninitializedPlugin::Executor(Box::new(
                 ConcurrentForwarder {
                     tag: tag.to_string(),
-                    active_concurrent: MAX_CONCURRENT_QUERIES,
+                    active_concurrent: resolve_active_concurrent(
+                        Some(MAX_CONCURRENT_QUERIES),
+                        upstreams.len(),
+                    ),
                     upstreams,
                     short_circuit,
                     response_selection: ResponseSelectionMode::default(),
@@ -1216,12 +1223,20 @@ upstreams:
 
     #[test]
     fn active_concurrent_defaults_to_one() {
-        assert_eq!(resolve_active_concurrent(None), 1);
+        assert_eq!(resolve_active_concurrent(None, 8), 1);
     }
 
     #[test]
-    fn active_concurrent_caps_at_three() {
-        assert_eq!(resolve_active_concurrent(Some(10)), MAX_CONCURRENT_QUERIES);
+    fn active_concurrent_caps_at_upstream_count() {
+        assert_eq!(resolve_active_concurrent(Some(10), 4), 4);
+    }
+
+    #[test]
+    fn active_concurrent_caps_at_maximum() {
+        assert_eq!(
+            resolve_active_concurrent(Some(100), 64),
+            MAX_CONCURRENT_QUERIES
+        );
     }
 
     #[tokio::test]

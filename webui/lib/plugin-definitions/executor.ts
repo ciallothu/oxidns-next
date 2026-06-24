@@ -118,7 +118,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
     configSchema: [
       {
         key: "concurrent",
-        description: "定义多上游模式下的并发查询扇出数。",
+        description: "定义多上游模式下的并发查询扇出数，运行时上限为 32 且不超过上游数量。",
         label: "并发上游数",
         type: "number",
         default: 1,
