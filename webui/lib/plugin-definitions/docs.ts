@@ -62,7 +62,7 @@ export const pluginFieldDocs = {
     "upstreams[].dial_addr":
       "- 类型：`ip`；必填：否；默认值：无\n- 作用：指定实际连接 IP，同时保留 `addr` 中的主机名用于 SNI、Host 和证书校验。\n- 适用场景：固定拨号地址、绕过本机解析或配合自定义路由出口。",
     "upstreams[].outbound":
-      "- 类型：`string`；必填：否\n- 默认值：`network.outbound.default`；没有 default 时为无\n- 作用：引用 `network.outbound.profiles` 中的出站配置，为该上游注入 resolver 和 proxy。\n- 覆盖规则：本地 `dial_addr` 优先于 resolver；本地 `bootstrap` 优先于 outbound resolver；本地 `socks5` 优先于 profile proxy。\n- 注意：profile proxy 会严格应用；UDP、DoQ、DoH3 upstream 不支持 profile SOCKS5 proxy。",
+      "- 类型：`string`；必填：否\n- 默认值：`network.outbound.default`；没有 default 时为无\n- 作用：引用 `network.outbound.profiles` 中的出站配置，为该上游注入 resolver 和 proxy。\n- 覆盖规则：本地 `dial_addr` 优先于 resolver；本地 `bootstrap` 优先于 outbound resolver；本地 `socks5` 优先于 profile proxy。\n- 注意：profile proxy 只应用于 TCP、DoT 和 DoH2；UDP、DoQ、DoH3 upstream 会忽略 SOCKS5 proxy。",
     "upstreams[].port":
       "- 类型：`integer`；必填：否；默认值：协议默认端口\n- 作用：覆盖协议默认端口。",
     "upstreams[].bootstrap":
@@ -70,7 +70,7 @@ export const pluginFieldDocs = {
     "upstreams[].bootstrap_version":
       "- 类型：`integer`；必填：否；默认值：无\n- 作用：指定 bootstrap 优先使用 IPv4 或 IPv6。\n- 取值：`4` 或 `6`。",
     "upstreams[].socks5":
-      "- 类型：`string`；必填：否；默认值：无\n- 作用：为上游连接指定 SOCKS5 代理。\n- 支持格式：\n  - `host:port`\n  - `username:password@host:port`\n  - IPv6 需写成 `[addr]:port`\n  - 带认证的 IPv6 需写成 `username:password@[addr]:port`\n- 规则说明：\n  - 代理主机可以是 IP，也可以是主机名；主机名会使用系统解析。\n  - 认证部分只按第一个 `:` 分割用户名和密码，因此格式必须是 `username:password@...`。\n  - 上游启用 `enable_http3` 时不应再配置 `socks5`，两者不属于同一连接模型。\n- 注意事项：格式错误、端口非法或代理主机解析失败时，该上游不会被正常创建。",
+      "- 类型：`string`；必填：否；默认值：无\n- 作用：为上游连接指定 SOCKS5 代理。\n- 支持格式：\n  - `host:port`\n  - `username:password@host:port`\n  - IPv6 需写成 `[addr]:port`\n  - 带认证的 IPv6 需写成 `username:password@[addr]:port`\n- 规则说明：\n  - 代理主机可以是 IP，也可以是主机名；主机名会使用系统解析。\n  - 认证部分只按第一个 `:` 分割用户名和密码，因此格式必须是 `username:password@...`。\n  - SOCKS5 只应用于 TCP、DoT 和 DoH2；UDP、DoQ、DoH3 upstream 会忽略该设置。\n- 注意事项：格式错误、端口非法或代理主机解析失败时，该上游不会被正常创建。",
     "upstreams[].idle_timeout":
       "- 类型：`integer`；必填：否；默认值：无\n- 单位：秒\n- 作用：定义连接池空闲连接保留时间。",
     "upstreams[].max_conns":

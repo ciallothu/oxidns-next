@@ -460,7 +460,7 @@ fn test_connection_info_uses_default_outbound_proxy_when_local_socks5_absent() {
 }
 
 #[test]
-fn test_connection_info_rejects_outbound_proxy_for_udp_upstream() {
+fn test_connection_info_ignores_outbound_proxy_for_udp_upstream() {
     let _guard = outbound_test_lock()
         .lock()
         .expect("outbound test lock should not be poisoned");
@@ -468,24 +468,39 @@ fn test_connection_info_rejects_outbound_proxy_for_udp_upstream() {
 
     let mut cfg = make_upstream_config("8.8.8.8");
     cfg.outbound = Some("remote".to_string());
-    let err = ConnectionInfo::try_from(cfg).expect_err("UDP upstream should reject profile proxy");
+    let info = ConnectionInfo::try_from(cfg).expect("UDP upstream should parse");
 
-    assert!(err.to_string().contains("does not support UDP"), "{err}");
+    assert!(info.socks5.is_none());
     outbound::clear_global();
 }
 
 #[test]
-fn test_connection_info_rejects_default_outbound_proxy_for_udp_upstream() {
+fn test_connection_info_ignores_default_outbound_proxy_for_udp_upstream() {
     let _guard = outbound_test_lock()
         .lock()
         .expect("outbound test lock should not be poisoned");
     install_test_default_outbound_config();
 
     let cfg = make_upstream_config("8.8.8.8");
-    let err = ConnectionInfo::try_from(cfg)
-        .expect_err("UDP upstream should reject default profile proxy");
+    let info = ConnectionInfo::try_from(cfg).expect("UDP upstream should parse");
 
-    assert!(err.to_string().contains("does not support UDP"), "{err}");
+    assert!(info.socks5.is_none());
+    outbound::clear_global();
+}
+
+#[test]
+fn test_connection_info_ignores_outbound_proxy_for_doh3_upstream() {
+    let _guard = outbound_test_lock()
+        .lock()
+        .expect("outbound test lock should not be poisoned");
+    install_test_outbound_config();
+
+    let mut cfg = make_upstream_config("h3://dns.example/dns-query");
+    cfg.outbound = Some("remote".to_string());
+    let info = ConnectionInfo::try_from(cfg).expect("DoH3 upstream should parse");
+
+    assert!(info.enable_http3);
+    assert!(info.socks5.is_none());
     outbound::clear_global();
 }
 

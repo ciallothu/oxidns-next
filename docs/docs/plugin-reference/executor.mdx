@@ -282,7 +282,7 @@ import Admonition from "@theme/Admonition";
 - 作用：引用 `network.outbound.profiles` 中的出站配置，为该上游注入 resolver 和 proxy。
 - 默认：未配置时使用 `network.outbound.default`；没有 default 时保持系统解析/直连。
 - 覆盖规则：本地 `dial_addr` 优先于 resolver；本地 `bootstrap` 优先于 outbound resolver；本地 `socks5` 优先于 profile proxy。
-- 注意：profile proxy 会严格应用；UDP、DoQ、DoH3 upstream 不支持 profile SOCKS5 proxy。
+- 注意：profile proxy 只应用于 TCP、DoT 和 DoH2；UDP、DoQ、DoH3 upstream 会忽略 SOCKS5 proxy。
 
 #### `upstreams[].port`
 
@@ -329,7 +329,7 @@ import Admonition from "@theme/Admonition";
 - 规则说明：
   - 代理主机可以是 IP，也可以是主机名；主机名会使用系统解析。
   - 认证部分只按第一个 `:` 分割用户名和密码，因此格式必须是 `username:password@...`。
-  - 上游启用 `enable_http3` 时不应再配置 `socks5`，两者不属于同一连接模型。
+  - SOCKS5 只应用于 TCP、DoT 和 DoH2；UDP、DoQ、DoH3 upstream 会忽略该设置。
 - 注意事项：格式错误、端口非法或代理主机解析失败时，该上游不会被正常创建。
 
 #### `upstreams[].idle_timeout`
