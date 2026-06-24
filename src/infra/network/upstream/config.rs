@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 
 use crate::infra::error::{DnsError, Result};
@@ -496,27 +496,13 @@ impl TryFrom<UpstreamConfig> for ConnectionInfo {
         let socks5 = if let Some((socks5_opt, proxy_source)) = raw_socks5 {
             match connection_type {
                 ConnectionType::TCP | ConnectionType::DoT => Some(socks5_opt),
-                ConnectionType::DoH => {
-                    if enable_http3 {
-                        if proxy_source == ProxySource::Profile {
-                            return Err(DnsError::plugin(
-                                "upstream outbound profile proxy does not support DoH3",
-                            ));
-                        }
-                        warn!("Sock5 proxy only support tcp portal");
-                        None
-                    } else {
-                        Some(socks5_opt)
-                    }
-                }
+                ConnectionType::DoH if !enable_http3 => Some(socks5_opt),
                 _ => {
-                    if proxy_source == ProxySource::Profile {
-                        return Err(DnsError::plugin(format!(
-                            "upstream outbound profile proxy does not support {:?}",
-                            connection_type
-                        )));
-                    }
-                    warn!("Sock5 proxy only support tcp portal");
+                    info!(
+                        ?connection_type,
+                        ?proxy_source,
+                        "upstream protocol does not use SOCKS5 proxy; ignoring proxy"
+                    );
                     None
                 }
             }

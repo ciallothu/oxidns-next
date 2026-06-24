@@ -292,6 +292,16 @@ export const zhCNPluginDefined = {
           label: "并发上游数",
           description: "定义多上游模式下的并发查询扇出数。",
         },
+        response_selection: {
+          label: "结果选择",
+          description: "定义多上游并发返回不一致时的结果选择策略。",
+          options: {
+            fastest: "最快响应",
+            balanced: "平衡",
+            prefer_positive: "优先正向答案",
+            consensus: "负向共识",
+          },
+        },
         upstreams: {
           label: "上游列表",
           description: "定义一个或多个上游目标。",
@@ -738,6 +748,18 @@ export const zhCNPluginDefined = {
         "probe_methods[]": {
           label: "输入值",
           placeholder: "tcp:443",
+        },
+        outbound: {
+          label: "出站配置",
+          description:
+            "引用 network.outbound.profiles 中的出站配置，为 TCP 探测复用 profile proxy。",
+          placeholder: "profile-1",
+        },
+        socks5: {
+          label: "SOCKS5 代理",
+          description:
+            "为 TCP 探测指定局部 SOCKS5 代理，优先于 outbound profile proxy。",
+          placeholder: "127.0.0.1:1080",
         },
         probe_stagger: {
           label: "测速错峰(ms)",

@@ -328,6 +328,17 @@ export const enUSPluginDefined = {
           description:
             "Defines the number of concurrent query fanouts in multi-upstream mode.",
         },
+        response_selection: {
+          label: "Response selection",
+          description:
+            "Defines how to choose a result when concurrent upstream responses disagree.",
+          options: {
+            fastest: "Fastest response",
+            balanced: "Balanced",
+            prefer_positive: "Prefer positive answer",
+            consensus: "Negative consensus",
+          },
+        },
         upstreams: {
           label: "upstream list",
           description: "Define one or more upstream targets.",
@@ -817,6 +828,18 @@ export const enUSPluginDefined = {
         "probe_methods[]": {
           label: "Enter value",
           placeholder: "tcp:443",
+        },
+        outbound: {
+          label: "Outbound Profile",
+          description:
+            "Reference a profile from network.outbound.profiles so TCP probes can reuse the profile proxy.",
+          placeholder: "profile-1",
+        },
+        socks5: {
+          label: "SOCKS5 Proxy",
+          description:
+            "Specify a local SOCKS5 proxy for TCP probes, overriding the outbound profile proxy.",
+          placeholder: "127.0.0.1:1080",
         },
         probe_stagger: {
           label: "Speed ​​peak deviation (ms)",

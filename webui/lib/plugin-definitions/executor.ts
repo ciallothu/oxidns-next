@@ -118,10 +118,23 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
     configSchema: [
       {
         key: "concurrent",
-        description: "定义多上游模式下的并发查询扇出数。",
+        description: "定义多上游模式下的并发查询扇出数，运行时上限为 32 且不超过上游数量。",
         label: "并发上游数",
         type: "number",
         default: 1,
+      },
+      {
+        key: "response_selection",
+        description: "定义多上游并发返回不一致时的结果选择策略。",
+        label: "结果选择",
+        type: "select",
+        default: "balanced",
+        options: [
+          { label: "最快响应", value: "fastest" },
+          { label: "平衡", value: "balanced" },
+          { label: "优先正向答案", value: "prefer_positive" },
+          { label: "负向共识", value: "consensus" },
+        ],
       },
       {
         key: "upstreams",
@@ -707,6 +720,22 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         false,
         "定义用于评分响应 IP 的探测方式，支持 tcp:<port>、ping、none。",
       ),
+      {
+        key: "outbound",
+        description:
+          "引用 network.outbound.profiles 中的出站配置，为 TCP 探测复用 profile proxy。",
+        label: "出站配置",
+        type: "select",
+        dynamicOptions: "outboundProfiles",
+        placeholder: "profile-1",
+      },
+      {
+        key: "socks5",
+        description: "为 TCP 探测指定局部 SOCKS5 代理，优先于 outbound profile proxy。",
+        label: "SOCKS5 代理",
+        type: "text",
+        placeholder: "127.0.0.1:1080",
+      },
       {
         key: "probe_stagger",
         description: "多种测速方式之间的错峰启动间隔。",
