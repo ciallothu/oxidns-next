@@ -1042,6 +1042,13 @@ impl Cache {
                             .fetch_add(1, Ordering::Relaxed);
                     } else {
                         if let CacheTtlDecision::Skip(reason) = ttl {
+                            if reason == CacheSkipReason::LowPositiveTtl && cache_map.remove(&key) {
+                                updated_keys.fetch_add(1, Ordering::Relaxed);
+                                debug!(
+                                    "evicted stale lazy cache entry after low positive TTL refresh: domain={}, type={:?}, class={:?}",
+                                    key.domain, key.record_type, key.dns_class
+                                );
+                            }
                             metrics.record_skip(reason);
                         }
                         metrics
@@ -2484,17 +2491,14 @@ mod tests {
                 .load(AtomicOrdering::Relaxed),
             1
         );
-        let stored = cache
-            .cache_map
-            .get()
-            .unwrap()
-            .get_retained_cloned(&key, AppClock::elapsed_millis(), 0)
-            .expect("existing stale entry should remain present");
         assert!(
-            stored
-                .value
-                .resp
-                .has_answer_ip(|ip| ip == std::net::IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)))
+            cache
+                .cache_map
+                .get()
+                .unwrap()
+                .get_retained_cloned(&key, AppClock::elapsed_millis(), 0)
+                .is_none(),
+            "low TTL refresh should evict the old stale cache entry"
         );
     }
 
