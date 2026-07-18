@@ -22,7 +22,7 @@ use openidconnect::{
     AccessTokenHash, AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
     OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -274,7 +274,7 @@ impl AuthService {
             None
         };
         let oidc = oidc
-            .map(|mut config| {
+            .map(|mut config| -> Result<ApiOidcConfig> {
                 config.client_secret = resolve_secret(
                     config.client_secret.take(),
                     config.client_secret_env.as_deref(),
@@ -1842,7 +1842,7 @@ fn resolve_secret(
     environment: Option<&str>,
     field: &str,
 ) -> Result<Option<String>> {
-    resolve_secret_with(inline, environment, field, std::env::var)
+    resolve_secret_with(inline, environment, field, |name| std::env::var(name))
 }
 
 fn resolve_secret_with<F>(
@@ -1877,7 +1877,7 @@ fn resolve_bootstrap_secret(
     inline: Option<String>,
     environment: Option<&str>,
 ) -> Result<Option<String>> {
-    resolve_bootstrap_secret_with(inline, environment, std::env::var)
+    resolve_bootstrap_secret_with(inline, environment, |name| std::env::var(name))
 }
 
 fn resolve_bootstrap_secret_with<F>(
