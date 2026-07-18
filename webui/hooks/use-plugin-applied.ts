@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useAppStore } from "@/lib/store";
-import { parseOxiDnsYaml } from "@/lib/oxidns-config";
+import { parseOxiDnsNextYaml } from "@/lib/oxidns-next-config";
 
 export type PluginAppliedStatus = "applied" | "not-applied" | "unknown";
 
@@ -20,7 +20,7 @@ function useRunningPluginTags(): Set<string> | null {
       (entry) => entry.version === runningVersion,
     );
     if (!snapshot) return null;
-    const parsed = parseOxiDnsYaml(snapshot.content);
+    const parsed = parseOxiDnsNextYaml(snapshot.content);
     if (!parsed.config) return null;
     return new Set(
       parsed.config.plugins

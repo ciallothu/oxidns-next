@@ -16,9 +16,11 @@ use std::sync::Arc;
 
 use ahash::AHashMap;
 use async_trait::async_trait;
+use oxidns_next_zoneparser::{
+    ParseOptions, parse_file as parse_zone_file, parse_str as parse_zone_str,
+};
 use serde::Deserialize;
 use serde_yaml_ng::Value;
-use zoneparser::{ParseOptions, parse_file as parse_zone_file, parse_str as parse_zone_str};
 
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;

@@ -47,7 +47,7 @@ import {
   flushCache,
   loadCacheDump,
   type CacheEntryRow,
-} from "@/lib/oxidns-api";
+} from "@/lib/oxidns-next-api";
 import type {
   PluginCardComponentProps,
   PluginComponentDefinition,

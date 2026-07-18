@@ -30,15 +30,17 @@ function ThemeFavicon() {
     }
 
     const href =
-      resolvedTheme === "dark" ? "/logo-dark.png" : "/logo-light.png";
+      resolvedTheme === "dark"
+        ? "/logo-next-dark.png"
+        : "/logo-next-light.png";
     let icon = document.querySelector<HTMLLinkElement>(
-      "link[data-oxidns-theme-icon]",
+      "link[data-oxidns-next-theme-icon]",
     );
 
     if (!icon) {
       icon = document.createElement("link");
       icon.rel = "icon";
-      icon.dataset.oxidnsThemeIcon = "true";
+      icon.dataset.oxidnsNextThemeIcon = "true";
       document.head.appendChild(icon);
     }
 

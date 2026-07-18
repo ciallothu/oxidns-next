@@ -1,7 +1,7 @@
 # Release Process
 
 This file documents the repository-local workflow to follow when preparing an
-OxiDNS release. It is maintainer-facing guidance, not end-user documentation.
+OxiDNS Next release. It is maintainer-facing guidance, not end-user documentation.
 
 ## 1. Build The Release Story From Tags
 
@@ -107,7 +107,7 @@ Use this standard Chinese template. A small number of emoji is allowed when it
 improves scanability:
 
 ```markdown
-# OxiDNS v1.3.0
+# OxiDNS Next v1.3.0
 
 ## 🚀 发布概览
 

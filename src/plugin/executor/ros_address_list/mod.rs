@@ -4,7 +4,7 @@
 //! `ros_address_list` executor plugin.
 //!
 //! This executor is an observer-side effect stage designed to integrate with
-//! OxiDNS sequence pipelines. It does not alter DNS decisions or response
+//! OxiDNS Next sequence pipelines. It does not alter DNS decisions or response
 //! content. Instead, it watches final downstream DNS answers and synchronizes
 //! IPs into RouterOS address lists.
 //!
@@ -17,7 +17,7 @@
 //! - RouterOS API details are isolated in `MikrotikApi` adapter
 //!   implementations.
 //! - ownership metadata is persisted in RouterOS `comment` so cleanup can
-//!   safely distinguish OxiDNS-managed entries from foreign entries.
+//!   safely distinguish OxiDNS Next-managed entries from foreign entries.
 //!
 //! Behavior goals:
 //! - maintain IPv4/IPv6 dynamic host entries in configured address lists.
@@ -73,7 +73,7 @@ const DEFAULT_MAX_TTL: u32 = 3600;
 const DEFAULT_ASYNC_MODE: bool = true;
 /// Default shutdown behavior removes plugin-owned RouterOS entries.
 const DEFAULT_CLEANUP_ON_SHUTDOWN: bool = true;
-/// Default comment prefix used to mark OxiDNS-owned RouterOS rows.
+/// Default comment prefix used to mark OxiDNS Next-owned RouterOS rows.
 const DEFAULT_COMMENT_PREFIX: &str = "fdns";
 /// Maximum time sync mode waits for one observe command to finish.
 const SYNC_OBSERVE_TIMEOUT_SECS: u64 = 8;
@@ -101,7 +101,7 @@ struct MikrotikConfigArgs {
     address_list4: Option<String>,
     /// IPv6 address-list name for observed IPv6 answers.
     address_list6: Option<String>,
-    /// Prefix used in RouterOS comments to mark OxiDNS-managed entries.
+    /// Prefix used in RouterOS comments to mark OxiDNS Next-managed entries.
     /// Defaults to `fdns` when omitted.
     comment_prefix: Option<String>,
     /// Always-present address-list items that should never expire.
@@ -907,11 +907,11 @@ mod tests {
             if state.convert_persistent_to_dynamic_after_list {
                 state.convert_persistent_to_dynamic_after_list = false;
                 if let Some(entry) = state.entries.values_mut().find(|entry| {
-                    decode_owned_comment("oxidns", "mk", entry.comment.as_deref())
+                    decode_owned_comment("oxidns_next", "mk", entry.comment.as_deref())
                         .is_some_and(|meta| meta.kind == OwnedCommentKind::Persistent)
                 }) {
                     entry.comment = Some(encode_comment(
-                        "oxidns",
+                        "oxidns_next",
                         "mk",
                         OwnedCommentKind::Dynamic,
                         Some("race.example"),
@@ -1034,10 +1034,10 @@ mod tests {
         AppClock::start();
         AddressListManagerConfig {
             plugin_tag: tag.to_string(),
-            address_list4: Some("oxidns_ipv4".to_string()),
-            address_list6: Some("oxidns_ipv6".to_string()),
+            address_list4: Some("oxidns_next_ipv4".to_string()),
+            address_list6: Some("oxidns_next_ipv6".to_string()),
             persistent_items: AHashSet::new(),
-            comment_prefix: "oxidns".to_string(),
+            comment_prefix: "oxidns_next".to_string(),
             min_ttl: DEFAULT_MIN_TTL,
             max_ttl: DEFAULT_MAX_TTL,
             fixed_ttl: None,
@@ -1097,7 +1097,7 @@ mod tests {
             address_list4: address_list4.map(|v| v.to_string()),
             address_list6: address_list6.map(|v| v.to_string()),
             persistent_items: AHashSet::new(),
-            comment_prefix: "oxidns".to_string(),
+            comment_prefix: "oxidns_next".to_string(),
             min_ttl: DEFAULT_MIN_TTL,
             max_ttl: DEFAULT_MAX_TTL,
             fixed_ttl: None,
@@ -1154,8 +1154,8 @@ password: "pass"
 address: "1.1.1.1:8728"
 username: "user"
 password: "pass"
-address_list4: "oxidns_ipv4"
-routing_table: "oxidns_dynamic"
+address_list4: "oxidns_next_ipv4"
+routing_table: "oxidns_next_dynamic"
 "#,
         )
         .unwrap();
@@ -1170,7 +1170,7 @@ routing_table: "oxidns_dynamic"
 address: "1.1.1.1:8728"
 username: "user"
 password: "pass"
-address_list4: "oxidns_ipv4"
+address_list4: "oxidns_next_ipv4"
 persistent_route:
   ips:
     - "1.1.1.1"
@@ -1188,7 +1188,7 @@ persistent_route:
 address: "1.1.1.1:8728"
 username: "user"
 password: "pass"
-address_list4: "oxidns_ipv4"
+address_list4: "oxidns_next_ipv4"
 "#,
         )
         .unwrap();
@@ -1207,7 +1207,7 @@ password: "pass"
 connect_timeout: 10
 send_timeout: 11
 receive_timeout: 60
-address_list4: "oxidns_ipv4"
+address_list4: "oxidns_next_ipv4"
 "#,
         )
         .unwrap();
@@ -1226,7 +1226,7 @@ address: "1.1.1.1:8728"
 username: "user"
 password: "pass"
 receive_timeout: 0
-address_list4: "oxidns_ipv4"
+address_list4: "oxidns_next_ipv4"
 "#,
         )
         .unwrap();
@@ -1241,7 +1241,7 @@ address_list4: "oxidns_ipv4"
 address: "1.1.1.1:8728"
 username: "user"
 password: "pass"
-address_list4: "oxidns_ipv4"
+address_list4: "oxidns_next_ipv4"
 fixed_ttl: 0
 "#,
         )
@@ -1257,7 +1257,7 @@ fixed_ttl: 0
 address: "1.1.1.1:8728"
 username: "user"
 password: "pass"
-address_list4: "oxidns_ipv4"
+address_list4: "oxidns_next_ipv4"
 persistent:
   ips:
     - "2001:db8::1"
@@ -1279,22 +1279,22 @@ persistent:
 2001:db8::/64
 0.0.0.0/0
 "#,
-            Some("oxidns_ipv4"),
-            Some("oxidns_ipv6"),
+            Some("oxidns_next_ipv4"),
+            Some("oxidns_next_ipv6"),
         )
         .unwrap();
 
         assert_eq!(files, vec!["persistent.txt".to_string()]);
         assert!(loaded.contains(&AddressListKey::new(
             IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)),
-            "oxidns_ipv4".to_string()
+            "oxidns_next_ipv4".to_string()
         )));
         assert!(
             loaded.contains(
                 &AddressListKey::new_with_prefix(
                     IpAddr::V6("2001:db8::".parse().unwrap()),
                     64,
-                    "oxidns_ipv6".to_string()
+                    "oxidns_next_ipv6".to_string()
                 )
                 .unwrap()
             )
@@ -1304,7 +1304,7 @@ persistent:
                 &AddressListKey::new_with_prefix(
                     IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
                     0,
-                    "oxidns_ipv4".to_string()
+                    "oxidns_next_ipv4".to_string()
                 )
                 .unwrap()
             )
@@ -1315,12 +1315,12 @@ persistent:
     #[test]
     fn comment_codec_roundtrip() {
         let comment = encode_comment(
-            "oxidns",
+            "oxidns_next",
             "mk",
             OwnedCommentKind::Dynamic,
             Some("example.com"),
         );
-        let meta = decode_owned_comment("oxidns", "mk", Some(comment.as_str())).unwrap();
+        let meta = decode_owned_comment("oxidns_next", "mk", Some(comment.as_str())).unwrap();
         assert_eq!(meta.kind, OwnedCommentKind::Dynamic);
     }
 
@@ -1341,7 +1341,7 @@ persistent:
 
         let state = api.state.lock().unwrap();
         let entry = state.entries.values().next().unwrap();
-        assert_eq!(entry.key.list, "oxidns_ipv4");
+        assert_eq!(entry.key.list, "oxidns_next_ipv4");
         assert_eq!(entry.timeout.as_deref(), Some("120s"));
     }
 
@@ -1364,7 +1364,7 @@ persistent:
 
         let state = api.state.lock().unwrap();
         let entry = state.entries.values().next().unwrap();
-        assert_eq!(entry.key.list, "oxidns_ipv4");
+        assert_eq!(entry.key.list, "oxidns_next_ipv4");
         assert_eq!(entry.timeout, None);
     }
 
@@ -1492,7 +1492,7 @@ persistent:
             AddressListKey::new_with_prefix(
                 IpAddr::V4(Ipv4Addr::new(100, 64, 1, 0)),
                 24,
-                "oxidns_ipv4".to_string(),
+                "oxidns_next_ipv4".to_string(),
             )
             .unwrap(),
         );
@@ -1503,7 +1503,7 @@ persistent:
         let state = api.state.lock().unwrap();
         let entry = state.entries.values().next().unwrap();
         assert_eq!(entry.timeout, None);
-        let meta = decode_owned_comment("oxidns", "mk", entry.comment.as_deref()).unwrap();
+        let meta = decode_owned_comment("oxidns_next", "mk", entry.comment.as_deref()).unwrap();
         assert_eq!(meta.kind, OwnedCommentKind::Persistent);
     }
 
@@ -1515,7 +1515,7 @@ persistent:
             AddressListKey::new_with_prefix(
                 IpAddr::V4(Ipv4Addr::new(100, 64, 2, 0)),
                 24,
-                "oxidns_ipv4".to_string(),
+                "oxidns_next_ipv4".to_string(),
             )
             .unwrap(),
         );
@@ -1527,7 +1527,7 @@ persistent:
             AddressListKey::new_with_prefix(
                 IpAddr::V4(Ipv4Addr::new(100, 64, 3, 0)),
                 24,
-                "oxidns_ipv4".to_string(),
+                "oxidns_next_ipv4".to_string(),
             )
             .unwrap(),
         );
@@ -1547,14 +1547,14 @@ persistent:
         let api = Arc::new(MockMikrotikApi::default());
         let key = AddressListKey::new(
             IpAddr::V4(Ipv4Addr::new(15, 15, 15, 15)),
-            "oxidns_ipv4".to_string(),
+            "oxidns_next_ipv4".to_string(),
         );
         api.seed_entry(RouterListEntry {
             id: "*401".to_string(),
             key: key.clone(),
             timeout: None,
             comment: Some(encode_comment(
-                "oxidns",
+                "oxidns_next",
                 "mk",
                 OwnedCommentKind::Persistent,
                 None,
@@ -1573,7 +1573,7 @@ persistent:
             .entries
             .get(&MockMikrotikApi::storage_key(&key))
             .unwrap();
-        let meta = decode_owned_comment("oxidns", "mk", entry.comment.as_deref()).unwrap();
+        let meta = decode_owned_comment("oxidns_next", "mk", entry.comment.as_deref()).unwrap();
         assert_eq!(entry.id, "*401");
         assert_eq!(entry.timeout, None);
         assert_eq!(meta.kind, OwnedCommentKind::Dynamic);
@@ -1584,7 +1584,7 @@ persistent:
         let api = Arc::new(MockMikrotikApi::default());
         let key = AddressListKey::new(
             IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9)),
-            "oxidns_ipv4".to_string(),
+            "oxidns_next_ipv4".to_string(),
         );
         let mut cfg = default_cfg("mk");
         cfg.persistent_items.insert(key.clone());
@@ -1615,13 +1615,13 @@ persistent:
         let api = Arc::new(MockMikrotikApi::default());
         let key = AddressListKey::new(
             IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)),
-            "oxidns_ipv4".to_string(),
+            "oxidns_next_ipv4".to_string(),
         );
         api.seed_entry(RouterListEntry {
             id: "*200".to_string(),
             key: key.clone(),
             timeout: Some("300s".to_string()),
-            comment: Some("oxidns;pg=other;kind=dynamic;dm=foreign.example".to_string()),
+            comment: Some("oxidns_next;pg=other;kind=dynamic;dm=foreign.example".to_string()),
         });
         let mut manager = AddressListManager::new(api.clone(), default_cfg("mk"));
         manager
@@ -1672,7 +1672,7 @@ persistent:
     async fn execute_returns_next() {
         let api = Arc::new(MockMikrotikApi::default()) as Arc<dyn MikrotikApi>;
         let mut executor =
-            build_executor_for_test("mk", true, false, Some("oxidns_ipv4"), None, api);
+            build_executor_for_test("mk", true, false, Some("oxidns_next_ipv4"), None, api);
         let _ = executor.init_for_test().await;
         let mut ctx = make_context();
         let step = executor.execute(&mut ctx).await.unwrap();
@@ -1688,7 +1688,7 @@ persistent:
             true,
             false,
             None,
-            Some("oxidns_ipv6"),
+            Some("oxidns_next_ipv6"),
             api.clone() as Arc<dyn MikrotikApi>,
         );
         let _ = executor.init_for_test().await;
@@ -1722,7 +1722,7 @@ persistent:
             "mk",
             false,
             false,
-            Some("oxidns_ipv4"),
+            Some("oxidns_next_ipv4"),
             None,
             api as Arc<dyn MikrotikApi>,
         );
@@ -1745,7 +1745,7 @@ persistent:
             "mk",
             true,
             false,
-            Some("oxidns_ipv4"),
+            Some("oxidns_next_ipv4"),
             None,
             api.clone() as Arc<dyn MikrotikApi>,
         );
@@ -1775,7 +1775,7 @@ persistent:
             "mk_startup",
             true,
             false,
-            Some("oxidns_ipv4"),
+            Some("oxidns_next_ipv4"),
             None,
             api.clone() as Arc<dyn MikrotikApi>,
         );
@@ -1807,7 +1807,7 @@ persistent:
             "mk_sync_startup",
             false,
             false,
-            Some("oxidns_ipv4"),
+            Some("oxidns_next_ipv4"),
             None,
             api.clone() as Arc<dyn MikrotikApi>,
         );
@@ -1838,14 +1838,14 @@ persistent:
         let api = Arc::new(MockMikrotikApi::default());
         let owned_key = AddressListKey::new(
             IpAddr::V4(Ipv4Addr::new(11, 11, 11, 11)),
-            "oxidns_ipv4".to_string(),
+            "oxidns_next_ipv4".to_string(),
         );
         api.seed_entry(RouterListEntry {
             id: "*301".to_string(),
             key: owned_key.clone(),
             timeout: Some("300s".to_string()),
             comment: Some(encode_comment(
-                "oxidns",
+                "oxidns_next",
                 "mk",
                 OwnedCommentKind::Dynamic,
                 Some("example.com"),
@@ -1855,17 +1855,17 @@ persistent:
             id: "*302".to_string(),
             key: AddressListKey::new(
                 IpAddr::V4(Ipv4Addr::new(12, 12, 12, 12)),
-                "oxidns_ipv4".to_string(),
+                "oxidns_next_ipv4".to_string(),
             ),
             timeout: Some("300s".to_string()),
-            comment: Some("oxidns;pg=other;kind=dynamic;dm=foreign.example".to_string()),
+            comment: Some("oxidns_next;pg=other;kind=dynamic;dm=foreign.example".to_string()),
         });
 
         let mut executor = build_executor_for_test(
             "mk",
             true,
             true,
-            Some("oxidns_ipv4"),
+            Some("oxidns_next_ipv4"),
             None,
             api.clone() as Arc<dyn MikrotikApi>,
         );

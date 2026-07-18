@@ -69,7 +69,7 @@ pub fn ensure_nft_available() {
         Ok(o) if o.status.success() => {}
         _ => panic!(
             "`nft` is required for this test. Re-run with: \
-             sudo cargo test --package oxidns-ripset --test integration -- --ignored --test-threads=1"
+             sudo cargo test --package oxidns-next-ripset --test integration -- --ignored --test-threads=1"
         ),
     }
     // Probe for create permission — kernel returns EPERM for non-root
@@ -93,7 +93,7 @@ pub fn ensure_ipset_available() {
         Ok(o) if o.status.success() => {}
         _ => panic!(
             "`ipset` is required for this test. Re-run with: \
-             sudo cargo test --package oxidns-ripset --test integration -- --ignored --test-threads=1"
+             sudo cargo test --package oxidns-next-ripset --test integration -- --ignored --test-threads=1"
         ),
     }
     let probe = Command::new("ipset")

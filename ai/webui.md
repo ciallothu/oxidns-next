@@ -4,7 +4,7 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 
 ## Structure & Commands
 
-- `webui/` contains the Next.js-based management console for OxiDNS. Treat it as a separate frontend workspace that mirrors the plugin model exposed by the Rust server.
+- `webui/` contains the Next.js-based management console for OxiDNS Next. Treat it as a separate frontend workspace that mirrors the plugin model exposed by the Rust server.
 - `app/` uses the Next App Router. The `(console)` route group owns the console shell, dashboard, plugin center, settings page, and full-screen config editor mode.
 - `components/` contains feature components, while `components/ui/` contains shadcn/Radix-style primitives. Prefer composing existing primitives before adding new low-level UI.
 - `components/plugins/` contains plugin-center rendering. Generic card/detail templates live there, and per-plugin overrides live under `components/plugins/kinds/`.
@@ -43,7 +43,7 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 
 - Preserve the console shell flow: `app/(console)/layout.tsx -> AppSidebar/AppHeader -> page content -> PluginDetailSheet`, with `ConfigEditorView` taking over the main area when `editorMode` is enabled.
 - Keep global UI state in `useAppStore` until backend integration introduces a clearer API boundary. Avoid duplicating selected plugin, drawer state, editor mode, or restart/save flags in page-local stores.
-- Treat `PluginInstance` in `lib/types.ts` as the UI model for live plugin instances. Keep its `type` aligned with OxiDNS plugin categories: `server`, `executor`, `matcher`, and `provider`.
+- Treat `PluginInstance` in `lib/types.ts` as the UI model for live plugin instances. Keep its `type` aligned with OxiDNS Next plugin categories: `server`, `executor`, `matcher`, and `provider`.
 - **Adding a new plugin kind to the schema registry requires one definition-file change.** Add the definition to the appropriate category file in `lib/plugin-definitions/` (`executor.ts`, `matcher.ts`, `provider.ts`, or `server.ts`). Everything below auto-derives from that definition with no further registration:
   - Plugin catalog and type-filtered lists (`pluginCatalog`, `getPluginCatalogItemsByType`)
   - Create-plugin dialog (search, listing, schema-driven form)
@@ -71,7 +71,7 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 - Keep typography compact: page headings around `text-lg`, operational labels at `text-sm`/`text-xs`, plugin tags and config keys in mono where useful. Do not use oversized hero typography inside the console.
 - Ensure responsive behavior for desktop and narrow screens with stable grids (`sm`, `lg`, `xl`) and fixed-width side panels only when there is enough viewport room. Avoid layouts where labels, buttons, or badges can overlap.
 - Use semantic status color sparingly: primary for active/healthy emphasis, destructive for dangerous actions, yellow/amber only for unsaved or warning states, muted foreground for secondary metadata.
-- Do not add gradient blobs, decorative illustrations, or broad one-color themes. The interface should feel like a precise control surface for OxiDNS.
+- Do not add gradient blobs, decorative illustrations, or broad one-color themes. The interface should feel like a precise control surface for OxiDNS Next.
 
 ## Testing & Documentation
 

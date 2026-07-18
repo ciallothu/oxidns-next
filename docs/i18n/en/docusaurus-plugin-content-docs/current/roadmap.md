@@ -7,13 +7,13 @@ import RoadmapTimeline, { RoadmapItem } from '@site/src/components/RoadmapTimeli
 
 # Roadmap
 
-OxiDNS's complete development roadmap since v0.1.0. Upcoming work appears at the top; completed milestones and past versions follow in reverse chronological order.
+This page lists OxiDNS Next plans and milestones first, then retains the upstream OxiDNS roadmap so upstream version numbers are not mistaken for this project's releases.
 
 <RoadmapTimeline>
 
 <RoadmapItem type="future" label="Soon" title="Simple-mode WebUI" desc="Template-driven config delivering an AdGuard Home-style turnkey experience" num={3}>
 
-For users who don't want to touch YAML: a set of preset scenario templates (ad blocking, anti-poisoning, family filtering, split-tunnel acceleration) configured entirely through forms and toggles, with an escape hatch back to the full editor for advanced rules. The target experience matches AdGuard Home's simple admin UI, bringing OxiDNS's setup bar close to out-of-the-box.
+For users who don't want to touch YAML: a set of preset scenario templates (ad blocking, anti-poisoning, family filtering, split-tunnel acceleration) configured entirely through forms and toggles, with an escape hatch back to the full editor for advanced rules. The target experience matches AdGuard Home's simple admin UI, bringing OxiDNS Next's setup bar close to out-of-the-box.
 
 </RoadmapItem>
 
@@ -23,11 +23,25 @@ Apply the rule "per-entity / status / action → API; counters / histograms / lo
 
 </RoadmapItem>
 
-<RoadmapItem type="future" label="Soon" title="MikroTik Deep Integration" desc="Bidirectional IP set sync between OxiDNS and RouterOS" num={1}>
+<RoadmapItem type="future" label="Soon" title="MikroTik Deep Integration" desc="Bidirectional IP set sync between OxiDNS Next and RouterOS" num={1}>
 
-On top of the existing one-way push, add pulling RouterOS address lists as an OxiDNS data source and actively pushing local IP sets to RouterOS — bidirectional DNS-policy and routing-policy integration.
+On top of the existing one-way push, add pulling RouterOS address lists as an OxiDNS Next data source and actively pushing local IP sets to RouterOS — bidirectional DNS-policy and routing-policy integration.
 
 </RoadmapItem>
+
+<RoadmapItem type="version" title="First OxiDNS Next release" desc="Independent identity, multiple authentication methods, separate query logs, and one plugin dashboard" version="v0.1.0" date="2026-07-17">
+
+Established the independent OxiDNS Next repository and release channel; added local login, OIDC, passkeys, and TOTP; separated searchable query history from system logs; and combined the dashboard and plugin center into one workspace.
+
+</RoadmapItem>
+
+</RoadmapTimeline>
+
+## Upstream OxiDNS historical milestones
+
+The entries below come from [SvenShi/oxidns](https://github.com/svenshi/oxidns). They document the history of the inherited code and are not part of the OxiDNS Next version sequence.
+
+<RoadmapTimeline>
 
 <RoadmapItem type="done" label="2026-07-02" title="OpenWrt LuCI App" desc="Use luci-app-oxidns to install the core, manage the service, edit config, and view logs from LuCI">
 
@@ -108,7 +122,7 @@ First public release: dual-stack UDP/TCP, multi-upstream forwarding, local cachi
 <div style={{borderLeft: '4px solid var(--ifm-color-primary)', background: 'rgba(15, 118, 110, 0.06)', borderRadius: '0 12px 12px 0', padding: '0.9rem 1.2rem', marginTop: '2rem'}}>
   <p style={{margin: 0, lineHeight: 1.75}}><strong>Long-term direction: plugin ecosystem</strong></p>
   <ul style={{margin: '0.5rem 0 0', paddingLeft: '1.25rem', lineHeight: 1.75}}>
-    <li><strong>WebAssembly plugins</strong>: Explore WASM-based third-party plugins so developers can write and distribute plugins in any language without modifying OxiDNS, with sandboxing by default.</li>
-    <li><strong>Dynamic library plugins</strong>: Explore native plugin loading via shared libraries (.so / .dylib) for the highest-performance scenarios, with independent compile and distribute, loaded at runtime.</li>
+    <li><strong>WebAssembly plugins</strong>: Explore WASM-based third-party plugins so developers can write and distribute plugins in any language without modifying OxiDNS Next, with sandboxing by default.</li>
+    <li><strong>Dynamic library plugins</strong>: Explore native plugin loading via shared libraries (.so / .dylib) for the highest-performance scenarios, with independent compile and distribute, loaded by OxiDNS Next at runtime.</li>
   </ul>
 </div>

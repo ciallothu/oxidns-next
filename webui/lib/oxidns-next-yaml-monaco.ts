@@ -12,14 +12,14 @@ import type { PluginInstance, PluginType } from "@/lib/types";
 import { DEFAULT_LOCALE, WEBUI, t as translate, type Locale } from "@/lib/i18n";
 import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
 
-export type OxiDnsYamlEditorVariant =
+export type OxiDnsNextYamlEditorVariant =
   | "config"
   | "plugin-args"
   | "sequence"
   | "generic";
 
-export interface OxiDnsYamlEditorContext {
-  variant: OxiDnsYamlEditorVariant;
+export interface OxiDnsNextYamlEditorContext {
+  variant: OxiDnsNextYamlEditorVariant;
   locale?: Locale;
   plugins?: PluginInstance[];
   pluginKind?: string;
@@ -27,7 +27,7 @@ export interface OxiDnsYamlEditorContext {
   currentPluginName?: string;
 }
 
-export interface OxiDnsYamlDiagnostic {
+export interface OxiDnsNextYamlDiagnostic {
   message: string;
   severity?: "error" | "warning" | "info";
   line?: number;
@@ -64,7 +64,7 @@ type CompletionItem =
       : never
     : never;
 
-const contextByModel = new Map<string, OxiDnsYamlEditorContext>();
+const contextByModel = new Map<string, OxiDnsNextYamlEditorContext>();
 let registered = false;
 
 const topLevelKeys = [
@@ -88,7 +88,8 @@ const logLevels = ["off", "trace", "debug", "info", "warn", "error"];
 // Sub-keys for top-level config sections derived from the Rust config structs.
 function configSubKeysForPath(path: string[]): string[] | null {
   const [p0, p1, p2, p3, p4, p5] = path;
-  if (p0 === "log") return p1 ? null : ["level", "file", "rotation"];
+  if (p0 === "log")
+    return p1 ? null : ["level", "file", "query_file", "rotation"];
   if (p0 === "runtime") return p1 ? null : ["worker_threads"];
   if (p0 === "api") {
     if (!p1) return ["http"];
@@ -96,8 +97,43 @@ function configSubKeysForPath(path: string[]): string[] | null {
       if (!p2) return ["listen", "ssl", "auth", "cors", "webui"];
       if (p2 === "ssl")
         return ["cert", "key", "client_ca", "require_client_cert"];
-      if (p2 === "auth") return ["type", "username", "password"];
-      if (p2 === "cors") return ["allowed_origins"];
+      if (p2 === "auth") {
+        if (!p3)
+          return [
+            "type",
+            "database",
+            "bootstrap_token_env",
+            "session_ttl_seconds",
+            "cookie_secure",
+            "cookie_same_site",
+            "public_url",
+            "oidc",
+            "passkey",
+            // Deprecated Basic-auth compatibility fields. New configs should
+            // use the accounts form above.
+            "username",
+            "password",
+          ];
+        if (p3 === "oidc") {
+          if (!p4)
+            return [
+              "enabled",
+              "issuer_url",
+              "client_id",
+              "client_secret_env",
+              "redirect_url",
+              "scopes",
+              "username_claim",
+              "allowed_users",
+              "success_redirect",
+            ];
+          if (p4 === "allowed_users") return ["claim", "username"];
+        }
+        if (p3 === "passkey" && !p4)
+          return ["enabled", "rp_id", "origins"];
+      }
+      if (p2 === "cors")
+        return ["allowed_origins", "allowed_origin_hosts", "allow_any_origin"];
       if (p2 === "webui") return ["root", "index"];
     }
   }
@@ -118,17 +154,17 @@ function configSubKeysForPath(path: string[]): string[] | null {
   return null;
 }
 
-export function registerOxiDnsYamlLanguage(monaco: MonacoApi) {
+export function registerOxiDnsNextYamlLanguage(monaco: MonacoApi) {
   // defineTheme is idempotent: always run so that editors created before
   // onMount fires (e.g. via the theme prop on first render) get the correct
   // custom theme rather than falling back to vs-dark / vs.
-  // Dark theme — Catppuccin Macchiato palette, teal mapped to the OxiDNS brand.
+  // Dark theme — Catppuccin Macchiato palette, teal mapped to the OxiDNS Next brand.
   //
   // Hierarchy by visual weight:
   //   key (teal, brightest) > string/value (green) > number (yellow) >
   //   keyword/bool (mauve) > default text > comment (muted, recedes) >
   //   delimiter (surface, near-invisible)
-  monaco.editor.defineTheme("oxidns-yaml-dark", {
+  monaco.editor.defineTheme("oxidns-next-yaml-dark", {
     base: "vs-dark",
     inherit: true,
     rules: [
@@ -163,8 +199,8 @@ export function registerOxiDnsYamlLanguage(monaco: MonacoApi) {
     },
   });
 
-  // Light theme — Catppuccin Latte palette, teal mapped to the OxiDNS brand.
-  monaco.editor.defineTheme("oxidns-yaml-light", {
+  // Light theme — Catppuccin Latte palette, teal mapped to the OxiDNS Next brand.
+  monaco.editor.defineTheme("oxidns-next-yaml-light", {
     base: "vs",
     inherit: true,
     rules: [
@@ -224,18 +260,18 @@ export function registerOxiDnsYamlLanguage(monaco: MonacoApi) {
   });
 }
 
-export function setOxiDnsYamlModelContext(
+export function setOxiDnsNextYamlModelContext(
   model: MonacoModel,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
 ) {
   contextByModel.set(model.uri.toString(), context);
 }
 
-export function clearOxiDnsYamlModelContext(model: MonacoModel) {
+export function clearOxiDnsNextYamlModelContext(model: MonacoModel) {
   contextByModel.delete(model.uri.toString());
 }
 
-function contextLocale(context: OxiDnsYamlEditorContext): Locale {
+function contextLocale(context: OxiDnsNextYamlEditorContext): Locale {
   return context.locale ?? DEFAULT_LOCALE;
 }
 
@@ -246,11 +282,11 @@ function localizedPluginKindDefinition(kind: string, locale: Locale) {
   );
 }
 
-export function updateOxiDnsYamlMarkers(
+export function updateOxiDnsNextYamlMarkers(
   monaco: MonacoApi,
   model: MonacoModel,
-  context: OxiDnsYamlEditorContext,
-  backendDiagnostics: OxiDnsYamlDiagnostic[] = [],
+  context: OxiDnsNextYamlEditorContext,
+  backendDiagnostics: OxiDnsNextYamlDiagnostic[] = [],
 ) {
   const markers = [
     ...buildLocalDiagnosticMarkers(monaco, model, context),
@@ -258,14 +294,14 @@ export function updateOxiDnsYamlMarkers(
       markerFromBackendDiagnostic(monaco, model, diagnostic),
     ),
   ];
-  monaco.editor.setModelMarkers(model, "oxidns-yaml", markers);
+  monaco.editor.setModelMarkers(model, "oxidns-next-yaml", markers);
 }
 
 function buildCompletionItems(
   monaco: MonacoApi,
   model: MonacoModel,
   position: MonacoPosition,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
 ): CompletionItem[] {
   const line = model.getLineContent(position.lineNumber);
   const prefix = line.slice(0, position.column - 1);
@@ -344,7 +380,7 @@ function buildHover(
   monaco: MonacoApi,
   model: MonacoModel,
   position: MonacoPosition,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
 ): ReturnType<HoverProviderFn> {
   const locale = contextLocale(context);
   const token = getTokenAtPosition(model, position);
@@ -386,7 +422,7 @@ function buildHover(
 function buildLocalDiagnosticMarkers(
   monaco: MonacoApi,
   model: MonacoModel,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
 ) {
   const locale = contextLocale(context);
   const markers: Parameters<MonacoApi["editor"]["setModelMarkers"]>[2] = [];
@@ -417,7 +453,7 @@ function buildLocalDiagnosticMarkers(
         startColumn,
         endLineNumber: lineNumber,
         endColumn: startColumn + match[0].length,
-        source: "OxiDNS",
+        source: "OxiDNS Next",
       });
     }
 
@@ -440,7 +476,7 @@ function buildLocalDiagnosticMarkers(
           startColumn,
           endLineNumber: lineNumber,
           endColumn: startColumn + pluginKind.length,
-          source: "OxiDNS",
+          source: "OxiDNS Next",
         });
       }
     }
@@ -462,7 +498,7 @@ function buildLocalDiagnosticMarkers(
           startColumn,
           endLineNumber: lineNumber,
           endColumn: startColumn + tag.length,
-          source: "OxiDNS",
+          source: "OxiDNS Next",
         });
       }
     }
@@ -474,7 +510,7 @@ function buildLocalDiagnosticMarkers(
 function markerFromBackendDiagnostic(
   monaco: MonacoApi,
   model: MonacoModel,
-  diagnostic: OxiDnsYamlDiagnostic,
+  diagnostic: OxiDnsNextYamlDiagnostic,
 ) {
   const message = diagnostic.message;
   if (diagnostic.line && diagnostic.column) {
@@ -490,7 +526,7 @@ function markerFromBackendDiagnostic(
           diagnostic.column + 1,
           model.getLineMaxColumn(diagnostic.line),
         ),
-      source: "OxiDNS",
+      source: "OxiDNS Next",
     };
   }
 
@@ -510,13 +546,13 @@ function markerFromBackendDiagnostic(
     startColumn: located?.startColumn ?? 1,
     endLineNumber: located?.lineNumber ?? 1,
     endColumn: located?.endColumn ?? Math.max(2, model.getLineMaxColumn(1)),
-    source: "OxiDNS",
+    source: "OxiDNS Next",
   };
 }
 
 function markerSeverity(
   monaco: MonacoApi,
-  severity: OxiDnsYamlDiagnostic["severity"],
+  severity: OxiDnsNextYamlDiagnostic["severity"],
 ) {
   if (severity === "warning") return monaco.MarkerSeverity.Warning;
   if (severity === "info") return monaco.MarkerSeverity.Info;
@@ -551,7 +587,7 @@ function locateToken(model: MonacoModel, token: string) {
 
 function keySuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   range: MonacoRange,
   path: string[],
 ): CompletionItem[] {
@@ -574,7 +610,7 @@ function keySuggestions(
 
 function pluginKindSuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   range: MonacoRange,
 ): CompletionItem[] {
   const locale = contextLocale(context);
@@ -591,7 +627,7 @@ function pluginKindSuggestions(
 
 function logLevelSuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   range: MonacoRange,
 ): CompletionItem[] {
   const locale = contextLocale(context);
@@ -607,7 +643,7 @@ function logLevelSuggestions(
 
 function pluginReferenceSuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   range: MonacoRange,
   referenceTypes?: PluginType[],
   inverted = false,
@@ -636,7 +672,7 @@ function pluginReferenceSuggestions(
 
 function quickSetupSuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   range: MonacoRange,
   types?: PluginType[],
 ): CompletionItem[] {
@@ -704,7 +740,7 @@ function detectJumpGotoExec(
 
 function jumpGotoTagSuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   range: MonacoRange,
   keyword: "jump" | "goto",
 ): CompletionItem[] {
@@ -726,7 +762,7 @@ function jumpGotoTagSuggestions(
 
 function fieldValueSuggestions(
   monaco: MonacoApi,
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   field: ConfigField,
   range: MonacoRange,
 ): CompletionItem[] {
@@ -800,7 +836,7 @@ function keyCompletion(
 }
 
 function expectedReferenceTypes(
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   path: string[],
   valueKey: string | null,
 ): PluginType[] | undefined {
@@ -827,7 +863,7 @@ function expectedReferenceTypes(
 }
 
 function shouldSuggestSequenceExpressions(
-  context: OxiDnsYamlEditorContext,
+  context: OxiDnsNextYamlEditorContext,
   path: string[],
   valueKey: string | null,
 ) {

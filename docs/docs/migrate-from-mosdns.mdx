@@ -11,13 +11,13 @@ import Admonition from '@theme/Admonition';
 
 </Admonition>
 
-OxiDNS 与 mosdns v5 共享几乎相同的插件模型和配置结构：`plugins` 数组、`sequence` 编排、`jump` / `goto` / `accept` / `return` / `reject` 控制流，以及 `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` 等插件及其字段名，均高度兼容。
+OxiDNS Next 与 mosdns v5 共享几乎相同的插件模型和配置结构：`plugins` 数组、`sequence` 编排、`jump` / `goto` / `accept` / `return` / `reject` 控制流，以及 `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` 等插件及其字段名，均高度兼容。
 
 ## 迁移时需要留意的语法差异
 
 ### `env` matcher
 
-OxiDNS 的 `env` matcher 中，`args` 的每个元素都是一个独立的环境变量表达式。
+OxiDNS Next 的 `env` matcher 中，`args` 的每个元素都是一个独立的环境变量表达式。
 
 ```yaml
 - tag: env_profile_prod
@@ -58,16 +58,15 @@ OxiDNS 的 `env` matcher 中，`args` 的每个元素都是一个独立的环境
 
 ### HTTP 管理 API
 
-`api.http` 提供配置热重载、健康检查、Prometheus 指标拉取和插件状态查询接口，支持 Basic Auth 和 TLS。详见 [管理 API](api.mdx)。
+`api.http` 提供配置重载、健康检查、Prometheus 指标拉取和插件状态查询接口，支持本地账户会话、OIDC、通行密钥、TOTP 和 TLS。详见 [管理 API](api.mdx)。
 
 ```yaml
 api:
   http:
     listen: "127.0.0.1:9088"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
 ```
 
 ### `query_recorder`：查询记录与实时推送
@@ -107,7 +106,7 @@ api:
 ```yaml
 log:
   level: info
-  file: ./oxidns.log
+  file: ./oxidns-next.log
   rotation:
     type: daily       # minutely / hourly / daily / weekly / never
     max_files: 7      # 最多保留文件数，0 表示不自动清理
@@ -162,11 +161,11 @@ log:
 
 ## 性能
 
-OxiDNS 基于 Rust + Tokio 构建，没有 GC 暂停。在各场景下与 mosdns 的表现各有胜负，差异较大的地方体现在：
+OxiDNS Next 基于 Rust + Tokio 构建，没有 GC 暂停。在各场景下与 mosdns 的表现各有胜负，差异较大的地方体现在：
 
-- **规则集匹配（`domain set`、`composite provider chain`）**：OxiDNS 有显著优势，高并发下 QPS 可达 mosdns 的数倍，延迟也明显更低。
-- **多上游并发竞争（`concurrent upstreams`）**：OxiDNS 吞吐和延迟均领先。
-- **延迟抖动**：OxiDNS 在大多数场景下抖动更小，响应更稳定。
+- **规则集匹配（`domain set`、`composite provider chain`）**：OxiDNS Next 有显著优势，高并发下 QPS 可达 mosdns 的数倍，延迟也明显更低。
+- **多上游并发竞争（`concurrent upstreams`）**：OxiDNS Next 吞吐和延迟均领先。
+- **延迟抖动**：OxiDNS Next 在大多数场景下抖动更小，响应更稳定。
 - **本地应答、基础 sequence、ip set 过滤**：mosdns 在这些场景下持平或略优。
 - **基础转发**：两者 QPS 接近，差距较小。
 

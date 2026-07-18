@@ -20,9 +20,9 @@ use crate::infra::upgrade::{
 const DEFAULT_CONFIG_FILE: &str = "config.yaml";
 const DEFAULT_WEBUI_DIR: &str = "./webui";
 #[cfg(target_os = "linux")]
-const DEFAULT_SERVICE_CONFIG: &str = "/etc/oxidns/config.yaml";
+const DEFAULT_SERVICE_CONFIG: &str = "/etc/oxidns-next/config.yaml";
 #[cfg(target_os = "linux")]
-const DEFAULT_SERVICE_WORKING_DIR: &str = "/var/lib/oxidns";
+const DEFAULT_SERVICE_WORKING_DIR: &str = "/var/lib/oxidns-next";
 
 pub fn run(options: UpgradeOptions) -> Result<()> {
     AppClock::start();
@@ -426,7 +426,7 @@ fn run_action(action: UpgradeAction, config: UpgradeConfig) -> Result<()> {
 }
 
 fn print_plan(action: &str, config: &UpgradeConfig) {
-    println!("OxiDNS upgrade {action}");
+    println!("OxiDNS Next upgrade {action}");
     println!("Repository: {}", config.repository);
     println!("Target: {}", config.target);
     println!("Asset: {}", config.asset);
@@ -489,12 +489,12 @@ mod tests {
     #[test]
     fn config_from_options_maps_webui_fields() {
         #[cfg(windows)]
-        let webui_dir_arg = r"C:\tmp\oxidns-webui";
+        let webui_dir_arg = r"C:\tmp\oxidns-next-webui";
         #[cfg(not(windows))]
-        let webui_dir_arg = "/tmp/oxidns-webui";
+        let webui_dir_arg = "/tmp/oxidns-next-webui";
 
         let cli = Cli::parse_from([
-            "oxidns",
+            "oxidns-next",
             "upgrade",
             "apply",
             "--webui-dir",
@@ -513,7 +513,13 @@ mod tests {
 
     #[test]
     fn config_from_options_maps_github_token() {
-        let cli = Cli::parse_from(["oxidns", "upgrade", "check", "--github-token", "ghp_test"]);
+        let cli = Cli::parse_from([
+            "oxidns-next",
+            "upgrade",
+            "check",
+            "--github-token",
+            "ghp_test",
+        ]);
         let Command::Upgrade(opts) = cli.command else {
             panic!("expected upgrade command");
         };
@@ -525,7 +531,7 @@ mod tests {
 
     #[test]
     fn config_from_options_maps_bundle() {
-        let cli = Cli::parse_from(["oxidns", "upgrade", "check", "--bundle", "minimal"]);
+        let cli = Cli::parse_from(["oxidns-next", "upgrade", "check", "--bundle", "minimal"]);
         let Command::Upgrade(opts) = cli.command else {
             panic!("expected upgrade command");
         };
@@ -537,7 +543,7 @@ mod tests {
 
     #[test]
     fn config_from_options_maps_no_restart_flag() {
-        let cli = Cli::parse_from(["oxidns", "upgrade", "apply", "--no-restart"]);
+        let cli = Cli::parse_from(["oxidns-next", "upgrade", "apply", "--no-restart"]);
         let Command::Upgrade(opts) = cli.command else {
             panic!("expected upgrade command");
         };
@@ -565,7 +571,7 @@ api:
         let working_dir = tmp.path().join("runtime");
         fs::create_dir_all(&working_dir).unwrap();
         let cli = Cli::parse_from([
-            "oxidns",
+            "oxidns-next",
             "upgrade",
             "-c",
             config_path.to_str().unwrap(),
@@ -590,10 +596,10 @@ api:
     fn config_from_options_uses_service_config_and_working_dir_when_no_local_config_exists() {
         let tmp = tempfile::TempDir::new().unwrap();
         let current_dir = tmp.path().join("home");
-        let service_working_dir = tmp.path().join("var/lib/oxidns");
+        let service_working_dir = tmp.path().join("var/lib/oxidns-next");
         fs::create_dir_all(&current_dir).unwrap();
         fs::create_dir_all(&service_working_dir).unwrap();
-        let service_config = tmp.path().join("etc/oxidns/config.yaml");
+        let service_config = tmp.path().join("etc/oxidns-next/config.yaml");
         fs::create_dir_all(service_config.parent().unwrap()).unwrap();
         fs::write(
             &service_config,
@@ -606,7 +612,7 @@ api:
 "#,
         )
         .unwrap();
-        let cli = Cli::parse_from(["oxidns", "upgrade"]);
+        let cli = Cli::parse_from(["oxidns-next", "upgrade"]);
         let Command::Upgrade(opts) = cli.command else {
             panic!("expected upgrade command");
         };
@@ -639,7 +645,12 @@ network:
 "#,
         )
         .unwrap();
-        let cli = Cli::parse_from(["oxidns", "upgrade", "-c", config_path.to_str().unwrap()]);
+        let cli = Cli::parse_from([
+            "oxidns-next",
+            "upgrade",
+            "-c",
+            config_path.to_str().unwrap(),
+        ]);
         let Command::Upgrade(opts) = cli.command else {
             panic!("expected upgrade command");
         };

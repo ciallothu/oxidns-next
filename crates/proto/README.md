@@ -1,14 +1,14 @@
-# oxidns-proto
+# oxidns-next-proto
 
-`oxidns-proto` contains the DNS message model and wire codec primitives used
-by OxiDNS.
+`oxidns-next-proto` contains the DNS message model and wire codec primitives used
+by OxiDNS Next.
 
 It is split out as a standalone crate so the DNS protocol layer can evolve
 independently from the full server runtime.
 
 ## Scope
 
-This crate owns the protocol-facing types that OxiDNS uses before requests
+This crate owns the protocol-facing types that OxiDNS Next uses before requests
 enter the plugin pipeline and after executors produce responses:
 
 - `Message`, `Header`, `Question`, and `Record`
@@ -25,11 +25,11 @@ upstream pools, caching, configuration, logging, and plugin orchestration.
 
 ```toml
 [dependencies]
-oxidns-proto = "0.1"
+oxidns-next-proto = { git = "https://github.com/ciallothu/oxidns-next" }
 ```
 
 ```rust
-use oxidns_proto::{Message, Question, RecordType, DNSClass, Name};
+use oxidns_next_proto::{Message, Question, RecordType, DNSClass, Name};
 
 let name: Name = "www.example.com.".parse()?;
 let question = Question::new(name, RecordType::A, DNSClass::IN);
@@ -42,7 +42,7 @@ let bytes = message.to_bytes()?;
 let decoded = Message::from_bytes(&bytes)?;
 
 assert_eq!(decoded.id(), 0x1234);
-# Ok::<(), oxidns_proto::ProtoError>(())
+# Ok::<(), oxidns_next_proto::ProtoError>(())
 ```
 
 ## Design Notes
@@ -53,13 +53,13 @@ assert_eq!(decoded.id(), 0x1234);
   unnecessary allocation on the hot path matters.
 - Feature flags `hotpath` and `hotpath-alloc` forward to the `hotpath` crate
   for optional instrumentation in performance-sensitive builds.
-- Compatibility shims under `oxidns_proto::core` and `oxidns_proto::proto`
-  exist for OxiDNS internals while the message layer is being split out.
+- Compatibility shims under `oxidns_next_proto::core` and `oxidns_next_proto::proto`
+  exist for OxiDNS Next internals while the message layer is being split out.
 
-## Relationship to OxiDNS
+## Relationship to OxiDNS Next
 
-OxiDNS uses this crate as the shared DNS protocol substrate for listeners,
-upstream clients, matchers, executors, tests, and the `oxidns-zoneparser`
+OxiDNS Next uses this crate as the shared DNS protocol substrate for listeners,
+upstream clients, matchers, executors, tests, and the `oxidns-next-zoneparser`
 crate. Changes here can affect parsing, rewriting, caching, and transport
 behavior across the full server, so semantic changes should be covered by
 codec and integration tests.

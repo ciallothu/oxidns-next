@@ -64,7 +64,7 @@ plugins:
 
 Good fits:
 
-* First-time OxiDNS validation
+* First-time OxiDNS Next validation
 * Home or lab networks starting from a small gateway config
 * Avoiding `:53` permissions, port conflicts, and system resolver overlap during testing
 
@@ -82,9 +82,8 @@ api:
   http:
     listen: "127.0.0.1:9088"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
 
 plugins:
   - tag: metrics_main
@@ -268,7 +267,7 @@ Good fits:
 Policy goals:
 
 * Keep normal UDP / TCP DNS access for LAN clients
-* Use DoH / DoT between OxiDNS and upstream resolvers
+* Use DoH / DoT between OxiDNS Next and upstream resolvers
 * Race multiple encrypted upstreams
 
 ```yaml
@@ -417,9 +416,8 @@ api:
   http:
     listen: "127.0.0.1:9088"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
 
 plugins:
   - tag: metrics_main
@@ -478,7 +476,7 @@ Good fits:
 * Explaining why one domain reached a specific branch
 * Feeding historical and live query data into the WebUI or external tools
 
-When troubleshooting `client_ip`, remember that `query_recorder` records the transport source seen by OxiDNS. If every row is `127.0.0.1`, a local forwarder such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash is usually receiving client queries first and forwarding them to OxiDNS. Check client DNS targets, side-router/NAT rules, and local proxy chains. HTTP/DoH reverse-proxy deployments can preserve the real source with a trusted `src_ip_header`.
+When troubleshooting `client_ip`, remember that `query_recorder` records the transport source seen by OxiDNS Next. If every row is `127.0.0.1`, a local forwarder such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash is usually receiving client queries first and forwarding them to OxiDNS Next. Check client DNS targets, side-router/NAT rules, and local proxy chains. HTTP/DoH reverse-proxy deployments can preserve the real source with a trusted `src_ip_header`.
 
 ## Scenario 8: Drive Network Integration from DNS Results
 

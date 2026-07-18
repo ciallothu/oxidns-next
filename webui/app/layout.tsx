@@ -17,12 +17,12 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/logo-light.png",
+        url: "/logo-next-light.png",
         media: "(prefers-color-scheme: light)",
         type: "image/png",
       },
       {
-        url: "/logo-dark.png",
+        url: "/logo-next-dark.png",
         media: "(prefers-color-scheme: dark)",
         type: "image/png",
       },

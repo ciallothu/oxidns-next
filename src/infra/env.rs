@@ -3,7 +3,7 @@
 
 //! Shared process environment variable access helpers.
 //!
-//! Keep all OxiDNS environment reads behind this small boundary so startup
+//! Keep all OxiDNS Next environment reads behind this small boundary so startup
 //! config expansion, runtime matchers, and tests use the same conversion rules.
 
 use std::ffi::{OsStr, OsString};
@@ -44,6 +44,6 @@ mod tests {
 
     #[test]
     fn exists_reports_missing_environment_variable() {
-        assert!(!exists("OXIDNS_MISSING_ENV_HELPER_0B5A9C66"));
+        assert!(!exists("OXIDNS_NEXT_MISSING_ENV_HELPER_0B5A9C66"));
     }
 }

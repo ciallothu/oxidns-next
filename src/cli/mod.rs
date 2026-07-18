@@ -33,7 +33,7 @@ pub struct Cli {
 /// Supported top-level commands.
 #[derive(Subcommand, Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    /// Start OxiDNS in the foreground.
+    /// Start OxiDNS Next in the foreground.
     Start(StartOptions),
     /// Check whether a configuration file is valid.
     Check(CheckOptions),
@@ -46,7 +46,7 @@ pub enum Command {
     Probe(ProbeOptions),
     /// Manage the operating system service.
     Service(ServiceOptions),
-    /// Check, download, or apply OxiDNS release upgrades.
+    /// Check, download, or apply OxiDNS Next release upgrades.
     #[cfg(feature = "plugin-upgrade")]
     Upgrade(UpgradeOptions),
 }
@@ -58,7 +58,7 @@ pub struct StartOptions {
     #[arg(short = 'c', long = "config", default_value = "config.yaml")]
     pub config: PathBuf,
 
-    /// Working directory for OxiDNS
+    /// Working directory for OxiDNS Next
     #[arg(short = 'd', long = "working-dir")]
     pub working_dir: Option<PathBuf>,
 
@@ -96,8 +96,12 @@ pub struct ExportDatOptions {
     #[arg(long = "kind", value_enum, default_value_t = DatKind::Auto)]
     pub kind: DatKind,
 
-    /// Output text format: oxidns or original
-    #[arg(long = "format", value_enum, default_value_t = ExportFormat::Oxidns)]
+    /// Output text format: oxidns-next or original
+    #[arg(
+        long = "format",
+        value_enum,
+        default_value_t = ExportFormat::OxidnsNext
+    )]
     pub format: ExportFormat,
 
     /// Selector to export; repeat this flag to export multiple selectors
@@ -130,7 +134,8 @@ pub enum DatKind {
 #[cfg(feature = "provider-protobuf")]
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
-    Oxidns,
+    #[value(name = "oxidns-next", alias = "oxidns")]
+    OxidnsNext,
     Original,
 }
 
@@ -239,7 +244,11 @@ pub struct UpgradeOptions {
     pub target: String,
 
     /// GitHub repository in owner/name form.
-    #[arg(long = "repository", default_value = "svenshi/oxidns", global = true)]
+    #[arg(
+        long = "repository",
+        default_value = "ciallothu/oxidns-next",
+        global = true
+    )]
     pub repository: String,
 
     /// Release asset name, or auto for the current platform and bundle archive.
@@ -352,7 +361,7 @@ pub struct ServiceInstallOptions {
     pub config: PathBuf,
 }
 
-/// Parse command-line options for OxiDNS.
+/// Parse command-line options for OxiDNS Next.
 pub fn parse_cli() -> Cli {
     <Cli as clap::Parser>::parse()
 }
@@ -393,12 +402,12 @@ mod tests {
     #[test]
     fn parse_start_command_with_explicit_flags() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "start",
             "-c",
             "custom.yaml",
             "-d",
-            "/tmp/oxidns",
+            "/tmp/oxidns-next",
             "-l",
             "debug",
         ];
@@ -408,7 +417,7 @@ mod tests {
             cli.command,
             Command::Start(StartOptions {
                 config: PathBuf::from("custom.yaml"),
-                working_dir: Some(PathBuf::from("/tmp/oxidns")),
+                working_dir: Some(PathBuf::from("/tmp/oxidns-next")),
                 log_level: Some("debug".to_string()),
             })
         );
@@ -416,7 +425,7 @@ mod tests {
 
     #[test]
     fn parse_start_command_uses_default_config() {
-        let args = ["oxidns", "start"];
+        let args = ["oxidns-next", "start"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -431,7 +440,7 @@ mod tests {
 
     #[test]
     fn parse_check_command_uses_default_config() {
-        let args = ["oxidns", "check"];
+        let args = ["oxidns-next", "check"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -446,7 +455,7 @@ mod tests {
 
     #[test]
     fn parse_check_command_with_explicit_config() {
-        let args = ["oxidns", "check", "-c", "custom.yaml"];
+        let args = ["oxidns-next", "check", "-c", "custom.yaml"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -461,14 +470,21 @@ mod tests {
 
     #[test]
     fn parse_check_command_with_working_dir() {
-        let args = ["oxidns", "check", "-c", "custom.yaml", "-d", "/tmp/oxidns"];
+        let args = [
+            "oxidns-next",
+            "check",
+            "-c",
+            "custom.yaml",
+            "-d",
+            "/tmp/oxidns-next",
+        ];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
             cli.command,
             Command::Check(CheckOptions {
                 config: PathBuf::from("custom.yaml"),
-                working_dir: Some(PathBuf::from("/tmp/oxidns")),
+                working_dir: Some(PathBuf::from("/tmp/oxidns-next")),
                 graph: false,
             })
         );
@@ -476,7 +492,7 @@ mod tests {
 
     #[test]
     fn parse_build_info_command() {
-        let args = ["oxidns", "build-info"];
+        let args = ["oxidns-next", "build-info"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(cli.command, Command::BuildInfo);
@@ -484,7 +500,7 @@ mod tests {
 
     #[test]
     fn parse_probe_upstream_defaults() {
-        let args = ["oxidns", "probe", "upstream", "tcp://1.1.1.1:53"];
+        let args = ["oxidns-next", "probe", "upstream", "tcp://1.1.1.1:53"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -516,14 +532,14 @@ mod tests {
     #[test]
     fn parse_probe_upstream_accepts_network_and_output_options() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "probe",
             "upstream",
             "tls://dns.example.com:853",
             "-c",
             "config.yaml",
             "-d",
-            "/tmp/oxidns",
+            "/tmp/oxidns-next",
             "--outbound",
             "remote",
             "--dial-addr",
@@ -559,7 +575,7 @@ mod tests {
                 command: ProbeCommand::Upstream(ProbeUpstreamOptions {
                     addr: "tls://dns.example.com:853".to_string(),
                     config: Some(PathBuf::from("config.yaml")),
-                    working_dir: Some(PathBuf::from("/tmp/oxidns")),
+                    working_dir: Some(PathBuf::from("/tmp/oxidns-next")),
                     outbound: Some("remote".to_string()),
                     dial_addr: Some("203.0.113.53".parse().unwrap()),
                     bootstrap: Some("8.8.8.8:53".to_string()),
@@ -583,15 +599,15 @@ mod tests {
     #[test]
     fn parse_upgrade_apply_with_options() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "upgrade",
             "apply",
             "--target",
             "v0.4.2",
             "--repository",
-            "svenshi/oxidns",
+            "ciallothu/oxidns-next",
             "--asset",
-            "oxidns-x86_64-unknown-linux-gnu.tar.gz",
+            "oxidns-next-x86_64-unknown-linux-gnu.tar.gz",
             "--cache-dir",
             "./cache",
             "--backup-dir",
@@ -616,8 +632,8 @@ mod tests {
                 config: None,
                 working_dir: None,
                 target: "v0.4.2".to_string(),
-                repository: "svenshi/oxidns".to_string(),
-                asset: "oxidns-x86_64-unknown-linux-gnu.tar.gz".to_string(),
+                repository: "ciallothu/oxidns-next".to_string(),
+                asset: "oxidns-next-x86_64-unknown-linux-gnu.tar.gz".to_string(),
                 bundle: UpgradeBundle::Auto,
                 cache_dir: PathBuf::from("./cache"),
                 backup_dir: PathBuf::from("./backups"),
@@ -638,7 +654,7 @@ mod tests {
     #[cfg(feature = "plugin-upgrade")]
     #[test]
     fn parse_upgrade_bundle_option() {
-        let args = ["oxidns", "upgrade", "check", "--bundle", "standard"];
+        let args = ["oxidns-next", "upgrade", "check", "--bundle", "standard"];
 
         let cli = Cli::parse_from(args);
         assert!(matches!(
@@ -653,7 +669,7 @@ mod tests {
     #[cfg(feature = "plugin-upgrade")]
     #[test]
     fn parse_upgrade_rejects_unknown_bundle() {
-        let args = ["oxidns", "upgrade", "check", "--bundle", "tiny"];
+        let args = ["oxidns-next", "upgrade", "check", "--bundle", "tiny"];
 
         assert!(Cli::try_parse_from(args).is_err());
     }
@@ -661,7 +677,7 @@ mod tests {
     #[cfg(feature = "plugin-upgrade")]
     #[test]
     fn parse_upgrade_no_restart_flag() {
-        let args = ["oxidns", "upgrade", "apply", "--no-restart"];
+        let args = ["oxidns-next", "upgrade", "apply", "--no-restart"];
 
         let cli = Cli::parse_from(args);
         assert!(matches!(
@@ -676,7 +692,7 @@ mod tests {
     #[cfg(feature = "plugin-upgrade")]
     #[test]
     fn parse_upgrade_defaults_to_apply_and_accepts_force() {
-        let args = ["oxidns", "upgrade", "--force"];
+        let args = ["oxidns-next", "upgrade", "--force"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -686,7 +702,7 @@ mod tests {
                 config: None,
                 working_dir: None,
                 target: "latest".to_string(),
-                repository: "svenshi/oxidns".to_string(),
+                repository: "ciallothu/oxidns-next".to_string(),
                 asset: "auto".to_string(),
                 bundle: UpgradeBundle::Auto,
                 cache_dir: PathBuf::from("./upgrade-cache"),
@@ -709,12 +725,12 @@ mod tests {
     #[test]
     fn parse_upgrade_accepts_runtime_path_context() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "upgrade",
             "-c",
-            "/etc/oxidns/config.yaml",
+            "/etc/oxidns-next/config.yaml",
             "-d",
-            "/var/lib/oxidns",
+            "/var/lib/oxidns-next",
             "--webui-dir",
             "./webui",
         ];
@@ -727,15 +743,15 @@ mod tests {
                 working_dir: Some(working_dir),
                 webui_dir: Some(webui_dir),
                 ..
-            }) if config.as_path() == std::path::Path::new("/etc/oxidns/config.yaml")
-                && working_dir.as_path() == std::path::Path::new("/var/lib/oxidns")
+            }) if config.as_path() == std::path::Path::new("/etc/oxidns-next/config.yaml")
+                && working_dir.as_path() == std::path::Path::new("/var/lib/oxidns-next")
                 && webui_dir.as_path() == std::path::Path::new("./webui")
         ));
     }
 
     #[test]
     fn parse_check_command_with_graph() {
-        let args = ["oxidns", "check", "--graph"];
+        let args = ["oxidns-next", "check", "--graph"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -751,13 +767,13 @@ mod tests {
     #[test]
     fn parse_service_install_command() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "service",
             "install",
             "-d",
-            "/etc/oxidns",
+            "/etc/oxidns-next",
             "-c",
-            "/etc/oxidns/config.yaml",
+            "/etc/oxidns-next/config.yaml",
         ];
 
         let cli = Cli::parse_from(args);
@@ -765,8 +781,8 @@ mod tests {
             cli.command,
             Command::Service(ServiceOptions {
                 command: ServiceCommand::Install(ServiceInstallOptions {
-                    working_dir: PathBuf::from("/etc/oxidns"),
-                    config: PathBuf::from("/etc/oxidns/config.yaml"),
+                    working_dir: PathBuf::from("/etc/oxidns-next"),
+                    config: PathBuf::from("/etc/oxidns-next/config.yaml"),
                 }),
             })
         );
@@ -774,7 +790,7 @@ mod tests {
 
     #[test]
     fn parse_service_start_command() {
-        let args = ["oxidns", "service", "start"];
+        let args = ["oxidns-next", "service", "start"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -787,7 +803,7 @@ mod tests {
 
     #[test]
     fn parse_service_stop_command() {
-        let args = ["oxidns", "service", "stop"];
+        let args = ["oxidns-next", "service", "stop"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -800,7 +816,7 @@ mod tests {
 
     #[test]
     fn parse_service_restart_command() {
-        let args = ["oxidns", "service", "restart"];
+        let args = ["oxidns-next", "service", "restart"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -813,7 +829,7 @@ mod tests {
 
     #[test]
     fn parse_service_uninstall_command() {
-        let args = ["oxidns", "service", "uninstall"];
+        let args = ["oxidns-next", "service", "uninstall"];
 
         let cli = Cli::parse_from(args);
         assert_eq!(
@@ -828,7 +844,7 @@ mod tests {
     #[test]
     fn parse_export_dat_command() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "export-dat",
             "--file",
             "rules/geosite.dat",
@@ -841,7 +857,7 @@ mod tests {
             "--kind",
             "geosite",
             "--format",
-            "oxidns",
+            "oxidns-next",
             "--merged-file",
             "all.txt",
             "--overwrite",
@@ -853,7 +869,7 @@ mod tests {
             Command::ExportDat(ExportDatOptions {
                 file: PathBuf::from("rules/geosite.dat"),
                 kind: DatKind::Geosite,
-                format: ExportFormat::Oxidns,
+                format: ExportFormat::OxidnsNext,
                 selectors: vec!["cn".to_string(), "geolocation-!cn".to_string()],
                 out_dir: PathBuf::from("/tmp/out"),
                 merged_file: Some("all.txt".to_string()),
@@ -866,7 +882,7 @@ mod tests {
     #[test]
     fn parse_export_dat_command_without_selectors() {
         let args = [
-            "oxidns",
+            "oxidns-next",
             "export-dat",
             "--file",
             "rules/geoip.dat",
@@ -880,12 +896,35 @@ mod tests {
             Command::ExportDat(ExportDatOptions {
                 file: PathBuf::from("rules/geoip.dat"),
                 kind: DatKind::Auto,
-                format: ExportFormat::Oxidns,
+                format: ExportFormat::OxidnsNext,
                 selectors: Vec::new(),
                 out_dir: PathBuf::from("/tmp/out"),
                 merged_file: None,
                 overwrite: false,
             })
         );
+    }
+
+    #[cfg(feature = "provider-protobuf")]
+    #[test]
+    fn parse_export_dat_accepts_legacy_format_alias() {
+        let cli = Cli::parse_from([
+            "oxidns-next",
+            "export-dat",
+            "--file",
+            "rules/geoip.dat",
+            "--out-dir",
+            "/tmp/out",
+            "--format",
+            "oxidns",
+        ]);
+
+        assert!(matches!(
+            cli.command,
+            Command::ExportDat(ExportDatOptions {
+                format: ExportFormat::OxidnsNext,
+                ..
+            })
+        ));
     }
 }

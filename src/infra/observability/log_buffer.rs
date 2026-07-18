@@ -29,6 +29,12 @@ use crate::infra::clock::AppClock;
 
 pub const RING_CAP: usize = 1000;
 
+/// Dedicated tracing target for per-request DNS diagnostics.  Structured
+/// query history is served by `query_recorder`; keeping these high-volume
+/// events out of the system-log ring prevents the management log view from
+/// being flooded by query traffic.
+pub const QUERY_LOG_TARGET: &str = "oxidns_next::query";
+
 static GLOBAL_LOG_BUFFER: OnceLock<Arc<LogBuffer>> = OnceLock::new();
 
 pub fn install_global_log_buffer(buffer: Arc<LogBuffer>) {
@@ -168,6 +174,9 @@ where
 {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let metadata = event.metadata();
+        if metadata.target() == QUERY_LOG_TARGET {
+            return;
+        }
         let level = metadata.level().to_string();
         let target = metadata.target().to_string();
         let elapsed_ms = AppClock::elapsed_millis();

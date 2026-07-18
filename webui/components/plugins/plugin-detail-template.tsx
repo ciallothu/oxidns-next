@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AlertTriangle, Pencil, Pin, PinOff, Rocket, Save } from "lucide-react";
+import { AlertTriangle, Pencil, Rocket, Save } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { isPluginKindSupported } from "@/lib/build-capabilities";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,6 @@ export function PluginDetailTemplate({
 }: PluginDetailTemplateProps) {
   const { locale, t } = useI18n();
   const {
-    togglePluginPin,
     updatePluginConfig,
     renamePlugin,
     saveConfig,
@@ -268,23 +267,6 @@ export function PluginDetailTemplate({
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => togglePluginPin(plugin.id)}
-            >
-              {plugin.pinned ? (
-                <>
-                  <PinOff className="mr-1.5 h-4 w-4" />
-                  {t(WEBUI.plugins.unpin)}
-                </>
-              ) : (
-                <>
-                  <Pin className="mr-1.5 h-4 w-4" />
-                  {t(WEBUI.plugins.pin)}
-                </>
-              )}
-            </Button>
             <PluginDeleteButton
               plugin={plugin}
               variant="outline"

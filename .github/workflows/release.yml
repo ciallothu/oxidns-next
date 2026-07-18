@@ -2,13 +2,27 @@ name: Release
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - "crates/**"
+      - "webui/**"
+      - "config*.yaml"
+      - "packaging/**"
+      - "scripts/**"
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,7 +76,7 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cargo
             make_deb: true
@@ -70,7 +84,7 @@ jobs:
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cross
             make_deb: false
@@ -78,7 +92,7 @@ jobs:
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cross
             make_deb: true
@@ -86,7 +100,7 @@ jobs:
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cross
             make_deb: false
@@ -94,7 +108,7 @@ jobs:
 
           - os: ubuntu-latest
             target: i686-unknown-linux-musl
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cross
             make_deb: false
@@ -102,7 +116,7 @@ jobs:
 
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabihf
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cross
             make_deb: false
@@ -110,7 +124,7 @@ jobs:
 
           - os: macos-latest
             target: x86_64-apple-darwin
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cargo
             make_deb: false
@@ -118,7 +132,7 @@ jobs:
 
           - os: macos-latest
             target: aarch64-apple-darwin
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cargo
             make_deb: false
@@ -126,7 +140,7 @@ jobs:
 
           - os: ubuntu-latest
             target: x86_64-unknown-freebsd
-            exe: oxidns
+            exe: oxidns-next
             archive_ext: tar.gz
             build_tool: cross
             make_deb: false
@@ -134,7 +148,7 @@ jobs:
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            exe: oxidns.exe
+            exe: oxidns-next.exe
             archive_ext: zip
             build_tool: cargo
             make_deb: false
@@ -142,7 +156,7 @@ jobs:
 
           - os: windows-latest
             target: i686-pc-windows-msvc
-            exe: oxidns.exe
+            exe: oxidns-next.exe
             archive_ext: zip
             build_tool: cargo
             make_deb: false
@@ -150,7 +164,7 @@ jobs:
 
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            exe: oxidns.exe
+            exe: oxidns-next.exe
             archive_ext: zip
             build_tool: cargo
             make_deb: false
@@ -219,7 +233,7 @@ jobs:
         if: matrix.make_deb
         uses: actions/upload-artifact@v7
         with:
-          name: oxidns-${{ matrix.target }}.deb
+          name: oxidns-next-${{ matrix.target }}.deb
           path: target/debian/*.deb
           compression-level: 0
           if-no-files-found: error
@@ -257,7 +271,7 @@ jobs:
           cp config.yaml LICENSE "$DIR"/
           rm -rf "$DIR/webui"
           cp -R webui/out "$DIR/webui"
-          tar czf "$DIR/oxidns-${TARGET}.tar.gz" -C "$DIR" "$EXE" config.yaml LICENSE webui
+          tar czf "$DIR/oxidns-next-${TARGET}.tar.gz" -C "$DIR" "$EXE" config.yaml LICENSE webui
 
       - name: Package release (Windows)
         if: matrix.os == 'windows-latest'
@@ -279,14 +293,14 @@ jobs:
 
           Compress-Archive `
             -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE", "$DIR/webui" `
-            -DestinationPath "$DIR/oxidns-$TARGET.zip" `
+            -DestinationPath "$DIR/oxidns-next-$TARGET.zip" `
             -Force
 
       - name: Upload archive artifact
         uses: actions/upload-artifact@v7
         with:
-          name: oxidns-${{ matrix.target }}.${{ matrix.archive_ext }}
-          path: target/${{ matrix.target }}/release/oxidns-${{ matrix.target }}.${{ matrix.archive_ext }}
+          name: oxidns-next-${{ matrix.target }}.${{ matrix.archive_ext }}
+          path: target/${{ matrix.target }}/release/oxidns-next-${{ matrix.target }}.${{ matrix.archive_ext }}
           compression-level: 0
           if-no-files-found: error
 
@@ -347,7 +361,7 @@ jobs:
           BUNDLE="${{ matrix.bundle }}"
           TARGET="${{ matrix.target }}"
           DIR="target/${TARGET}/release"
-          ARCHIVE="oxidns-${BUNDLE}-${TARGET}.tar.gz"
+          ARCHIVE="oxidns-next-${BUNDLE}-${TARGET}.tar.gz"
 
           ls -lah "$DIR"
           cp LICENSE "$DIR"/
@@ -355,31 +369,75 @@ jobs:
             cp config.yaml "$DIR"/
             rm -rf "$DIR/webui"
             cp -R webui/out "$DIR/webui"
-            tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns config.yaml LICENSE webui
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns-next config.yaml LICENSE webui
           else
             # minimal: ship the dedicated minimal config (no api/webui block)
             cp config.minimal.yaml "$DIR/config.yaml"
-            tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns config.yaml LICENSE
+            tar czf "$DIR/${ARCHIVE}" -C "$DIR" oxidns-next config.yaml LICENSE
           fi
 
       - name: Upload slim archive artifact
         uses: actions/upload-artifact@v7
         with:
-          name: oxidns-${{ matrix.bundle }}-${{ matrix.target }}.tar.gz
-          path: target/${{ matrix.target }}/release/oxidns-${{ matrix.bundle }}-${{ matrix.target }}.tar.gz
+          name: oxidns-next-${{ matrix.bundle }}-${{ matrix.target }}.tar.gz
+          path: target/${{ matrix.target }}/release/oxidns-next-${{ matrix.bundle }}-${{ matrix.target }}.tar.gz
           compression-level: 0
           if-no-files-found: error
 
+  docker-smoke:
+    name: Smoke test runtime image
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Checkout runtime Dockerfile
+        uses: actions/checkout@v7
+
+      - name: Download x86_64 musl release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: oxidns-next-x86_64-unknown-linux-musl.tar.gz
+          path: /tmp/oxidns-next-release
+
+      - name: Prepare image context
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .docker-dist
+          mkdir -p .docker-dist
+          tar -xzf /tmp/oxidns-next-release/oxidns-next-x86_64-unknown-linux-musl.tar.gz -C .docker-dist
+          test -x .docker-dist/oxidns-next
+          test -f .docker-dist/config.yaml
+          test -f .docker-dist/LICENSE
+          test -f .docker-dist/webui/index.html
+
+      - name: Build runtime image
+        run: |
+          docker build \
+            --file packaging/docker/Dockerfile.runtime \
+            --build-arg OXIDNS_NEXT_VERSION=${{ github.sha }} \
+            --tag oxidns-next-ci:runtime \
+            .
+
+      - name: Run image smoke tests
+        run: |
+          docker run --rm oxidns-next-ci:runtime --version
+          docker run --rm --entrypoint test oxidns-next-ci:runtime -f /etc/oxidns-next/webui/index.html
+
   publish:
-    name: Publish release
+    name: Publish GitHub release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [release, slim-release]
+    needs: [release, slim-release, docker-smoke]
+    permissions:
+      contents: write
     steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v7
+
       - name: Download all release artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: oxidns-*
+          pattern: oxidns-next-*
           merge-multiple: true
           path: artifacts
 
@@ -390,51 +448,24 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
+          name: OxiDNS Next ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
           files: |
             artifacts/*.zip
             artifacts/*.tar.gz
             artifacts/*.deb
-          generate_release_notes: true
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          make_latest: true
           draft: false
-
-      - name: Notify Telegram
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          VERSION: ${{ github.ref_name }}
-          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          MESSAGE=$(printf '🎉 OxiDNS %s 已发布\n\n👉 查看更新：%s' "$VERSION" "$RELEASE_URL")
-          curl -sS --fail-with-body \
-            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${MESSAGE}" \
-            --data-urlencode "disable_web_page_preview=false"
-
-  publish-crate:
-    name: Publish to crates.io
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    needs: publish
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Verify package
-        run: cargo publish --locked --dry-run
-
-      - name: Publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
-        run: cargo publish --locked
 
   docker:
     name: Publish Docker Images
     if: startsWith(github.ref, 'refs/tags/')
     needs: publish
     uses: ./.github/workflows/docker.yml
+    permissions:
+      contents: read
+      packages: write
     with:
-      OXIDNS_VERSION: ${{ github.ref_name }}
-    secrets: inherit
+      OXIDNS_NEXT_VERSION: ${{ github.ref_name }}

@@ -707,8 +707,8 @@ impl Default for Edns {
 impl Edns {
     /// Construct a default EDNS pseudo-record model.
     ///
-    /// The default UDP payload size is OxiDNS's preferred 1232 bytes, which
-    /// is a common safe DNS-over-UDP payload on the modern Internet.
+    /// The default UDP payload size is OxiDNS Next's preferred 1232 bytes,
+    /// which is a common safe DNS-over-UDP payload on the modern Internet.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(EdnsInner {

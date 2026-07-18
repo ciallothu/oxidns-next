@@ -64,7 +64,7 @@ plugins:
 
 适用场景：
 
-* 首次验证 OxiDNS 行为
+* 首次验证 OxiDNS Next 行为
 * 家庭或实验网络的起步配置
 * 需要先避开 `:53` 端口权限、端口占用和系统 DNS 冲突
 
@@ -82,9 +82,8 @@ api:
   http:
     listen: "127.0.0.1:9088"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
 
 plugins:
   - tag: metrics_main
@@ -267,8 +266,8 @@ plugins:
 
 策略目标：
 
-* 客户端仍使用普通 UDP / TCP 访问 OxiDNS
-* OxiDNS 到上游使用 DoH / DoT
+* 客户端仍使用普通 UDP / TCP 访问 OxiDNS Next
+* OxiDNS Next 到上游使用 DoH / DoT
 * 多个加密上游之间做并发竞争
 
 ```yaml
@@ -417,9 +416,8 @@ api:
   http:
     listen: "127.0.0.1:9088"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
 
 plugins:
   - tag: metrics_main
@@ -478,7 +476,7 @@ plugins:
 * 排查某个域名为什么走了特定分支
 * 给 WebUI 或外部系统提供历史查询与实时查询流
 
-排查 `client_ip` 时要注意：`query_recorder` 记录的是 OxiDNS 收到 DNS 请求时的传输层来源。如果所有记录都是 `127.0.0.1`，通常是 systemd-resolved、dnsmasq、AdGuardHome、dae、clash 等本机转发器先接收了客户端请求再转发给 OxiDNS；请检查客户端 DNS 指向、旁路由/NAT 规则和本机代理链路。HTTP/DoH 反向代理部署可在可信边界内配置 `src_ip_header` 保留真实来源地址。
+排查 `client_ip` 时要注意：`query_recorder` 记录的是 OxiDNS Next 收到 DNS 请求时的传输层来源。如果所有记录都是 `127.0.0.1`，通常是 systemd-resolved、dnsmasq、AdGuardHome、dae、clash 等本机转发器先接收了客户端请求再转发给 OxiDNS Next；请检查客户端 DNS 指向、旁路由/NAT 规则和本机代理链路。HTTP/DoH 反向代理部署可在可信边界内配置 `src_ip_header` 保留真实来源地址。
 
 ## 场景八：DNS 结果驱动网络联动
 

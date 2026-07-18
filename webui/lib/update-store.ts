@@ -7,7 +7,7 @@ import {
   fetchUpgradeCheck,
   fetchUpgradeStatus,
   triggerUpgradeApply,
-} from "./oxidns-api";
+} from "./oxidns-next-api";
 import { WEBUI, tClient } from "./i18n";
 import {
   createProcessInstanceBaseline,
@@ -16,8 +16,18 @@ import {
   type ProcessInstanceBaseline,
 } from "./process-instance";
 import { useAppStore } from "./store";
+import {
+  assertApiSessionCurrent,
+  captureApiSession,
+  isApiSessionCurrent,
+  isSupersededApiRequest,
+} from "./api-client";
 
-const STORAGE_KEY = "oxidns:upgrade-config";
+const STORAGE_KEY_PREFIX = "oxidns-next:upgrade-config:v2";
+const LEGACY_STORAGE_KEYS = [
+  "oxidns:upgrade-config",
+  "oxidns-next:upgrade-config",
+];
 
 export type UpgradeBundle = "auto" | "full" | "minimal" | "standard";
 
@@ -27,25 +37,24 @@ export interface UpgradeConfig {
   outbound: string;
   socks5: string;
   githubToken: string;
-  persistGithubToken: boolean;
   allowPrerelease: boolean;
   autoCheck: boolean;
 }
 
 export const DEFAULT_UPGRADE_CONFIG: UpgradeConfig = {
-  repository: "svenshi/oxidns",
+  repository: "ciallothu/oxidns-next",
   bundle: "auto",
   outbound: "",
   socks5: "",
   githubToken: "",
-  persistGithubToken: false,
   allowPrerelease: false,
   autoCheck: true,
 };
 
-type PersistedUpgradeConfig = Omit<UpgradeConfig, "githubToken"> & {
-  githubToken?: string;
-};
+type PersistedUpgradeConfig = Omit<
+  UpgradeConfig,
+  "githubToken" | "socks5"
+>;
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -63,6 +72,8 @@ export type UpgradeApplyPhase =
   | "completed";
 
 interface UpdateState {
+  upgradeConfigScope: string | null;
+  upgradeSessionGeneration: number | null;
   upgradeConfig: UpgradeConfig;
   updateInfo: UpdateInfo | null;
   isChecking: boolean;
@@ -73,26 +84,29 @@ interface UpdateState {
   checkError: string | null;
   applyError: string | null;
 
+  syncSessionScope: (
+    serverUrl: string,
+    userId: string | null,
+    sessionGeneration: number,
+  ) => void;
   setUpgradeConfig: (config: Partial<UpgradeConfig>) => void;
   checkForUpdates: (currentVersion: string) => Promise<void>;
   triggerUpgrade: () => Promise<void>;
   resetApplyState: () => void;
 }
 
-function loadUpgradeConfig(): UpgradeConfig {
+function loadUpgradeConfig(storageKey: string): UpgradeConfig {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(storageKey);
     if (stored) {
       const parsed = JSON.parse(stored) as Partial<UpgradeConfig>;
-      const persistGithubToken = parsed.persistGithubToken === true;
       return {
         ...DEFAULT_UPGRADE_CONFIG,
         ...pickPersistedUpgradeConfig(parsed),
-        persistGithubToken,
-        githubToken:
-          persistGithubToken && typeof parsed.githubToken === "string"
-            ? parsed.githubToken
-            : "",
+        // Both fields can carry credentials and are deliberately memory-only,
+        // even if an older scoped value somehow contains them.
+        githubToken: "",
+        socks5: "",
       };
     }
   } catch {
@@ -101,11 +115,10 @@ function loadUpgradeConfig(): UpgradeConfig {
   return { ...DEFAULT_UPGRADE_CONFIG };
 }
 
-function saveUpgradeConfig(config: UpgradeConfig): void {
+function saveUpgradeConfig(storageKey: string, config: UpgradeConfig): void {
   try {
-    // Persist the token only after explicit user opt-in.
     localStorage.setItem(
-      STORAGE_KEY,
+      storageKey,
       JSON.stringify(pickPersistedUpgradeConfig(config)),
     );
   } catch {
@@ -122,13 +135,6 @@ function pickPersistedUpgradeConfig(
       : {}),
     ...(config.bundle !== undefined ? { bundle: config.bundle } : {}),
     ...(config.outbound !== undefined ? { outbound: config.outbound } : {}),
-    ...(config.socks5 !== undefined ? { socks5: config.socks5 } : {}),
-    ...(config.persistGithubToken !== undefined
-      ? { persistGithubToken: config.persistGithubToken }
-      : {}),
-    ...(config.persistGithubToken && config.githubToken !== undefined
-      ? { githubToken: config.githubToken }
-      : {}),
     ...(config.allowPrerelease !== undefined
       ? { allowPrerelease: config.allowPrerelease }
       : {}),
@@ -136,11 +142,33 @@ function pickPersistedUpgradeConfig(
   };
 }
 
+function upgradeConfigStorageKey(serverUrl: string, userId: string) {
+  const normalizedServer = serverUrl.trim().replace(/\/$/, "");
+  return `${STORAGE_KEY_PREFIX}:${encodeURIComponent(normalizedServer)}:${encodeURIComponent(userId)}`;
+}
+
+function clearLegacyUpgradeConfig() {
+  if (typeof window === "undefined") return;
+  for (const key of LEGACY_STORAGE_KEYS) window.localStorage.removeItem(key);
+}
+
+function clearedRuntimeState() {
+  return {
+    updateInfo: null,
+    isChecking: false,
+    isApplying: false,
+    applyPhase: null,
+    lastCheckedAt: null,
+    lastAppliedVersion: null,
+    checkError: null,
+    applyError: null,
+  };
+}
+
 export const useUpdateStore = create<UpdateState>((set, get) => ({
-  upgradeConfig:
-    typeof window !== "undefined"
-      ? loadUpgradeConfig()
-      : { ...DEFAULT_UPGRADE_CONFIG },
+  upgradeConfigScope: null,
+  upgradeSessionGeneration: null,
+  upgradeConfig: { ...DEFAULT_UPGRADE_CONFIG },
   updateInfo: null,
   isChecking: false,
   isApplying: false,
@@ -150,13 +178,37 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   checkError: null,
   applyError: null,
 
+  syncSessionScope: (serverUrl, userId, sessionGeneration) => {
+    clearLegacyUpgradeConfig();
+    const nextScope = userId
+      ? upgradeConfigStorageKey(serverUrl, userId)
+      : null;
+    if (
+      get().upgradeConfigScope === nextScope &&
+      get().upgradeSessionGeneration === sessionGeneration
+    ) {
+      return;
+    }
+
+    set({
+      upgradeConfigScope: nextScope,
+      upgradeSessionGeneration: sessionGeneration,
+      upgradeConfig: nextScope
+        ? loadUpgradeConfig(nextScope)
+        : { ...DEFAULT_UPGRADE_CONFIG },
+      ...clearedRuntimeState(),
+    });
+  },
+
   setUpgradeConfig: (partial) => {
     const next = { ...get().upgradeConfig, ...partial };
-    saveUpgradeConfig(next);
+    const scope = get().upgradeConfigScope;
+    if (scope) saveUpgradeConfig(scope, next);
     set({ upgradeConfig: next });
   },
 
   checkForUpdates: async (currentVersion: string) => {
+    const session = captureApiSession();
     const { upgradeConfig } = get();
     set({ isChecking: true, checkError: null });
     try {
@@ -168,6 +220,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         githubToken: upgradeConfig.githubToken.trim() || undefined,
         allowPrerelease: upgradeConfig.allowPrerelease,
       });
+      assertApiSessionCurrent(session);
       set({
         updateInfo: {
           currentVersion,
@@ -180,6 +233,12 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         isChecking: false,
       });
     } catch (error) {
+      if (
+        isSupersededApiRequest(error) ||
+        !isApiSessionCurrent(session)
+      ) {
+        return;
+      }
       set({
         checkError:
           error instanceof Error
@@ -192,12 +251,19 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   triggerUpgrade: async () => {
+    const session = captureApiSession();
     const { upgradeConfig, updateInfo } = get();
     const targetVersion = updateInfo?.latestVersion ?? null;
     let baseline = createProcessInstanceBaseline();
     try {
       baseline = createProcessInstanceBaseline(await fetchHealth());
-    } catch {
+    } catch (error) {
+      if (
+        isSupersededApiRequest(error) ||
+        !isApiSessionCurrent(session)
+      ) {
+        return;
+      }
       // Upgrade completion can still be detected through a temporary outage or
       // a fresh uptime signature if the initial health probe is unavailable.
     }
@@ -220,9 +286,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       const installedVersion = await pollUpgradeCompletion({
         baseline,
         targetVersion,
-        onPhase: (phase) => set({ applyPhase: phase }),
+        assertCurrent: () => assertApiSessionCurrent(session),
+        onPhase: (phase) => {
+          if (isApiSessionCurrent(session)) set({ applyPhase: phase });
+        },
       });
+      assertApiSessionCurrent(session);
       await useAppStore.getState().refreshRuntimeState();
+      assertApiSessionCurrent(session);
       set((state) => ({
         applyPhase: "completed",
         isApplying: false,
@@ -240,8 +311,15 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       // The backend may have replaced the bundled WebUI assets too. Reloading
       // after a verified backend version keeps the console code in sync.
       await delay(1200);
+      assertApiSessionCurrent(session);
       if (typeof window !== "undefined") window.location.reload();
     } catch (error) {
+      if (
+        isSupersededApiRequest(error) ||
+        !isApiSessionCurrent(session)
+      ) {
+        return;
+      }
       set({
         applyError:
           error instanceof Error
@@ -279,10 +357,12 @@ const UPGRADE_RECONNECT_TIMEOUT_MS = 2 * 60_000;
 async function pollUpgradeCompletion({
   baseline,
   targetVersion,
+  assertCurrent,
   onPhase,
 }: {
   baseline: ProcessInstanceBaseline;
   targetVersion: string | null;
+  assertCurrent: () => void;
   onPhase: (phase: UpgradeApplyPhase) => void;
 }): Promise<string> {
   let sawDown = false;
@@ -291,6 +371,7 @@ async function pollUpgradeCompletion({
   const applyDeadline = Date.now() + UPGRADE_APPLY_TIMEOUT_MS;
   while (Date.now() < applyDeadline) {
     await delay(1500);
+    assertCurrent();
     try {
       const status = await fetchUpgradeStatus();
       if (status.state === "failed") {
@@ -311,10 +392,18 @@ async function pollUpgradeCompletion({
         versionsEqual(health.version, targetVersion) &&
         processInstanceChanged(health, baseline)
       ) {
-        return verifyUpgradeVersion(targetVersion, health.version, onPhase);
+        return verifyUpgradeVersion(
+          targetVersion,
+          health.version,
+          onPhase,
+          assertCurrent,
+        );
       }
     } catch (error) {
-      if (error instanceof UpgradeApplyFailedError) {
+      if (
+        error instanceof UpgradeApplyFailedError ||
+        isSupersededApiRequest(error)
+      ) {
         throw error;
       }
       sawDown = true;
@@ -330,14 +419,21 @@ async function pollUpgradeCompletion({
   const reconnectDeadline = Date.now() + UPGRADE_RECONNECT_TIMEOUT_MS;
   while (Date.now() < reconnectDeadline) {
     await delay(1500);
+    assertCurrent();
     try {
       const health = await fetchHealth();
       const fresh =
         processInstanceChanged(health, baseline) ||
         (sawDown && !hasProcessIdentityBaseline(baseline));
       if (!fresh) continue;
-      return verifyUpgradeVersion(targetVersion, health.version, onPhase);
-    } catch {
+      return verifyUpgradeVersion(
+        targetVersion,
+        health.version,
+        onPhase,
+        assertCurrent,
+      );
+    } catch (error) {
+      if (isSupersededApiRequest(error)) throw error;
       sawDown = true;
       // The service is still starting.
     }
@@ -350,12 +446,14 @@ async function verifyUpgradeVersion(
   targetVersion: string | null,
   healthVersion: string,
   onPhase: (phase: UpgradeApplyPhase) => void,
+  assertCurrent?: () => void,
 ): Promise<string> {
   onPhase("verifying");
   const verifyDeadline = Date.now() + 45_000;
   let lastVersion = healthVersion;
 
   while (Date.now() < verifyDeadline) {
+    assertCurrent?.();
     try {
       const [{ build }, health] = await Promise.all([
         fetchBuildInfo(),
@@ -365,7 +463,8 @@ async function verifyUpgradeVersion(
       if (!targetVersion || versionsEqual(lastVersion, targetVersion)) {
         return lastVersion;
       }
-    } catch {
+    } catch (error) {
+      if (isSupersededApiRequest(error)) throw error;
       // API routes may still be warming up immediately after process start.
     }
     await delay(1000);

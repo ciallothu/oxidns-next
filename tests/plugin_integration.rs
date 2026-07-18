@@ -26,21 +26,21 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 #[cfg(any(feature = "plugin-download", feature = "plugin-http-request"))]
 use hyper_util::rt::TokioIo;
-use oxidns::config::types::Config;
-use oxidns::core::context::DnsContext;
+use oxidns_next::config::types::Config;
+use oxidns_next::core::context::DnsContext;
 #[cfg(feature = "plugin-script")]
-use oxidns::core::context::RequestMeta;
-use oxidns::infra::clock::AppClock;
-use oxidns::infra::error::{DnsError, Result};
-use oxidns::infra::network::transport::udp::UdpTransport;
-use oxidns::plugin;
-use oxidns::plugin::executor::ExecStep;
-use oxidns::plugin::{PluginRegistry, PluginType};
+use oxidns_next::core::context::RequestMeta;
+use oxidns_next::infra::clock::AppClock;
+use oxidns_next::infra::error::{DnsError, Result};
+use oxidns_next::infra::network::transport::udp::UdpTransport;
+use oxidns_next::plugin;
+use oxidns_next::plugin::executor::ExecStep;
+use oxidns_next::plugin::{PluginRegistry, PluginType};
 #[cfg(feature = "plugin-dynamic-domain")]
-use oxidns::proto::rdata::A;
-use oxidns::proto::{DNSClass, Message, Name, Question, Rcode, RecordType};
+use oxidns_next::proto::rdata::A;
+use oxidns_next::proto::{DNSClass, Message, Name, Question, Rcode, RecordType};
 #[cfg(feature = "plugin-dynamic-domain")]
-use oxidns::proto::{RData, Record};
+use oxidns_next::proto::{RData, Record};
 use tempfile::TempDir;
 #[cfg(any(feature = "plugin-download", feature = "plugin-http-request"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -519,7 +519,7 @@ async fn handle_test_socks5_client(mut client: TcpStream) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn linux_system_plugin_tests_enabled() -> bool {
-    oxidns::infra::env::exists("TEST_LINUX_SYSTEM_PLUGINS")
+    oxidns_next::infra::env::exists("TEST_LINUX_SYSTEM_PLUGINS")
 }
 
 #[cfg(target_os = "linux")]
@@ -3849,10 +3849,10 @@ plugins:
     context.marks_mut().insert(1);
     context.set_attr("cron.job_name", "nightly".to_string());
     let mut response = context.request().response(Rcode::NoError);
-    response.add_answer(oxidns::proto::Record::from_rdata(
+    response.add_answer(oxidns_next::proto::Record::from_rdata(
         Name::from_ascii("example.com.").unwrap(),
         60,
-        oxidns::proto::RData::A(oxidns::proto::rdata::A(Ipv4Addr::new(192, 0, 2, 1))),
+        oxidns_next::proto::RData::A(oxidns_next::proto::rdata::A(Ipv4Addr::new(192, 0, 2, 1))),
     ));
     context.set_response(response);
 
@@ -4111,10 +4111,10 @@ plugins:
         .to_executor();
     let mut context = make_context(registry.clone(), "example.com.");
     let mut response = context.request().response(Rcode::NoError);
-    response.add_answer(oxidns::proto::Record::from_rdata(
+    response.add_answer(oxidns_next::proto::Record::from_rdata(
         Name::from_ascii("example.com.").unwrap(),
         60,
-        oxidns::proto::RData::A(oxidns::proto::rdata::A(Ipv4Addr::new(192, 0, 2, 1))),
+        oxidns_next::proto::RData::A(oxidns_next::proto::rdata::A(Ipv4Addr::new(192, 0, 2, 1))),
     ));
     context.set_response(response);
 
@@ -4494,7 +4494,7 @@ async fn test_linux_ipset_executor_writes_masked_prefix_to_kernel_set() -> Resul
         return Ok(());
     }
 
-    let set_name = unique_system_object_name("oxidns_test_ipset");
+    let set_name = unique_system_object_name("oxidns_next_test_ipset");
     let _cleanup = CommandCleanup::new(vec![(
         "ipset".to_string(),
         vec!["destroy".to_string(), set_name.clone()],
@@ -4559,8 +4559,8 @@ async fn test_linux_nftset_executor_handles_slash32_and_repeated_adds() -> Resul
         return Ok(());
     }
 
-    let table_name = unique_system_object_name("oxidns_test_nft_122");
-    let set_name = "oxidns_test_v4_122".to_string();
+    let table_name = unique_system_object_name("oxidns_next_test_nft_122");
+    let set_name = "oxidns_next_test_v4_122".to_string();
     let _cleanup = CommandCleanup::new(vec![(
         "nft".to_string(),
         vec![
@@ -4648,8 +4648,8 @@ async fn test_linux_nftset_executor_writes_masked_prefix_to_kernel_set() -> Resu
         return Ok(());
     }
 
-    let table_name = unique_system_object_name("oxidns_test_nft");
-    let set_name = "oxidns_test_v4".to_string();
+    let table_name = unique_system_object_name("oxidns_next_test_nft");
+    let set_name = "oxidns_next_test_v4".to_string();
     let _cleanup = CommandCleanup::new(vec![(
         "nft".to_string(),
         vec![

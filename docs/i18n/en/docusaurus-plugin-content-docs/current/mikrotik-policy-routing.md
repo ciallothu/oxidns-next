@@ -3,11 +3,11 @@ title: MikroTik Policy Routing
 sidebar_position: 5
 ---
 
-This chapter explains how the OxiDNS `ros_address_list` executor works with RouterOS `address-list`, `mangle`, and policy-routing mechanisms to build a system where DNS resolution results drive later egress selection.
+This chapter explains how the OxiDNS Next `ros_address_list` executor works with RouterOS `address-list`, `mangle`, and policy-routing mechanisms to build a system where DNS resolution results drive later egress selection.
 
 The core idea is not to match domains directly inside RouterOS. Instead, the workflow is:
 
-1. OxiDNS resolves the domain first.
+1. OxiDNS Next resolves the domain first.
 2. It extracts the target IPs from the DNS response.
 3. Matching target IPs are synced into RouterOS `address-list`.
 4. During connection setup, RouterOS decides whether to apply policy marks based on whether the target IP matches that `address-list`.
@@ -17,17 +17,17 @@ This design matters because:
 
 * RouterOS does not need to repeat domain-resolution logic.
 * The routing decision happens at the IP layer, which maps naturally to RouterOS primitives.
-* OxiDNS maintains the dynamic mapping from domain to target IP.
+* OxiDNS Next maintains the dynamic mapping from domain to target IP.
 * RouterOS remains responsible for mapping target IPs to egress policy.
 
 ## Overall Workflow
 
-### OxiDNS-Side Flow
+### OxiDNS Next-Side Flow
 
 ```mermaid
 flowchart TD
-    A["User accesses a domain"] --> B["Request enters OxiDNS"]
-    B --> C["OxiDNS resolves the domain"]
+    A["User accesses a domain"] --> B["Request enters OxiDNS Next"]
+    B --> C["OxiDNS Next resolves the domain"]
     C --> D["Gets target IPs"]
     D --> E["Checks whether the IPs belong to policy_set"]
 
@@ -62,7 +62,7 @@ flowchart TD
 
 ## Division of Responsibilities
 
-### What OxiDNS Does
+### What OxiDNS Next Does
 
 * Receives DNS requests.
 * Resolves names according to policy.
@@ -125,7 +125,7 @@ plugins:
       async: true
       address_list4: "policy_set_v4"
       address_list6: "policy_set_v6"
-      comment_prefix: "oxidns"
+      comment_prefix: "oxidns-next"
       min_ttl: 60
       max_ttl: 1800
 
@@ -148,7 +148,7 @@ address: "172.16.1.1:8728"
 Meaning:
 
 * RouterOS API address.
-* OxiDNS uses it to connect to RouterOS and manage address-list entries.
+* OxiDNS Next uses it to connect to RouterOS and manage address-list entries.
 
 ### `connect_timeout` / `send_timeout` / `receive_timeout`
 
@@ -166,7 +166,7 @@ Meaning:
 
 Recommended practice:
 
-* Use dedicated, size-controlled `address-list` targets for OxiDNS. Avoid connecting the plugin directly to existing large shared lists.
+* Use dedicated, size-controlled `address-list` targets for OxiDNS Next. Avoid connecting the plugin directly to existing large shared lists.
 * If a legacy deployment cannot split the list yet, or the RouterOS management plane is slow enough that startup reconcile scans often exceed the default 5 seconds, increase `receive_timeout` first, for example to `30` or `60`.
 * `connect_timeout` and `send_timeout` can usually keep their defaults unless the management network is slow or the RouterOS API is occasionally busy.
 
@@ -257,7 +257,7 @@ persistent:
     - "1.1.1.1"
     - "203.0.113.0/24"
   files:
-    - "/etc/oxidns/persistent_policy_ips.txt"
+    - "/etc/oxidns-next/persistent_policy_ips.txt"
 ```
 
 Meaning:
@@ -271,7 +271,7 @@ Good fits:
 
 ## RouterOS Policy-Routing Model
 
-OxiDNS only writes target IPs into `address-list`. The actual policy routing still happens on the RouterOS side.
+OxiDNS Next only writes target IPs into `address-list`. The actual policy routing still happens on the RouterOS side.
 
 The standard pattern has three steps:
 
@@ -283,7 +283,7 @@ The standard pattern has three steps:
 
 #### Step 1: Identify Whether the Destination Hits the Policy Set
 
-RouterOS reads the destination IP and checks whether it belongs to the `address-list` maintained by OxiDNS.
+RouterOS reads the destination IP and checks whether it belongs to the `address-list` maintained by OxiDNS Next.
 
 This corresponds to:
 
@@ -329,7 +329,7 @@ This design relies on one practical assumption:
 * The client usually sends a DNS query first.
 * It then starts the network connection shortly afterward using the returned address.
 
-So as long as OxiDNS writes the target IP to RouterOS quickly after answering DNS, the following connection will usually hit the expected address-list entry.
+So as long as OxiDNS Next writes the target IP to RouterOS quickly after answering DNS, the following connection will usually hit the expected address-list entry.
 
 There are still boundary conditions:
 
@@ -340,7 +340,7 @@ There are still boundary conditions:
 
 The impact can be reduced from three angles:
 
-1. Keep the OxiDNS-to-RouterOS API path stable and low-latency.
+1. Keep the OxiDNS Next-to-RouterOS API path stable and low-latency.
 2. Do not set `min_ttl` too low, which reduces RouterOS churn.
 3. Use `persistent` for critical targets so the first dynamic write is not the only protection.
 
@@ -460,7 +460,7 @@ On RouterOS, map:
 
 ## Debugging and Troubleshooting
 
-### Confirm Three Things on the OxiDNS Side
+### Confirm Three Things on the OxiDNS Next Side
 
 1. The domain really matches the intended policy branch.
 2. The DNS response really contains `A` or `AAAA`.
@@ -485,7 +485,7 @@ Useful tools:
 If a client:
 
 * Caches DNS for a long time
-* Does not use OxiDNS
+* Does not use OxiDNS Next
 * Uses some other resolver result
 
 then the RouterOS-side policy set may no longer cover the actual connection target.
@@ -525,7 +525,7 @@ and validate the full loop first.
 
 ### Recommendation 2: Keep DNS Decisions and Routing Decisions Layered
 
-OxiDNS is responsible for:
+OxiDNS Next is responsible for:
 
 * Which domains belong to which policy class
 * Which resolution results should be synced
@@ -548,17 +548,17 @@ So:
 
 ## Summary
 
-The OxiDNS `ros_address_list` plugin is essentially a DNS-result synchronizer:
+The OxiDNS Next `ros_address_list` plugin is essentially a DNS-result synchronizer:
 
 * It converts domain resolution results into target IP sets that RouterOS can consume.
 * RouterOS then performs the actual policy routing based on those target IP sets.
 
 The full loop looks like this:
 
-1. OxiDNS decides how a domain should be resolved.
-2. OxiDNS writes target IPs that match policy into `policy_set`.
+1. OxiDNS Next decides how a domain should be resolved.
+2. OxiDNS Next writes target IPs that match policy into `policy_set`.
 3. RouterOS marks new connections based on `policy_set`.
 4. RouterOS derives routing marks from connection marks.
 5. Traffic leaves through the selected egress.
 
-For the goal of "make later connections to specific domains consistently use a specific egress path", this is one of the most representative and practical ways to use the current OxiDNS `ros_address_list` plugin.
+For the goal of "make later connections to specific domains consistently use a specific egress path", this is one of the most representative and practical ways to use the current OxiDNS Next `ros_address_list` plugin.

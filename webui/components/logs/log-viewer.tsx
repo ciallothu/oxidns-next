@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
-import { streamLogs, type LogEntry } from "@/lib/oxidns-api";
+import { streamLogs, type LogEntry } from "@/lib/oxidns-next-api";
 
 const LEVEL_COLORS: Record<
   string,
@@ -319,7 +319,7 @@ export function LogViewer() {
       {/* Log content */}
       <div
         ref={scrollRef}
-        className="oxidns-dialog-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain bg-zinc-950 p-2 pb-4 font-mono text-xs leading-relaxed dark:bg-zinc-950"
+        className="oxidns-next-dialog-scrollbar min-h-0 flex-1 overflow-auto overscroll-contain bg-zinc-950 p-2 pb-4 font-mono text-xs leading-relaxed dark:bg-zinc-950"
       >
         {filtered.length === 0 ? (
           <div className="flex items-center justify-center h-full text-zinc-600">

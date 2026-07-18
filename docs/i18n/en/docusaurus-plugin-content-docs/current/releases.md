@@ -7,10 +7,28 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 
 # Release Notes
 
+This page lists OxiDNS Next releases first. The remaining entries are retained as the historical release record of upstream OxiDNS.
+
+## 2026-07
+
+<div className="release-stack">
+  <ReleaseCard version="v0.1.0" badge="First OxiDNS Next Release" date="2026-07-18" defaultOpen>
+      **What's new**
+
+      - The first public OxiDNS Next release establishes its independent identity and release channel.
+      - Local login, OIDC, passkeys, and TOTP add flexible account security choices.
+      - Query logs now have a dedicated view with keyword and date search.
+      - The dashboard and plugin center are combined so status and every plugin are available in one place.
+      - Feature implementation was audited and the user-facing documentation was refreshed.
+  </ReleaseCard>
+</div>
+
+## Upstream OxiDNS release history
+
 ## 2026-06
 
 <div className="release-stack">
-   <ReleaseCard version="v1.4.0" badge="Minor Release" date="2026-06-24" defaultOpen>
+   <ReleaseCard version="v1.4.0" badge="Minor Release" date="2026-06-24">
        **Release Scope**
 
        - Minor Release. v1.4.0 focuses on egress control, upstream diagnostics, and concurrent upstream decision making for complex network environments. It introduces `network.outbound` as a unified egress layer, adds the `oxidns probe upstream` diagnostics command, extends `forward` with configurable concurrent response selection, and improves cache behavior, DoH serving, WebUI upgrade flow, and query recorder read performance.

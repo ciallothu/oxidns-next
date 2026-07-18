@@ -94,7 +94,7 @@
    `grid-cols-1` utilities live in Tailwind's `utilities` layer and would
    otherwise outrank a `@layer components` rule, preventing the
    container-query 2-col override from taking effect. */
-.oxidns-config-fields-grid {
+.oxidns-next-config-fields-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   row-gap: 1.25rem;
@@ -102,7 +102,7 @@
 }
 
 @container field-group (min-width: 28rem) {
-  .oxidns-config-fields-grid {
+  .oxidns-next-config-fields-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -152,7 +152,7 @@ body {
 }
 
 @layer components {
-  .oxidns-dialog-scrollbar {
+  .oxidns-next-dialog-scrollbar {
     scrollbar-gutter: stable;
     scrollbar-color: color-mix(
         in oklch,
@@ -163,22 +163,22 @@ body {
     scrollbar-width: thin;
   }
 
-  .oxidns-dialog-scrollbar::-webkit-scrollbar {
+  .oxidns-next-dialog-scrollbar::-webkit-scrollbar {
     width: 0.625rem;
   }
 
-  .oxidns-dialog-scrollbar::-webkit-scrollbar-track {
+  .oxidns-next-dialog-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  .oxidns-dialog-scrollbar::-webkit-scrollbar-thumb {
+  .oxidns-next-dialog-scrollbar::-webkit-scrollbar-thumb {
     background: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
     background-clip: content-box;
     border: 3px solid transparent;
     border-radius: 9999px;
   }
 
-  .oxidns-dialog-scrollbar::-webkit-scrollbar-thumb:hover {
+  .oxidns-next-dialog-scrollbar::-webkit-scrollbar-thumb:hover {
     background: color-mix(in oklch, var(--muted-foreground) 55%, transparent);
     background-clip: content-box;
   }
@@ -186,12 +186,12 @@ body {
   /* Hide the scrollbar while keeping the element scrollable. Used by the
      horizontally scrollable filter bar on narrow (mobile) viewports so the
      category tabs can be swiped through without a visible scrollbar. */
-  .oxidns-no-scrollbar {
+  .oxidns-next-no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
 
-  .oxidns-no-scrollbar::-webkit-scrollbar {
+  .oxidns-next-no-scrollbar::-webkit-scrollbar {
     display: none;
   }
 

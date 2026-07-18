@@ -8,16 +8,21 @@ members = [
 ]
 
 [package]
-name = "oxidns"
-version = "1.4.0"
+name = "oxidns-next"
+version = "0.1.0"
 edition = "2024"
-authors = ["Sven Shi <isvenshi@gmail.com>"]
-description = "A Rust-powered DNS engine inspired by MosDNS, designed for performance and complete configurability."
-repository = "https://github.com/svenshi/oxidns"
+authors = ["Sven Shi <isvenshi@gmail.com>", "ciallothu <ciallothu@users.noreply.github.com>"]
+description = "A high-performance, plugin-driven DNS server with a secure management console."
+repository = "https://github.com/ciallothu/oxidns-next"
 license = "GPL-3.0-or-later"
 readme = "README_EN.md"
 keywords = ["dns", "rustdns", "pipeline", "flow", "dns-server"]
 categories = ["network-programming"]
+
+[package.metadata.cargo-shear]
+# `webauthn-rs-core` hard-depends on OpenSSL. This direct dependency exists
+# only to unify the `vendored` feature for cross-platform release builds.
+ignored = ["openssl"]
 
 
 [dependencies]
@@ -54,9 +59,17 @@ url = "2.5"
 fs2 = "0.4"
 hex = "0.4"
 sha2 = "0.11.0"
+argon2 = { version = "0.5.3", optional = true }
+cookie = { version = "0.18.1", optional = true }
+openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
+openssl = { version = "0.10.75", features = ["vendored"], optional = true }
+subtle = { version = "2.6.1", optional = true }
+totp-rs = { version = "5.7.2", features = ["gen_secret", "otpauth", "zeroize"], optional = true }
+uuid = { version = "1.19.0", features = ["serde", "v4"], optional = true }
+webauthn-rs = { version = "0.5.5", optional = true }
 wincode = { version = "0.5", features = ["derive"] }
-oxidns-proto = { version = "0.1.3", path = "crates/proto" }
-oxidns-macros = { version = "0.1.0", path = "crates/macros" }
+oxidns-next-proto = { version = "0.1.3", path = "crates/proto" }
+oxidns-next-macros = { version = "0.1.0", path = "crates/macros" }
 hotpath = "0.17"
 
 # Optional: only needed by the `plugin-upgrade` feature (self-upgrade CLI +
@@ -103,13 +116,13 @@ cronexpr = { version = "1.5.0", optional = true }
 fast-socks5 = "1.0.0"
 mikrotik-rs = { version = "0.8.0", optional = true }
 rusqlite = { version = "0.40.1", features = ["bundled"], optional = true }
-zoneparser = { package = "oxidns-zoneparser", version = "0.1.1", path = "crates/zoneparser", optional = true }
+oxidns-next-zoneparser = { version = "0.1.1", path = "crates/zoneparser", optional = true }
 
 # Service management
 service-manager = "0.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ripset = { package = "oxidns-ripset", version = "0.1.2", path = "crates/ripset", optional = true }
+oxidns-next-ripset = { version = "0.1.2", path = "crates/ripset", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 zip = { version = "8", optional = true }
@@ -194,7 +207,20 @@ full = [
 # plugin-scoped endpoints). Pulls in hyper(server) + rustls(server) so HTTPS
 # can be enabled from config; plain HTTP still works without `_tls-*` paths
 # being exercised at runtime.
-api = ["_http-server", "_tls-server"]
+api = [
+    "_http-server",
+    "_http-client",
+    "_tls-server",
+    "dep:argon2",
+    "dep:cookie",
+    "dep:openidconnect",
+    "dep:openssl",
+    "dep:rusqlite",
+    "dep:subtle",
+    "dep:totp-rs",
+    "dep:uuid",
+    "dep:webauthn-rs",
+]
 
 # Static WebUI assets served from the api hub (requires `api`).
 webui = ["api"]
@@ -256,7 +282,7 @@ plugin-mikrotik = ["dep:mikrotik-rs"]
 plugin-query-recorder = ["api", "_sequence-step-recording", "dep:rusqlite"]
 
 # `ipset` + `nftset` executors (Linux netlink-backed firewall set sync).
-plugin-ipset = ["dep:ripset"]
+plugin-ipset = ["dep:oxidns-next-ripset"]
 
 # `cron` executor (cron-expression scheduled triggers).
 plugin-cron = ["dep:cronexpr"]
@@ -272,7 +298,7 @@ plugin-ip-selector = []
 plugin-script = []
 
 # `arbitrary` executor (zone-style static DNS records).
-plugin-arbitrary = ["dep:zoneparser"]
+plugin-arbitrary = ["dep:oxidns-next-zoneparser"]
 
 # Self-upgrade CLI sub-command + `upgrade` executor (archive download &
 # verify, then replace the binary). Needs the HTTP client to fetch
@@ -367,29 +393,29 @@ harness = false
 
 
 [[bin]]
-name = "oxidns"
+name = "oxidns-next"
 path = "src/main.rs"
 
 [lib]
-name = "oxidns"
+name = "oxidns_next"
 path = "src/lib.rs"
 doctest = false
 
 
 [package.metadata.deb]
-maintainer = "Sven Shi <isvenshi@gmail.com>"
-copyright = "2026, Sven Shi"
+maintainer = "ciallothu <ciallothu@users.noreply.github.com>"
+copyright = "2025-2026, Sven Shi and OxiDNS Next contributors"
 depends = "$auto"
 section = "net"
 priority = "optional"
 license-file = ["LICENSE", "0"]
 extended-description = """\
-A Rust-powered DNS engine inspired by MosDNS, designed for performance and complete configurability.
+A high-performance, plugin-driven DNS server with a secure management console.
 """
 assets = [
-    ["target/release/oxidns", "usr/bin/oxidns", "755"],
-    ["config.yaml", "etc/oxidns/config.yaml", "644"],
-    ["webui/out/**/*", "usr/share/oxidns/webui", "644"],
+    ["target/release/oxidns-next", "usr/bin/oxidns-next", "755"],
+    ["config.yaml", "etc/oxidns-next/config.yaml", "644"],
+    ["webui/out/**/*", "usr/share/oxidns-next/webui", "644"],
 ]
 maintainer-scripts = "packaging/debian"
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=OxiDNS Next Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/oxidns-next start -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

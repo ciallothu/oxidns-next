@@ -1,13 +1,14 @@
-# OxiDNS minimal configuration file
+# OxiDNS Next minimal configuration file
 #
 # Shipped with `minimal` bundle builds. Drops every section that depends on
 # features outside the minimal bundle (api, webui, encrypted protocols, ...).
 #
 # See full documentation at:
-# https://oxidns.org
+# https://github.com/ciallothu/oxidns-next
 
 log:
   level: info
+  # query_file: "./data/query-events.log"
 
 # Management API and WebUI are not available in the minimal bundle.
 # Uncomment after upgrading to a `standard` or `full` build.

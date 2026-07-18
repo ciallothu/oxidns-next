@@ -12,7 +12,7 @@
 //! - host a small in-process route registry keyed by method and path;
 //! - provide [`ApiRegister`] so built-in components and plugins can expose
 //!   endpoints without coupling to the HTTP server implementation;
-//! - enforce optional basic authentication and TLS; and
+//! - enforce optional account/session authentication and TLS; and
 //! - publish shared health state about startup, plugin initialization, and
 //!   shutdown.
 //!
@@ -21,6 +21,7 @@
 //! matching or response generation.
 
 mod auth;
+mod auth_store;
 mod build;
 pub mod control;
 mod cors;
@@ -44,8 +45,6 @@ mod upgrade;
 use std::sync::Arc;
 
 #[cfg(test)]
-pub(super) use auth::is_authorized;
-#[cfg(test)]
 pub(crate) use global::global_api_test_guard;
 #[cfg(test)]
 pub(crate) use global::set_global_api_register_for_test;
@@ -68,6 +67,7 @@ use crate::infra::error::Result;
 /// health and metrics.
 pub fn register_builtin_routes() -> Result<()> {
     if let Some(register) = global_api_register() {
+        auth::register_builtin_routes(&register, register.auth_service())?;
         health::register_builtin_routes(&register, register.health_state())?;
         #[cfg(feature = "metrics")]
         metrics::register_builtin_routes(&register)?;

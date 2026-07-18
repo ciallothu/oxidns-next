@@ -1,15 +1,15 @@
-# Uninstall OxiDNS files installed by scripts/install.ps1 on Windows.
+# Uninstall OxiDNS Next files installed by scripts/install.ps1 on Windows.
 #
 # Common overrides:
-#   $env:OXIDNS_INSTALL_DIR = "C:\OxiDNS"
-#   $env:OXIDNS_UNINSTALL_SERVICE = "1"
-#   $env:OXIDNS_PURGE = "1"
+#   $env:OXIDNS_NEXT_INSTALL_DIR = "C:\OxiDNS Next"
+#   $env:OXIDNS_NEXT_UNINSTALL_SERVICE = "1"
+#   $env:OXIDNS_NEXT_PURGE = "1"
 
 param(
-    [string]$InstallDir = $env:OXIDNS_INSTALL_DIR,
-    [string]$NoPath = $env:OXIDNS_NO_PATH,
-    [string]$UninstallService = $env:OXIDNS_UNINSTALL_SERVICE,
-    [string]$Purge = $env:OXIDNS_PURGE
+    [string]$InstallDir = $env:OXIDNS_NEXT_INSTALL_DIR,
+    [string]$NoPath = $env:OXIDNS_NEXT_NO_PATH,
+    [string]$UninstallService = $env:OXIDNS_NEXT_UNINSTALL_SERVICE,
+    [string]$Purge = $env:OXIDNS_NEXT_PURGE
 )
 
 Set-StrictMode -Version Latest
@@ -73,6 +73,13 @@ function Assert-SafePurgePath {
 
     $trimChars = [char[]]@("\", "/")
     $fullPath = [System.IO.Path]::GetFullPath($PathToPurge).TrimEnd($trimChars)
+    if (Test-Path -LiteralPath $fullPath) {
+        $fullPath = (Resolve-Path -LiteralPath $fullPath).Path.TrimEnd($trimChars)
+    }
+    $leafName = [System.IO.Path]::GetFileName($fullPath)
+    if ($leafName -notmatch "oxidns[- ]next") {
+        throw "refusing to purge a directory not named for OxiDNS Next: $PathToPurge"
+    }
     $homePath = [System.IO.Path]::GetFullPath($HOME).TrimEnd($trimChars)
     $localAppData = $env:LOCALAPPDATA
     if (-not [string]::IsNullOrWhiteSpace($localAppData)) {
@@ -111,10 +118,10 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
             $base = Join-Path $HOME "AppData\Local"
         }
     }
-    $InstallDir = Join-Path $base "OxiDNS"
+    $InstallDir = Join-Path $base "OxiDNS Next"
 }
 
-$exePath = Join-Path $InstallDir "oxidns.exe"
+$exePath = Join-Path $InstallDir "oxidns-next.exe"
 
 if (Test-ShouldUninstallService $UninstallService) {
     if (Test-Path -LiteralPath $exePath) {
@@ -122,7 +129,7 @@ if (Test-ShouldUninstallService $UninstallService) {
         try { & $exePath service stop *> $null } catch { }
         & $exePath service uninstall *> $null
         if ($LASTEXITCODE -eq 0) {
-            Write-Info "Removed OxiDNS service"
+            Write-Info "Removed OxiDNS Next service"
         } else {
             Write-Warning "service uninstall failed or service was not installed"
         }
@@ -140,12 +147,12 @@ if (Test-Truthy $Purge) {
     Assert-SafePurgePath -PathToPurge $InstallDir
     if (Test-Path -LiteralPath $InstallDir) {
         Remove-Item -LiteralPath $InstallDir -Recurse -Force
-        Write-Info "Purged OxiDNS install directory: $InstallDir"
+        Write-Info "Purged OxiDNS Next install directory: $InstallDir"
     }
 } else {
     $paths = @(
-        (Join-Path $InstallDir "oxidns.exe"),
-        (Join-Path $InstallDir "oxidns.exe.tmp"),
+        (Join-Path $InstallDir "oxidns-next.exe"),
+        (Join-Path $InstallDir "oxidns-next.exe.tmp"),
         (Join-Path $InstallDir "LICENSE")
     )
     foreach ($path in $paths) {
@@ -159,12 +166,12 @@ if (Test-Truthy $Purge) {
         Remove-Item -LiteralPath $webuiPath -Recurse -Force
     }
 
-    Write-Info "Removed OxiDNS binary and WebUI from $InstallDir"
+    Write-Info "Removed OxiDNS Next binary and WebUI from $InstallDir"
     $configPath = Join-Path $InstallDir "config.yaml"
     if (Test-Path -LiteralPath $configPath) {
         Write-Info "Kept config: $configPath"
-        Write-Info "Use OXIDNS_PURGE=1 to remove the install directory and config."
+        Write-Info "Use OXIDNS_NEXT_PURGE=1 to remove the install directory and config."
     }
 }
 
-Write-Info "OxiDNS uninstall complete"
+Write-Info "OxiDNS Next uninstall complete"

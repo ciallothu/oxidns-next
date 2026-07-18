@@ -7,7 +7,7 @@
 //! nft add table ip proxy
 //! nft 'add set ip proxy proxy_set { type ipv4_addr; flags interval; }'
 //!
-//! cargo run -p oxidns-ripset --example issue127_repro
+//! cargo run -p oxidns-next-ripset --example issue127_repro
 //! nft list set ip proxy proxy_set
 //! ```
 //!
@@ -19,7 +19,7 @@
 
 use std::net::IpAddr;
 
-use ripset::{IpCidr, nftset_add};
+use oxidns_next_ripset::{IpCidr, nftset_add};
 
 fn main() {
     let ips = ["185.45.5.35", "1.2.3.4", "8.8.8.8"];

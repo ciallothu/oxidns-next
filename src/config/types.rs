@@ -3,10 +3,11 @@
 
 //! Configuration structure definitions
 //!
-//! Defines the schema for OxiDNS configuration files (YAML format).
+//! Defines the schema for OxiDNS Next configuration files (YAML format).
 
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
 use serde_yaml_ng::Value;
@@ -24,6 +25,12 @@ pub enum ConfigError {
     #[error("Invalid log level: {0}")]
     InvalidLogLevel(String),
 
+    #[error("log.{field} cannot be empty")]
+    EmptyLogFilePath { field: &'static str },
+
+    #[error("log.file and log.query_file must use different paths")]
+    DuplicateLogFilePath,
+
     #[error("Plugin type cannot be empty")]
     EmptyPluginType,
 
@@ -38,6 +45,12 @@ pub enum ConfigError {
 
     #[error("api.http.auth.basic.password cannot be empty")]
     EmptyApiBasicAuthPassword,
+
+    #[error("Invalid api.http.auth configuration: {0}")]
+    InvalidApiAuth(String),
+
+    #[error("Invalid api.http.cors configuration: {0}")]
+    InvalidApiCors(String),
 
     #[error("api.http.ssl.cert and api.http.ssl.key must be configured together")]
     IncompleteApiTlsConfig,
@@ -108,6 +121,23 @@ impl Config {
             "off" | "trace" | "debug" | "info" | "warn" | "error" => {}
             _ => return Err(ConfigError::InvalidLogLevel(self.log.level.clone())),
         }
+        for (field, path) in [
+            ("file", self.log.file.as_deref()),
+            ("query_file", self.log.query_file.as_deref()),
+        ] {
+            if path.is_some_and(|value| value.trim().is_empty()) {
+                return Err(ConfigError::EmptyLogFilePath { field });
+            }
+        }
+        if self
+            .log
+            .file
+            .as_deref()
+            .zip(self.log.query_file.as_deref())
+            .is_some_and(|(system, query)| log_paths_equivalent(system, query))
+        {
+            return Err(ConfigError::DuplicateLogFilePath);
+        }
 
         if let Some(http) = &self.api.http {
             let resolved = http.resolve();
@@ -126,13 +156,12 @@ impl Config {
                 }
             }
 
-            if let Some(ApiAuthConfig::Basic { username, password }) = &resolved.auth {
-                if username.trim().is_empty() {
-                    return Err(ConfigError::EmptyApiBasicAuthUsername);
-                }
-                if password.trim().is_empty() {
-                    return Err(ConfigError::EmptyApiBasicAuthPassword);
-                }
+            if let Some(auth) = &resolved.auth {
+                auth.validate()?;
+            }
+
+            if let Some(cors) = &resolved.cors {
+                cors.validate()?;
             }
 
             if let Some(webui) = &resolved.webui {
@@ -170,6 +199,48 @@ impl Config {
 
         Ok(())
     }
+}
+
+fn log_paths_equivalent(left: &str, right: &str) -> bool {
+    let base = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let normalize = |raw: &str| {
+        let path = Path::new(raw.trim());
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            base.join(path)
+        };
+        normalize_path_lexically(&absolute)
+    };
+    let left = normalize(left);
+    let right = normalize(right);
+
+    #[cfg(windows)]
+    {
+        left.to_string_lossy().to_lowercase() == right.to_string_lossy().to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        left == right
+    }
+}
+
+fn normalize_path_lexically(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                // The caller makes relative inputs absolute first, so a parent
+                // component at the filesystem root cannot escape that root.
+                normalized.pop();
+            }
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    normalized
 }
 
 /// Shared network configuration.
@@ -279,9 +350,10 @@ impl OutboundProfileConfig {
 
 /// Resolver policy for an outbound profile.
 ///
-/// This resolver is used by OxiDNS-owned outbound clients and opt-in upstreams.
-/// It is intentionally separate from legacy upstream `bootstrap`, whose field
-/// remains available on each upstream for local override compatibility.
+/// This resolver is used by OxiDNS Next-owned outbound clients and opt-in
+/// upstreams. It is intentionally separate from legacy upstream `bootstrap`,
+/// whose field remains available on each upstream for local override
+/// compatibility.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum OutboundResolverConfig {
@@ -592,6 +664,30 @@ pub struct ApiCorsConfig {
     pub allowed_origin_hosts: Vec<String>,
 }
 
+impl ApiCorsConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        for origin in &self.allowed_origins {
+            if origin == "*" {
+                continue;
+            }
+            let url = url::Url::parse(origin).map_err(|error| {
+                ConfigError::InvalidApiCors(format!("invalid allowed origin {origin:?}: {error}"))
+            })?;
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.origin().ascii_serialization() != *origin
+            {
+                return Err(ConfigError::InvalidApiCors(format!(
+                    "allowed origin {origin:?} must be an exact HTTP(S) origin without credentials, a path, query, or fragment"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Expanded HTTP API configuration.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiHttpDetailedConfig {
@@ -619,10 +715,419 @@ pub struct ApiTlsConfig {
 }
 
 /// Authentication settings for the management API.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ApiAuthConfig {
+    /// Deprecated compatibility form. On first startup these credentials are
+    /// imported into the accounts database and are ignored thereafter.
     Basic { username: String, password: String },
+    /// Persistent management accounts with session-based authentication.
+    Accounts {
+        #[serde(default = "default_auth_database")]
+        database: String,
+        /// One-time token that permits non-loopback bootstrap requests.
+        bootstrap_token: Option<String>,
+        /// Environment variable containing the one-time bootstrap token.
+        bootstrap_token_env: Option<String>,
+        #[serde(default = "default_auth_session_ttl_seconds")]
+        session_ttl_seconds: u64,
+        /// Override the automatic Secure-cookie policy. Production HTTPS
+        /// deployments should normally leave this unset.
+        cookie_secure: Option<bool>,
+        #[serde(default)]
+        cookie_same_site: ApiCookieSameSite,
+        /// Browser-visible base URL, used to derive WebAuthn settings.
+        public_url: Option<String>,
+        oidc: Option<ApiOidcConfig>,
+        passkey: Option<ApiPasskeyConfig>,
+    },
+}
+
+impl std::fmt::Debug for ApiAuthConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Basic { username, .. } => formatter
+                .debug_struct("Basic")
+                .field("username", username)
+                .field("password", &"<redacted>")
+                .finish(),
+            Self::Accounts {
+                database,
+                bootstrap_token,
+                bootstrap_token_env,
+                session_ttl_seconds,
+                cookie_secure,
+                cookie_same_site,
+                public_url,
+                oidc,
+                passkey,
+            } => formatter
+                .debug_struct("Accounts")
+                .field("database", database)
+                .field("bootstrap_token_configured", &bootstrap_token.is_some())
+                .field("bootstrap_token_env", bootstrap_token_env)
+                .field("session_ttl_seconds", session_ttl_seconds)
+                .field("cookie_secure", cookie_secure)
+                .field("cookie_same_site", cookie_same_site)
+                .field("public_url", public_url)
+                .field("oidc", oidc)
+                .field("passkey", passkey)
+                .finish(),
+        }
+    }
+}
+
+impl ApiAuthConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        match self {
+            Self::Basic { username, password } => {
+                if username.trim().is_empty() {
+                    return Err(ConfigError::EmptyApiBasicAuthUsername);
+                }
+                if password.trim().is_empty() {
+                    return Err(ConfigError::EmptyApiBasicAuthPassword);
+                }
+            }
+            Self::Accounts {
+                database,
+                bootstrap_token,
+                bootstrap_token_env,
+                session_ttl_seconds,
+                cookie_secure,
+                cookie_same_site,
+                public_url,
+                oidc,
+                passkey,
+                ..
+            } => {
+                if database.trim().is_empty() {
+                    return Err(ConfigError::InvalidApiAuth(
+                        "accounts.database cannot be empty".to_string(),
+                    ));
+                }
+                if bootstrap_token
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+                {
+                    return Err(ConfigError::InvalidApiAuth(
+                        "accounts.bootstrap_token cannot be empty".to_string(),
+                    ));
+                }
+                if bootstrap_token_env
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+                {
+                    return Err(ConfigError::InvalidApiAuth(
+                        "accounts.bootstrap_token_env cannot be empty".to_string(),
+                    ));
+                }
+                if bootstrap_token.is_some() && bootstrap_token_env.is_some() {
+                    return Err(ConfigError::InvalidApiAuth(
+                        "configure only one of accounts.bootstrap_token and bootstrap_token_env"
+                            .to_string(),
+                    ));
+                }
+                if !(300..=604_800).contains(session_ttl_seconds) {
+                    return Err(ConfigError::InvalidApiAuth(
+                        "accounts.session_ttl_seconds must be between 300 and 604800".to_string(),
+                    ));
+                }
+                if matches!(cookie_same_site, ApiCookieSameSite::None)
+                    && *cookie_secure == Some(false)
+                {
+                    return Err(ConfigError::InvalidApiAuth(
+                        "accounts.cookie_same_site=none cannot be combined with cookie_secure=false"
+                            .to_string(),
+                    ));
+                }
+                if let Some(url) = public_url {
+                    validate_browser_url(url, "accounts.public_url")?;
+                }
+                if let Some(oidc) = oidc {
+                    oidc.validate()?;
+                }
+                if let Some(passkey) = passkey {
+                    passkey.validate(public_url.as_deref())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn database_path(&self) -> &str {
+        match self {
+            Self::Basic { .. } => "./data/oxidns-next-auth.db",
+            Self::Accounts { database, .. } => database,
+        }
+    }
+
+    pub(crate) fn session_ttl_seconds(&self) -> u64 {
+        match self {
+            Self::Basic { .. } => default_auth_session_ttl_seconds(),
+            Self::Accounts {
+                session_ttl_seconds,
+                ..
+            } => *session_ttl_seconds,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiCookieSameSite {
+    Strict,
+    #[default]
+    Lax,
+    None,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct ApiOidcConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub issuer_url: String,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    /// Environment variable containing the OIDC client secret.
+    pub client_secret_env: Option<String>,
+    pub redirect_url: String,
+    #[serde(default = "default_oidc_scopes")]
+    pub scopes: Vec<String>,
+    #[serde(default = "default_oidc_username_claim")]
+    pub username_claim: String,
+    /// Explicit claim-to-local-account allowlist. OIDC never creates an
+    /// administrator implicitly.
+    #[serde(default)]
+    pub allowed_users: Vec<ApiOidcUserMapping>,
+    #[serde(default = "default_oidc_success_redirect")]
+    pub success_redirect: String,
+}
+
+impl std::fmt::Debug for ApiOidcConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ApiOidcConfig")
+            .field("enabled", &self.enabled)
+            .field("issuer_url", &self.issuer_url)
+            .field("client_id", &self.client_id)
+            .field("client_secret_configured", &self.client_secret.is_some())
+            .field("client_secret_env", &self.client_secret_env)
+            .field("redirect_url", &self.redirect_url)
+            .field("scopes", &self.scopes)
+            .field("username_claim", &self.username_claim)
+            .field("allowed_users", &self.allowed_users)
+            .field("success_redirect", &self.success_redirect)
+            .finish()
+    }
+}
+
+impl ApiOidcConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if self.issuer_url.trim().is_empty()
+            || self.client_id.trim().is_empty()
+            || self.redirect_url.trim().is_empty()
+            || self.username_claim.trim().is_empty()
+        {
+            return Err(ConfigError::InvalidApiAuth(
+                "enabled OIDC requires issuer_url, client_id, redirect_url and username_claim"
+                    .to_string(),
+            ));
+        }
+        if self
+            .client_secret_env
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(ConfigError::InvalidApiAuth(
+                "oidc.client_secret_env cannot be empty".to_string(),
+            ));
+        }
+        if self.client_secret.is_some() && self.client_secret_env.is_some() {
+            return Err(ConfigError::InvalidApiAuth(
+                "configure only one of oidc.client_secret and client_secret_env".to_string(),
+            ));
+        }
+        if !matches!(
+            self.username_claim.as_str(),
+            "preferred_username" | "email" | "name" | "sub"
+        ) {
+            return Err(ConfigError::InvalidApiAuth(
+                "oidc.username_claim must be preferred_username, email, name, or sub".to_string(),
+            ));
+        }
+        validate_secure_browser_url(&self.issuer_url, "oidc.issuer_url")?;
+        validate_secure_browser_url(&self.redirect_url, "oidc.redirect_url")?;
+        if self.scopes.iter().all(|scope| scope != "openid") {
+            return Err(ConfigError::InvalidApiAuth(
+                "oidc.scopes must include openid".to_string(),
+            ));
+        }
+        if self.allowed_users.is_empty() {
+            return Err(ConfigError::InvalidApiAuth(
+                "enabled OIDC requires at least one allowed_users mapping".to_string(),
+            ));
+        }
+        if self
+            .allowed_users
+            .iter()
+            .any(|mapping| mapping.claim.trim().is_empty() || mapping.username.trim().is_empty())
+        {
+            return Err(ConfigError::InvalidApiAuth(
+                "oidc.allowed_users entries require non-empty claim and username".to_string(),
+            ));
+        }
+        if !self.success_redirect.starts_with('/')
+            || self.success_redirect.starts_with("//")
+            || self.success_redirect.contains('\\')
+            || self.success_redirect.chars().any(char::is_control)
+        {
+            return Err(ConfigError::InvalidApiAuth(
+                "oidc.success_redirect must be an absolute local path".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiOidcUserMapping {
+    pub claim: String,
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApiPasskeyConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub rp_id: Option<String>,
+    #[serde(default)]
+    pub origins: Vec<String>,
+}
+
+impl ApiPasskeyConfig {
+    fn validate(&self, public_url: Option<&str>) -> Result<(), ConfigError> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if self
+            .rp_id
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(ConfigError::InvalidApiAuth(
+                "passkey.rp_id cannot be empty".to_string(),
+            ));
+        }
+        if self.rp_id.is_none() && public_url.is_none() {
+            return Err(ConfigError::InvalidApiAuth(
+                "enabled passkey auth requires rp_id or accounts.public_url".to_string(),
+            ));
+        }
+        if self.rp_id.is_none()
+            && public_url
+                .and_then(|value| url::Url::parse(value).ok())
+                .is_none_or(|url| url.domain().is_none())
+        {
+            return Err(ConfigError::InvalidApiAuth(
+                "accounts.public_url must use a DNS hostname when deriving passkey.rp_id"
+                    .to_string(),
+            ));
+        }
+        if self.origins.is_empty() {
+            let origin = public_url.ok_or_else(|| {
+                ConfigError::InvalidApiAuth(
+                    "enabled passkey auth requires origins or accounts.public_url".to_string(),
+                )
+            })?;
+            validate_webauthn_origin(origin, "accounts.public_url")?;
+        } else {
+            for origin in &self.origins {
+                validate_webauthn_origin(origin, "passkey.origins")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn default_auth_database() -> String {
+    "./data/oxidns-next-auth.db".to_string()
+}
+
+fn default_auth_session_ttl_seconds() -> u64 {
+    43_200
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_oidc_scopes() -> Vec<String> {
+    vec![
+        "openid".to_string(),
+        "profile".to_string(),
+        "email".to_string(),
+    ]
+}
+
+fn default_oidc_username_claim() -> String {
+    "preferred_username".to_string()
+}
+
+fn default_oidc_success_redirect() -> String {
+    "/".to_string()
+}
+
+fn validate_browser_url(value: &str, field: &str) -> Result<(), ConfigError> {
+    let url = url::Url::parse(value)
+        .map_err(|err| ConfigError::InvalidApiAuth(format!("{field} is not a valid URL: {err}")))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(ConfigError::InvalidApiAuth(format!(
+            "{field} must be an absolute HTTP(S) URL"
+        )));
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(ConfigError::InvalidApiAuth(format!(
+            "{field} must not contain credentials"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_secure_browser_url(value: &str, field: &str) -> Result<(), ConfigError> {
+    validate_browser_url(value, field)?;
+    let url = url::Url::parse(value).expect("browser URL was validated above");
+    let loopback = url.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    if url.scheme() != "https" && !loopback {
+        return Err(ConfigError::InvalidApiAuth(format!(
+            "{field} must use HTTPS except on loopback"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_webauthn_origin(value: &str, field: &str) -> Result<(), ConfigError> {
+    validate_secure_browser_url(value, field)?;
+    let url = url::Url::parse(value).expect("secure browser URL was validated above");
+    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+        return Err(ConfigError::InvalidApiAuth(format!(
+            "{field} must be an origin without a path, query, or fragment when used for passkeys"
+        )));
+    }
+    if url.domain().is_none() {
+        return Err(ConfigError::InvalidApiAuth(format!(
+            "{field} must use a DNS hostname for passkeys; use localhost instead of a loopback IP"
+        )));
+    }
+    Ok(())
 }
 
 /// Canonical HTTP API configuration used at runtime.
@@ -640,7 +1145,7 @@ pub struct ResolvedApiHttpConfig {
 pub struct RuntimeConfig {
     /// Number of Tokio worker threads for the multi-thread runtime.
     ///
-    /// When omitted, OxiDNS uses the system's available CPU parallelism.
+    /// When omitted, OxiDNS Next uses the system's available CPU parallelism.
     pub worker_threads: Option<usize>,
 }
 
@@ -666,6 +1171,10 @@ pub struct LogConfig {
 
     /// Optional file path for log output (in addition to console)
     pub file: Option<String>,
+
+    /// Optional file for DNS query diagnostic events. Query events are never
+    /// written to the console, ordinary log file, or management log ring.
+    pub query_file: Option<String>,
 
     #[serde(default)]
     pub rotation: LogRotation,
@@ -713,6 +1222,7 @@ impl Default for LogConfig {
         LogConfig {
             level: default_level(),
             file: None,
+            query_file: None,
             rotation: LogRotation::Never,
         }
     }
@@ -741,12 +1251,122 @@ pub struct PluginConfig {
 mod tests {
     use super::*;
 
+    #[derive(Deserialize)]
+    struct AuthConfigWrapper {
+        auth: ApiAuthConfig,
+    }
+
     fn plugin(tag: &str, plugin_type: &str) -> PluginConfig {
         PluginConfig {
             tag: tag.to_string(),
             plugin_type: plugin_type.to_string(),
             args: None,
         }
+    }
+
+    #[test]
+    fn test_accounts_auth_deserializes_secure_defaults() {
+        let wrapper: AuthConfigWrapper = serde_yaml_ng::from_str(
+            r#"
+auth:
+  type: accounts
+"#,
+        )
+        .expect("accounts auth should deserialize");
+
+        match wrapper.auth {
+            ApiAuthConfig::Accounts {
+                database,
+                bootstrap_token,
+                bootstrap_token_env,
+                session_ttl_seconds,
+                cookie_secure,
+                cookie_same_site,
+                public_url,
+                oidc,
+                passkey,
+            } => {
+                assert_eq!(database, "./data/oxidns-next-auth.db");
+                assert!(bootstrap_token.is_none());
+                assert!(bootstrap_token_env.is_none());
+                assert_eq!(session_ttl_seconds, 43_200);
+                assert!(cookie_secure.is_none());
+                assert!(matches!(cookie_same_site, ApiCookieSameSite::Lax));
+                assert!(public_url.is_none());
+                assert!(oidc.is_none());
+                assert!(passkey.is_none());
+            }
+            ApiAuthConfig::Basic { .. } => panic!("expected accounts auth"),
+        }
+    }
+
+    #[test]
+    fn test_accounts_auth_rejects_inline_and_environment_bootstrap_secrets() {
+        let wrapper: AuthConfigWrapper = serde_yaml_ng::from_str(
+            r#"
+auth:
+  type: accounts
+  bootstrap_token: inline-secret
+  bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+"#,
+        )
+        .expect("accounts auth should deserialize");
+
+        let error = wrapper
+            .auth
+            .validate()
+            .expect_err("two bootstrap secret sources should fail validation");
+        assert!(matches!(error, ConfigError::InvalidApiAuth(_)));
+    }
+
+    #[test]
+    fn test_accounts_auth_rejects_cross_site_insecure_cookie() {
+        let wrapper: AuthConfigWrapper = serde_yaml_ng::from_str(
+            r#"
+auth:
+  type: accounts
+  cookie_secure: false
+  cookie_same_site: none
+"#,
+        )
+        .expect("accounts auth should deserialize");
+
+        let error = wrapper
+            .auth
+            .validate()
+            .expect_err("SameSite=None without Secure should fail validation");
+        assert!(matches!(error, ConfigError::InvalidApiAuth(_)));
+    }
+
+    #[test]
+    fn test_passkey_derived_origin_requires_https_away_from_loopback() {
+        let wrapper: AuthConfigWrapper = serde_yaml_ng::from_str(
+            r#"
+auth:
+  type: accounts
+  public_url: http://dns.example.test
+  passkey: {}
+"#,
+        )
+        .expect("accounts auth should deserialize");
+
+        let error = wrapper
+            .auth
+            .validate()
+            .expect_err("a non-loopback passkey origin should require HTTPS");
+        assert!(matches!(error, ConfigError::InvalidApiAuth(_)));
+    }
+
+    #[test]
+    fn test_cors_rejects_non_exact_allowed_origin() {
+        let cors = ApiCorsConfig {
+            allowed_origins: vec!["https://dns.example.test/path".to_string()],
+            ..Default::default()
+        };
+        let error = cors
+            .validate()
+            .expect_err("CORS entries must be exact origins");
+        assert!(matches!(error, ConfigError::InvalidApiCors(_)));
     }
 
     #[test]
@@ -1341,5 +1961,71 @@ rotation:
             LogRotation::Weekly { max_files } => assert_eq!(max_files, Some(4)),
             other => panic!("unexpected rotation: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_query_diagnostics_allow_the_optional_file_sink_to_be_omitted() {
+        let config: Config = serde_yaml_ng::from_str(
+            r#"
+plugins:
+  - tag: query_debug
+    type: debug_print
+"#,
+        )
+        .expect("parse query diagnostic config");
+
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_sinks_cannot_share_a_path() {
+        let config: Config = serde_yaml_ng::from_str(
+            r#"
+log:
+  file: ./combined.log
+  query_file: ./combined.log
+"#,
+        )
+        .expect("parse log config");
+
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::DuplicateLogFilePath)
+        ));
+    }
+
+    #[test]
+    fn test_log_sink_path_comparison_is_absolute_and_lexical() {
+        let config: Config = serde_yaml_ng::from_str(
+            r#"
+log:
+  file: ./logs/../combined.log
+  query_file: combined.log
+"#,
+        )
+        .expect("parse log config");
+
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::DuplicateLogFilePath)
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_log_sink_path_comparison_is_case_insensitive_on_windows() {
+        let config: Config = serde_yaml_ng::from_str(
+            r#"
+log:
+  file: ./Logs/Combined.log
+  query_file: ./logs/combined.LOG
+"#,
+        )
+        .expect("parse log config");
+
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::DuplicateLogFilePath)
+        ));
     }
 }

@@ -503,7 +503,7 @@ plugins:
   - tag: ""
     type: ""
     args:
-      path: ${OXIDNS_PROBE_REVIEW_UNSET_DO_NOT_DEFINE}
+      path: ${OXIDNS_NEXT_PROBE_REVIEW_UNSET_DO_NOT_DEFINE}
 "#,
         )
         .expect("config should write");

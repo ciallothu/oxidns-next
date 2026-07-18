@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Sven Shi
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Public library surface for OxiDNS.
+//! Public library surface for OxiDNS Next.
 //!
 //! This crate exposes the runtime building blocks used by the CLI binary,
 //! integration tests, and embedding scenarios. The architecture is organized
@@ -34,5 +34,5 @@ pub mod core;
 pub mod infra;
 pub mod plugin;
 
-pub use oxidns_macros::plugin_factory;
-pub use oxidns_proto as proto;
+pub use oxidns_next_macros::plugin_factory;
+pub use oxidns_next_proto as proto;

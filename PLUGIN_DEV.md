@@ -1,12 +1,12 @@
 # Plugin Development Guide
 
-This document is the single source of truth for writing, registering, testing, documenting, and feature-gating OxiDNS plugins. Read it before adding any new plugin or modifying an existing one.
+This document is the single source of truth for writing, registering, testing, documenting, and feature-gating OxiDNS Next plugins. Read it before adding any new plugin or modifying an existing one.
 
 ---
 
 ## Plugin Categories
 
-OxiDNS plugins fall into four categories, each with its own trait and directory:
+OxiDNS Next plugins fall into four categories, each with its own trait and directory:
 
 | Category | Trait | Directory | Role |
 |----------|-------|-----------|------|
@@ -56,7 +56,7 @@ Fall back to `register_plugin_factory!("type", expr)` only when:
 
 ## Cargo Feature Conventions
 
-OxiDNS uses a three-layer Cargo feature system. Every new plugin must be placed in the correct layer and wired through all four integration points below.
+OxiDNS Next uses a three-layer Cargo feature system. Every new plugin must be placed in the correct layer and wired through all four integration points below.
 
 ### Three layers
 

@@ -114,7 +114,7 @@ where
         fs::create_dir_all(parent)?;
     }
     // A side-car lock file avoids locking the rule file being atomically
-    // renamed. It is advisory, but it reduces corruption risk when two OxiDNS
+    // renamed. It is advisory, but it reduces corruption risk when two OxiDNS Next
     // processes accidentally manage the same path.
     let lock_path = lock_path_for(path);
     let lock_file = OpenOptions::new()

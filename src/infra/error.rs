@@ -1,18 +1,18 @@
 // SPDX-FileCopyrightText: 2025 Sven Shi
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Unified error handling module for OxiDNS
+//! Unified error handling module for OxiDNS Next.
 //!
 //! Provides a centralized error type that can represent various error
 //! conditions throughout the application, making error handling more consistent
 //! and easier to maintain.
 
-use oxidns_proto::ProtoError;
+use oxidns_next_proto::ProtoError;
 use thiserror::Error;
 
 use crate::config::types::ConfigError;
 
-/// Main error type for OxiDNS
+/// Main error type for OxiDNS Next.
 ///
 /// This enum represents all possible errors that can occur in the application.
 /// It can be constructed from various error types using the `From` trait
@@ -101,7 +101,7 @@ pub enum DnsError {
     WinCodeReadError(#[from] wincode::ReadError),
 
     /// rusqlite error
-    #[cfg(feature = "plugin-query-recorder")]
+    #[cfg(any(feature = "plugin-query-recorder", feature = "api"))]
     #[error("rusqlite error: {0}")]
     Rusqlite(#[from] rusqlite::Error),
 

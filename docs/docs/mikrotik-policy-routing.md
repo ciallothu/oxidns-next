@@ -3,11 +3,11 @@ title: MikroTik 策略路由
 sidebar_position: 5
 ---
 
-本章说明 OxiDNS 的 `ros_address_list` 执行器如何与 RouterOS `address-list`、`mangle` 和策略路由机制配合，形成“DNS 解析结果驱动后续流量出口选择”的策略路由体系。
+本章说明 OxiDNS Next 的 `ros_address_list` 执行器如何与 RouterOS `address-list`、`mangle` 和策略路由机制配合，形成“DNS 解析结果驱动后续流量出口选择”的策略路由体系。
 
 该方案的核心设计并非在 RouterOS 侧直接匹配域名，而是采用以下处理流程：
 
-1. 由 OxiDNS 先解析域名。
+1. 由 OxiDNS Next 先解析域名。
 2. 从 DNS 应答中提取目标 IP。
 3. 把命中的目标 IP 同步到 RouterOS 的 `address-list`。
 4. RouterOS 在连接建立初始阶段，根据目标 IP 是否命中 `address-list` 决定是否打策略标记。
@@ -17,16 +17,16 @@ sidebar_position: 5
 
 * RouterOS 不需要重复做域名解析判断。
 * 策略路由判定落在 IP 层，和 RouterOS 的原生能力自然衔接。
-* OxiDNS 负责“域名 -> 目标 IP”的动态映射维护，RouterOS 负责“目标 IP -> 走哪条出口”。
+* OxiDNS Next 负责“域名 -> 目标 IP”的动态映射维护，RouterOS 负责“目标 IP -> 走哪条出口”。
 
 ## 总体工作流
 
-### OxiDNS 侧流程
+### OxiDNS Next 侧流程
 
 ```mermaid
 flowchart TD
-    A["用户访问域名"] --> B["请求进入 OxiDNS"]
-    B --> C["OxiDNS 解析域名"]
+    A["用户访问域名"] --> B["请求进入 OxiDNS Next"]
+    B --> C["OxiDNS Next 解析域名"]
     C --> D["得到目标 IP"]
     D --> E["根据策略判断该 IP 是否属于 policy_set"]
 
@@ -61,7 +61,7 @@ flowchart TD
 
 ## 架构分工
 
-### OxiDNS 的职责
+### OxiDNS Next 的职责
 
 * 接收 DNS 请求。
 * 按既定策略解析域名。
@@ -124,7 +124,7 @@ plugins:
       async: true
       address_list4: "policy_set_v4"
       address_list6: "policy_set_v6"
-      comment_prefix: "oxidns"
+      comment_prefix: "oxidns-next"
       min_ttl: 60
       max_ttl: 1800
 
@@ -148,7 +148,7 @@ address: "172.16.1.1:8728"
 含义：
 
 * RouterOS API 地址。
-* OxiDNS 通过它连接 RouterOS 并执行 address-list 管理操作。
+* OxiDNS Next 通过它连接 RouterOS 并执行 address-list 管理操作。
 
 ### `connect_timeout` / `send_timeout` / `receive_timeout`
 
@@ -166,7 +166,7 @@ receive_timeout: 30
 
 配置建议：
 
-* 建议为 OxiDNS 准备专用、规模可控的 `address-list`，不要直接接入已有的大型共享列表。
+* 建议为 OxiDNS Next 准备专用、规模可控的 `address-list`，不要直接接入已有的大型共享列表。
 * 如果存量环境暂时无法拆分列表，或 RouterOS 管理面响应较慢导致启动 reconcile 扫描经常超过默认 5 秒，可优先调大 `receive_timeout`，例如 `30` 或 `60`。
 * `connect_timeout` 和 `send_timeout` 通常保持默认即可，只有管理网络链路慢或 RouterOS API 偶发繁忙时再调大。
 
@@ -257,7 +257,7 @@ persistent:
     - "1.1.1.1"
     - "203.0.113.0/24"
   files:
-    - "/etc/oxidns/persistent_policy_ips.txt"
+    - "/etc/oxidns-next/persistent_policy_ips.txt"
 ```
 
 含义：
@@ -271,7 +271,7 @@ persistent:
 
 ## RouterOS 侧策略路由思路
 
-OxiDNS 只负责把目标 IP 写进 `address-list`。真正的策略路由仍然要在 RouterOS 中完成。
+OxiDNS Next 只负责把目标 IP 写进 `address-list`。真正的策略路由仍然要在 RouterOS 中完成。
 
 典型思路分三步：
 
@@ -283,7 +283,7 @@ OxiDNS 只负责把目标 IP 写进 `address-list`。真正的策略路由仍然
 
 #### 第一步：识别目标地址是否命中策略集合
 
-RouterOS 读取目标 IP，检查它是否属于 OxiDNS 维护的 `address-list`。
+RouterOS 读取目标 IP，检查它是否属于 OxiDNS Next 维护的 `address-list`。
 
 该步骤对应流程图中的：
 
@@ -329,7 +329,7 @@ RouterOS 读取目标 IP，检查它是否属于 OxiDNS 维护的 `address-list`
 * 客户端通常先发起 DNS 查询。
 * 随后很快基于解析结果发起连接。
 
-所以只要 OxiDNS 在返回 DNS 响应后尽快把目标 IP 写进 RouterOS，后续连接大概率就能命中对应 address-list。
+所以只要 OxiDNS Next 在返回 DNS 响应后尽快把目标 IP 写进 RouterOS，后续连接大概率就能命中对应 address-list。
 
 同时需要明确以下边界条件：
 
@@ -340,7 +340,7 @@ RouterOS 读取目标 IP，检查它是否属于 OxiDNS 维护的 `address-list`
 
 可以从三个方面优化：
 
-1. 保持 OxiDNS 与 RouterOS API 通路稳定、低时延。
+1. 保持 OxiDNS Next 与 RouterOS API 通路稳定、低时延。
 2. 不要把 `min_ttl` 设得过低，减少 RouterOS 高频抖动。
 3. 对关键目标适当结合 `persistent`，避免完全依赖首次动态写入。
 
@@ -460,7 +460,7 @@ plugins:
 
 ## 调试与排查
 
-### 在 OxiDNS 侧确认三件事
+### 在 OxiDNS Next 侧确认三件事
 
 1. 域名是否确实命中目标策略分支。
 2. DNS 响应里是否真的出现了 `A` / `AAAA`。
@@ -485,7 +485,7 @@ plugins:
 如果客户端：
 
 * 自己缓存 DNS 很久
-* 不使用 OxiDNS
+* 不使用 OxiDNS Next
 * 使用其它解析结果
 
 那么 RouterOS 侧的策略集合就不一定覆盖真实连接目标。
@@ -525,7 +525,7 @@ plugins:
 
 ### 建议二：将 DNS 决策与路由决策分层实现
 
-OxiDNS 负责：
+OxiDNS Next 负责：
 
 * 哪些域名属于哪类策略
 * 哪些解析结果要被同步
@@ -548,17 +548,17 @@ RouterOS 负责：
 
 ## 小结
 
-OxiDNS 的 `ros_address_list` 插件本质上是一个“DNS 结果同步器”：
+OxiDNS Next 的 `ros_address_list` 插件本质上是一个“DNS 结果同步器”：
 
 * 它把域名解析结果转换成 RouterOS 可消费的目标 IP 集合。
 * RouterOS 再基于这些 IP 集合完成真正的策略路由。
 
 整套流程闭环如下：
 
-1. OxiDNS 决定域名怎么解析。
-2. OxiDNS 把命中策略的目标 IP 写入 `policy_set`。
+1. OxiDNS Next 决定域名怎么解析。
+2. OxiDNS Next 把命中策略的目标 IP 写入 `policy_set`。
 3. RouterOS 在新连接建立时根据 `policy_set` 打连接标记。
 4. RouterOS 根据连接标记派生路由标记。
 5. 流量走向指定出口。
 
-对于“使特定域名的后续连接稳定经由指定出口转发”这一目标，上述方案是 OxiDNS 当前 `ros_address_list` 插件最典型、也最具代表性的使用方式之一。
+对于“使特定域名的后续连接稳定经由指定出口转发”这一目标，上述方案是 OxiDNS Next 当前 `ros_address_list` 插件最典型、也最具代表性的使用方式之一。

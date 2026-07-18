@@ -172,7 +172,7 @@ export const enUSDocs = {
   },
   ip_selector: {
     selection_mode:
-      "- Type: `string`; Required: No; Default value: `first_success`\n- Optional values:\n  - `first_success`: Within the total waiting budget, the first successfully detected address takes priority\n  - `best_within_budget`: Collect successful detection results within the total waiting budget and select the address with the lowest latency\n  - `background`: This response maintains the original order, and the background asynchronously warms up the detection score cache\n- Function: Define the address preference policy in the existing A/AAAA response.\n- Operational impact:\n  - The plug-in only handles existing DNS responses and is not responsible for upstream racing.\n  - When the detection fails, times out or has no score, the original response will be retained as a backup.\n- Configuration requirements: Only OxiDNS native naming is accepted, compatible aliases are not provided.",
+      "- Type: `string`; Required: No; Default value: `first_success`\n- Optional values:\n  - `first_success`: Within the total waiting budget, the first successfully detected address takes priority\n  - `best_within_budget`: Collect successful detection results within the total waiting budget and select the address with the lowest latency\n  - `background`: This response maintains the original order, and the background asynchronously warms up the detection score cache\n- Function: Define the address preference policy in the existing A/AAAA response.\n- Operational impact:\n  - The plug-in only handles existing DNS responses and is not responsible for upstream racing.\n  - When the detection fails, times out or has no score, the original response will be retained as a backup.\n- Configuration requirements: Only OxiDNS Next native naming is accepted, compatible aliases are not provided.",
     probe_methods:
       '- Type: `array<string>` or comma separated `string`; required: no; default: `["tcp:443", "tcp:80"]`\n- Supported values:\n  - `tcp:<port>`: Perform TCP connect detection on the specified port of the target IP\n  - `ping`: best-effort ICMP detection, affected by platform and permissions\n  - `none`: No active detection, only use existing cache scores or original order\n- Function: Define the detection method used to score the response IP.\n- Configuration requirements:\n  - `none` cannot be combined with other detection methods.\n  - The port of `tcp:<port>` must be greater than 0.\n  - The order of methods will affect the staggered start sequence.',
     outbound:
@@ -368,7 +368,7 @@ export const enUSDocs = {
     send_timeout:
       "- Type: `u64`; Required: No; Default: `5`\n- Function: Specify the maximum wait time, in seconds, for sending one RouterOS API command.\n- Note: Must be greater than `0`. The default is usually sufficient.",
     receive_timeout:
-      "- Type: `u64`; Required: No; Default: `5`\n- Function: Specify the maximum wait time, in seconds, for the next chunk of RouterOS API response data.\n- Configuration recommendation: Prefer a dedicated, size-controlled `address-list` for OxiDNS. Avoid connecting the plugin to an existing large shared list. Increase this value, for example to `30` or `60`, only when slow legacy list queries or a slow RouterOS management plane cannot be avoided.",
+      "- Type: `u64`; Required: No; Default: `5`\n- Function: Specify the maximum wait time, in seconds, for the next chunk of RouterOS API response data.\n- Configuration recommendation: Prefer a dedicated, size-controlled `address-list` for OxiDNS Next. Avoid connecting the plugin to an existing large shared list. Increase this value, for example to `30` or `60`, only when slow legacy list queries or a slow RouterOS management plane cannot be avoided.",
     async:
       "- Type: `bool`; required: no; default value: `true`\n- Function: Control whether the address writing behavior is asynchronous. When enabled, the DNS response path is only responsible for delivery tasks, and the background manager completes the interaction with RouterOS.\n- Impact: Asynchronous mode helps reduce the risk of request path blocking; after closing, it will be changed to synchronous submission, which is more suitable for scenarios that require immediate confirmation of submission results.",
     address_list4:
@@ -376,7 +376,7 @@ export const enUSDocs = {
     address_list6:
       "- Type: `string`; Required: No; Default: None\n- Function: Specify the target `address-list` name for IPv6 address writing. The plug-in writes to this list after extracting the AAAA records from the DNS response.\n- Configuration recommendation: If the policy needs to cover IPv6, this item should be configured at the same time, and corresponding matching and routing rules should be established on the RouterOS side.",
     comment_prefix:
-      "- Type: `string`; Required: No; Default: `fdns`\n- Function: Specifies the comment prefix used by the plug-in when writing RouterOS entries. This prefix is ​​used to distinguish dynamic entries and resident entries created by OxiDNS to facilitate subsequent refresh, reload and cleanup.\n- Note: This value and the plugin `tag` should not contain `;` or `=` to avoid affecting the internal tag format.",
+      "- Type: `string`; Required: No; Default: `fdns`\n- Function: Specifies the comment prefix used by the plug-in when writing RouterOS entries. This prefix is ​​used to distinguish dynamic entries and resident entries created by OxiDNS Next to facilitate subsequent refresh, reload and cleanup.\n- Note: This value and the plugin `tag` should not contain `;` or `=` to avoid affecting the internal tag format.",
     persistent:
       "- Type: `object`; Required: No; Default: None\n- Function: Define a static address set that needs to be retained for a long time. This part does not rely on DNS response triggering, can be directly synchronized to RouterOS after the plug-in is started, and is maintained by background reconcile to maintain consistency.\n- Subfield:\n  - `ips`\n  - `files`",
     "persistent.ips":
@@ -398,7 +398,7 @@ export const enUSDocs = {
     cleanup:
       "- Type: `bool`; required: no; default value: `true`\n- Function: Clean up `cache_dir` and `backup_dir` after successful upgrade.",
     repository:
-      "- Type: `string`; Required: No; Default: `svenshi/oxidns`\n- Function: GitHub warehouse.",
+      "- Type: `string`; Required: No; Default: `ciallothu/oxidns-next`\n- Function: GitHub warehouse.",
     asset:
       "- Type: `string`; required: no; default value: `auto`\n- Function: Release asset name; `auto` will select archive based on the current platform and compilation version.\n- Priority: `bundle` derivation will be skipped when explicitly filling in asset.",
     bundle:

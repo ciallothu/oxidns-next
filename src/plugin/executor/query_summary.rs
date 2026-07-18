@@ -22,6 +22,7 @@ use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::clock::AppClock;
 use crate::infra::error::Result;
+use crate::infra::observability::log_buffer::QUERY_LOG_TARGET;
 use crate::plugin::executor::{ExecStep, Executor, ExecutorNext};
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::{continue_next, plugin_factory};
@@ -99,6 +100,7 @@ impl QuerySummary {
             .unwrap_or_else(|| "<none>".to_string());
 
         info!(
+            target: QUERY_LOG_TARGET,
             plugin = %self.tag,
             title = %self.msg,
             qname = %qname,

@@ -481,6 +481,7 @@ pub(super) fn parse_list_query(query: Option<&str>) -> std::result::Result<ListQ
             "limit" => limit = parse_limit(value)?,
             "since_ms" => since_ms = Some(parse_u64_query("since_ms", value)?),
             "until_ms" => until_ms = Some(parse_u64_query("until_ms", value)?),
+            "search" => filter.search = optional_text(value),
             "qname" => filter.qname = optional_text(value),
             "qtype" => filter.qtype = optional_upper_text(value),
             "client_ip" => filter.client_ip = optional_text(value),
@@ -517,6 +518,7 @@ pub(super) fn parse_plugins_stats_query(
             "since_ms" => since_ms = Some(parse_u64_query("since_ms", value)?),
             "until_ms" => until_ms = Some(parse_u64_query("until_ms", value)?),
             "kind" => kind = PluginStatsKind::parse(value)?,
+            "search" => filter.search = optional_text(value),
             "qname" => filter.qname = optional_text(value),
             "qtype" => filter.qtype = optional_upper_text(value),
             "client_ip" => filter.client_ip = optional_text(value),
@@ -639,6 +641,7 @@ fn apply_filter_param(
     value: &str,
 ) -> std::result::Result<(), String> {
     match key {
+        "search" => filter.search = optional_text(value),
         "qname" => filter.qname = optional_text(value),
         "qtype" => filter.qtype = optional_upper_text(value),
         "client_ip" => filter.client_ip = optional_text(value),

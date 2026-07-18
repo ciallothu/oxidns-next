@@ -1,20 +1,20 @@
 [package]
-name = "oxidns-zoneparser"
+name = "oxidns-next-zoneparser"
 version = "0.1.1"
 edition = "2024"
 authors = ["Sven Shi <isvenshi@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-description = "Vendored zonefile parser adapted for OxiDNS"
-repository = "https://github.com/svenshi/oxidns"
+description = "Vendored zonefile parser adapted for OxiDNS Next"
+repository = "https://github.com/ciallothu/oxidns-next"
 keywords = ["dns", "zonefile", "parser"]
 categories = ["parser-implementations", "network-programming"]
 
 [dependencies]
-oxidns-proto = { version = "0.1", path = "../proto" }
+oxidns-next-proto = { version = "0.1", path = "../proto" }
 thiserror = "2.0"
 
 [lib]
-name = "zoneparser"
+name = "oxidns_next_zoneparser"
 path = "src/lib.rs"
 doctest = false

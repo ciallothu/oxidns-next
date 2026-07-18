@@ -5,7 +5,7 @@ sidebar_position: 4
 
 import Admonition from "@theme/Admonition";
 
-OxiDNS 的管理 API 是独立控制平面，负责：
+OxiDNS Next 的管理 API 是独立控制平面，负责：
 
 * 进程与启动健康检查
 * 配置检查与配置文本校验
@@ -33,16 +33,30 @@ api:
   http:
     listen: "127.0.0.1:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
-      client_ca: "/etc/oxidns/client-ca.crt"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
+      client_ca: "/etc/oxidns-next/client-ca.crt"
       require_client_cert: true
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
+      cookie_same_site: lax
+      public_url: "https://dns.example.com"
+      passkey:
+        rp_id: "dns.example.com"
+        origins: ["https://dns.example.com"]
+      oidc:
+        issuer_url: "https://id.example.com"
+        client_id: "oxidns-next"
+        client_secret_env: OXIDNS_NEXT_OIDC_CLIENT_SECRET
+        redirect_url: "https://dns.example.com/api/auth/oidc/callback"
+        allowed_users:
+          - claim: "admin@example.com"
+            username: "admin"
     webui:
-      root: "/etc/oxidns/webui"
+      root: "/etc/oxidns-next/webui"
       index: "index.html"
 ```
 
@@ -59,52 +73,63 @@ api:
 * `require_client_cert`
   * 强制双向认证。
 
-### Basic Auth
+### 账户、会话与 CSRF
+
+默认发行配置使用 `type: accounts`；首次启动时先在监听服务所在机器完成本地管理员引导，再使用该账户登录管理台。
 
 ```yaml
 auth:
-  type: basic
-  username: "admin"
-  password: "secret"
+  type: accounts
+  database: "./data/oxidns-next-auth.db"
+  bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+  session_ttl_seconds: 43200
+  cookie_same_site: lax
 ```
 
-开启后，所有 API 请求都需要通过 Basic Auth。
+`accounts` 使用持久化 SQLite 账户库和不透明会话 Cookie。密码以 Argon2 哈希保存；浏览器收到 HttpOnly Cookie，并在会话响应中取得 CSRF token。除 `GET`、`HEAD`、`OPTIONS` 外的受保护请求必须同时携带 `X-CSRF-Token`。
 
-请求头格式如下：
+账户数据库为空时，只有 peer、Host 和 Origin 都表明是直接 loopback 访问的请求可以免 token 创建第一个本地管理员。反向代理访问（即使代理连接来自 `127.0.0.1`）和远程初始化都必须提交引导 token；应通过 `bootstrap_token_env` 注入，并在完成初始化后移除该环境变量。OIDC client secret 同样应通过 `client_secret_env` 注入。不要把管理员密码、引导 token、OIDC client secret 或会话 token 写入 YAML 或浏览器存储。
 
-```http
-Authorization: Basic YWRtaW46c2VjcmV0
+主要认证路由：
+
+| 路由 | 用途 |
+| --- | --- |
+| `GET /api/auth/methods` | 查询已启用方式及是否需要初始化 |
+| `GET /api/auth/session` | 查询当前会话、用户与 CSRF token |
+| `POST /api/auth/bootstrap` | 创建首个本地管理员 |
+| `POST /api/auth/login` | 本地密码登录；启用 TOTP 时返回二次验证 challenge |
+| `POST /api/auth/login/totp` | 完成 TOTP 二次验证 |
+| `POST /api/auth/logout` | 撤销当前会话，需要 CSRF token |
+| `PUT /api/auth/password` | 校验当前密码并修改本地密码 |
+| `GET /api/auth/security` | 查询 TOTP、通行密钥和已关联 OIDC 身份 |
+| `POST /api/auth/totp/begin` / `confirm` | 绑定并确认 TOTP，确认后返回一次性恢复码 |
+| `DELETE /api/auth/totp` | 通过密码和第二因素验证后停用 TOTP |
+| `POST /api/auth/passkeys/register/begin` / `finish` | 注册通行密钥 |
+| `POST /api/auth/passkeys/login/begin` / `finish` | 使用通行密钥登录 |
+| `POST /api/auth/oidc/start` | 获取 OIDC 授权地址；JSON body 可传 `return_to`，callback 为 `/api/auth/oidc/callback` |
+
+本地密码登录示例：
+
+```bash
+curl -i -c cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your-password"}' \
+  http://127.0.0.1:9088/api/auth/login
 ```
 
-编码规则如下：
+响应中的 `csrf_token` 用于后续修改请求：
 
-* 先按 `username:password` 拼接原始字符串。
-* 再对整个字符串做 Base64 编码。
-* 请求头前缀必须为 `Basic `。
+```bash
+curl -b cookies.txt \
+  -H 'X-CSRF-Token: <csrf_token>' \
+  -X POST http://127.0.0.1:9088/api/reload
+```
 
-以上示例中，`admin:secret` 对应的 Base64 结果为 `YWRtaW46c2VjcmV0`。
+<Admonition type="note" title="旧 Basic 配置迁移">
 
-<Admonition type="note" title="注意事项">
-
-* 这里使用的是标准 Base64，不是 URL-safe Base64。
-* 不需要分别对 `username` 和 `password` 单独编码。
-* 不使用百分号编码，也不应先做 URL encode。
-* 服务端按解码后的完整结果与 `username:password` 做直接比较。
+`type: basic` 只用于从上游配置迁移：首次启动会把用户名和密码导入账户库，之后忽略 YAML 中的凭据。新部署不要使用该形式；迁移成功后应改为 `type: accounts` 并从配置中删除明文密码。
 
 </Admonition>
-
-示例：
-
-```bash
-curl -u admin:secret http://127.0.0.1:9088/api/healthz
-```
-
-或：
-
-```bash
-curl -H 'Authorization: Basic YWRtaW46c2VjcmV0' \
-  http://127.0.0.1:9088/api/healthz
-```
 
 ### WebUI 静态文件
 
@@ -115,21 +140,21 @@ api:
   http:
     listen: "0.0.0.0:9199"
     webui:
-      root: "/etc/oxidns/webui"
+      root: "/etc/oxidns-next/webui"
       index: "index.html"
 ```
 
-启用后，访问 `http://服务器:9199/` 加载 WebUI，WebUI 使用同源 `/api` 访问后端。静态文件不受 Basic Auth 保护，但 `/api/*` 仍按管理 API 的认证与 CORS 规则处理。若 `webui.root` 使用相对路径，它以 OxiDNS 的 `-d/--working-dir` 为基准，而不是配置文件所在目录。完整配置、构建步骤和 nginx 独立部署示例见《[WebUI 部署](webui.md)》。
+启用后，访问 `http://服务器:9199/` 加载 WebUI，WebUI 使用同源 `/api` 访问后端。静态文件可以公开读取，但受保护的 `/api/*` 仍需要账户会话并遵循 CORS 与 TLS 规则。若 `webui.root` 使用相对路径，它以 OxiDNS Next 的 `-d/--working-dir` 为基准，而不是配置文件所在目录。完整配置、构建步骤和 nginx 独立部署示例见《[WebUI 部署](webui.md)》。
 
 ### CORS / WebUI 跨域
 
-默认情况下，管理 API 会根据 `api.http.listen` 自动处理 WebUI 跨域：
+认证关闭时，管理 API 会根据 `api.http.listen` 自动处理 WebUI 跨域：
 
 * 监听 `0.0.0.0` 或 `[::]` 时，自动返回 `Access-Control-Allow-Origin: *`。
 * 监听具体 IP 时，自动允许同一 host 的 WebUI 访问，且不限制 WebUI 端口。例如 API 监听 `192.168.1.10:8080`，则 `http://192.168.1.10:3000`、`http://192.168.1.10:5173` 都可访问。
 * 监听 `127.0.0.1` 或 `[::1]` 时，也会允许 `localhost`。
 
-如需收紧或覆盖自动策略，可显式配置 `cors.allowed_origins`：
+一旦配置认证，服务不会使用上述宽松推导；同源 WebUI 无需 CORS，跨源且携带会话 Cookie 的 WebUI 必须显式配置精确的 `cors.allowed_origins`：
 
 ```yaml
 api:
@@ -141,7 +166,9 @@ api:
         - "http://192.168.1.100:3000"
 ```
 
-显式配置后，`allowed_origins` 按浏览器发送的 `Origin` 精确匹配。可使用 `"*"` 允许任意 origin，但此时浏览器不会接受带凭据的跨域请求。
+显式配置后，`allowed_origins` 按浏览器发送的 `Origin` 精确匹配。可使用 `"*"` 允许任意 origin，但此时浏览器不会接受带凭据的跨域请求，因此它不能用于账户会话。
+
+真正跨站点部署 WebUI 时，应使用 HTTPS、精确的 `allowed_origins` 和 `auth.cookie_same_site: none`；`SameSite=None` 会强制要求 Secure Cookie。同源或同站点部署保持默认的 `lax` 即可。
 
 ## 路由组织
 
@@ -352,7 +379,7 @@ API 路由分成三类：
 ```json
 {
   "ok": true,
-  "path": "/etc/oxidns/config.yaml",
+  "path": "/etc/oxidns-next/config.yaml",
   "format": "yaml",
   "content": "plugins:\n  - tag: forward\n    type: forward\n",
   "version": "sha256-hex",
@@ -524,7 +551,7 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
 * `status=all|error|has_response|no_response`
   * 按记录状态过滤。
 
-`client_ip` 是 DNS 传输层看到的对端地址。若记录列表或 `/stats/top_clients` 全部显示 `127.0.0.1`，通常说明请求先经过了本机转发器，例如 systemd-resolved、dnsmasq、AdGuardHome、dae 或 clash；请检查部署链路，让客户端直接访问 OxiDNS，或在 HTTP/DoH 反向代理场景配置可信的 `src_ip_header`。
+`client_ip` 是 DNS 传输层看到的对端地址。若记录列表或 `/stats/top_clients` 全部显示 `127.0.0.1`，通常说明请求先经过了本机转发器，例如 systemd-resolved、dnsmasq、AdGuardHome、dae 或 clash；请检查部署链路，让客户端直接访问 OxiDNS Next，或在 HTTP/DoH 反向代理场景配置可信的 `src_ip_header`。
 
 返回：
 
@@ -800,12 +827,13 @@ api:
   http:
     listen: "0.0.0.0:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
 ```
 
 适用场景：
@@ -820,9 +848,9 @@ api:
   http:
     listen: "0.0.0.0:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
-      client_ca: "/etc/oxidns/client-ca.crt"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
+      client_ca: "/etc/oxidns-next/client-ca.crt"
       require_client_cert: true
 ```
 

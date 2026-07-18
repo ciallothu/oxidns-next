@@ -38,10 +38,10 @@ interface SortablePluginGridProps {
   className?: string;
 }
 
-// A drag-to-arrange grid of plugin cards shared by the dashboard and the
-// plugin center. Whole cards are draggable; a click (no movement) still opens
+// A drag-to-arrange grid for the dashboard plugin workspace. Whole cards are
+// draggable; a click (no movement) still opens
 // the detail sheet thanks to the sensor activation thresholds, and a press on
-// an inner button (pin/delete) is handled by that button. Keyboard users can
+// an inner action button is handled by that button. Keyboard users can
 // tab to a card and use space + arrows to reorder.
 export function SortablePluginGrid({
   plugins,

@@ -39,7 +39,7 @@ pub(super) fn register(
             cache_map: cache_map.clone(),
             path_prefix: plugin_api.path("/entries/")?,
         },
-        GET "/flush" => CacheFlushHandler {
+        POST "/flush" => CacheFlushHandler {
             cache_map: cache_map.clone(),
         },
         GET "/dump" => CacheDumpHandler {

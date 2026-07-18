@@ -1,14 +1,17 @@
 "use client";
 
 // Client-only config snapshot history. Persisted in localStorage and scoped
-// per OxiDNS instance (server URL + config path) so multiple backends do not
+// per OxiDNS Next instance (server URL + config path) so multiple backends do not
 // share history. The backend stores nothing; history lives on the device.
 //
-// Snapshots store the *raw* YAML text on purpose: serde_yaml_ng round-trips
-// are lossy (comments / key order), so anything we want to faithfully restore
-// must keep the original text rather than a re-serialized model.
+// Safe snapshots store the *raw* YAML text because serde_yaml_ng round-trips
+// are lossy (comments / key order). Configs containing inline credentials are
+// deliberately excluded: passwords, tokens and secrets must never be copied
+// into persistent browser storage. Environment-variable references remain
+// eligible because the referenced value is not present in the YAML.
 
 import { useAuthStore } from "./auth-store";
+import { parseDocument } from "yaml";
 
 export type ApplyStatus =
   | "not-applied"
@@ -37,17 +40,20 @@ export interface RecordSnapshotInput {
   applyStatus: ApplyStatus;
 }
 
-const KEY_PREFIX = "oxidns:config-history:";
+const KEY_PREFIX = "oxidns-next:config-history:";
 const MAX_ENTRIES = 30;
 
 export function getScopeKey(configPath: string): string {
   let serverUrl = "";
+  let userId = "anonymous";
   try {
-    serverUrl = useAuthStore.getState().serverConfig.url.trim();
+    const auth = useAuthStore.getState();
+    serverUrl = auth.serverConfig.url.trim();
+    userId = auth.user?.id ?? "anonymous";
   } catch {
     serverUrl = "";
   }
-  return `${serverUrl}|${configPath}`;
+  return `${serverUrl}|${userId}|${configPath}`;
 }
 
 function storageKey(scope: string) {
@@ -73,7 +79,23 @@ export function listSnapshots(scope: string): ConfigSnapshot[] {
     const raw = window.localStorage.getItem(storageKey(scope));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ConfigSnapshot[];
-    return Array.isArray(parsed) ? dedupeByVersion(parsed) : [];
+    if (!Array.isArray(parsed)) return [];
+    const safe = parsed.filter(
+      (snapshot) =>
+        typeof snapshot.content === "string" &&
+        isSafeSnapshotContent(snapshot.content),
+    );
+    // Upgrade cleanup: older builds persisted complete YAML files, including
+    // inline Basic/OIDC/plugin credentials. Remove those entries as soon as
+    // this authenticated scope is read.
+    if (safe.length !== parsed.length) {
+      try {
+        window.localStorage.setItem(storageKey(scope), JSON.stringify(safe));
+      } catch {
+        // The unsafe entries are still excluded from the in-memory result.
+      }
+    }
+    return dedupeByVersion(safe);
   } catch {
     return [];
   }
@@ -105,6 +127,9 @@ export function recordSnapshot(
   scope: string,
   input: RecordSnapshotInput,
 ): ConfigSnapshot[] {
+  if (!isSafeSnapshotContent(input.content)) {
+    return listSnapshots(scope);
+  }
   // Upsert by version: a re-save of identical content is still a real event,
   // so drop any prior entry for this version and re-add it fresh at the head
   // (newest timestamp) instead of silently skipping it.
@@ -122,6 +147,66 @@ export function recordSnapshot(
     appliedAt: input.applyStatus === "applied" ? createdAt : undefined,
   };
   return persist(scope, trim([entry, ...list]));
+}
+
+const SENSITIVE_KEY =
+  /(?:^|_)(?:password|passwd|passphrase|secret|token|authorization|api_key|private_key|credential|credentials|cookie|bearer|access_key)$/i;
+const SENSITIVE_VALUE_KEY =
+  /(?:^|_)(?:password|passwd|passphrase|secret|token|authorization|credential|credentials|cookie|bearer)_(?:value|hash|data|json|contents|header)$/i;
+const ENV_REFERENCE = /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/;
+const URI_CREDENTIALS =
+  /(?:[a-z][a-z0-9+.-]*:\/\/)?[^\s/:@]+:[^\s/@]+@[^\s]+/i;
+
+/** Return false when raw YAML would persist an inline credential. */
+export function isSafeSnapshotContent(content: string): boolean {
+  let value: unknown;
+  try {
+    const document = parseDocument(content);
+    if (document.errors.length > 0) return false;
+    value = document.toJS();
+  } catch {
+    return false;
+  }
+  return !containsInlineCredential(value);
+}
+
+function containsInlineCredential(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsInlineCredential);
+  if (!value || typeof value !== "object") {
+    return typeof value === "string" && URI_CREDENTIALS.test(value);
+  }
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, child]) => {
+      const normalizedKey = normalizeConfigKey(key);
+      if (
+        !normalizedKey.endsWith("_env") &&
+        (SENSITIVE_KEY.test(normalizedKey) ||
+          SENSITIVE_VALUE_KEY.test(normalizedKey)) &&
+        hasInlineValue(child)
+      ) {
+        return true;
+      }
+      return containsInlineCredential(child);
+    },
+  );
+}
+
+function normalizeConfigKey(key: string): string {
+  return key
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function hasInlineValue(value: unknown): boolean {
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "string") return !ENV_REFERENCE.test(value.trim());
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
 }
 
 export function annotateApply(

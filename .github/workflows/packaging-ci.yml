@@ -1,0 +1,93 @@
+name: Packaging CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "release/*"
+    paths:
+      - ".github/workflows/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "docker-compose.yml"
+      - "RELEASE_NOTES.md"
+  pull_request:
+    branches:
+      - main
+      - "release/*"
+    paths:
+      - ".github/workflows/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "docker-compose.yml"
+      - "RELEASE_NOTES.md"
+
+permissions:
+  contents: read
+
+jobs:
+  workflows:
+    name: Workflow syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run actionlint
+        uses: raven-actions/actionlint@v2
+
+  shell-scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Check installer and package scripts
+        run: shellcheck scripts/install.sh scripts/uninstall.sh packaging/debian/postinst
+
+  powershell-scripts:
+    name: PowerShell scripts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse installer scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in @("scripts/install.ps1", "scripts/uninstall.ps1")) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $failed = $true
+              $parseErrors | ForEach-Object {
+                Write-Error "$path`: $($_.Message)"
+              }
+            }
+          }
+          if ($failed) { exit 1 }
+
+  dockerfile:
+    name: Runtime Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: packaging/docker/Dockerfile.runtime
+          failure-threshold: error
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate Compose file
+        run: docker compose config --quiet

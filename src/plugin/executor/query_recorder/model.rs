@@ -4,7 +4,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use oxidns_proto::Message;
+use oxidns_next_proto::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -167,6 +167,8 @@ pub(super) struct PluginsStatsQuery {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct QueryRecordFilter {
+    /// Unified operator search across question names and client IP addresses.
+    pub(super) search: Option<String>,
     pub(super) qname: Option<String>,
     pub(super) qtype: Option<String>,
     pub(super) client_ip: Option<String>,

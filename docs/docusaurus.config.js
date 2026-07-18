@@ -8,6 +8,8 @@ const require = createRequire(import.meta.url);
 const docSearchAppId = process.env.DOCSEARCH_APP_ID ?? process.env.ALGOLIA_APP_ID;
 const docSearchApiKey = process.env.DOCSEARCH_API_KEY ?? process.env.ALGOLIA_API_KEY;
 const docSearchIndexName = process.env.DOCSEARCH_INDEX_NAME ?? process.env.ALGOLIA_INDEX_NAME;
+const siteUrl = process.env.DOCS_URL ?? 'https://ciallothu.github.io';
+const siteBaseUrl = process.env.DOCS_BASE_URL ?? '/oxidns-next/';
 
 const algoliaConfig = docSearchAppId && docSearchApiKey && docSearchIndexName
   ? {
@@ -21,13 +23,13 @@ const algoliaConfig = docSearchAppId && docSearchApiKey && docSearchIndexName
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'OxiDNS',
+  title: 'OxiDNS Next',
   tagline: 'A Rust-powered DNS engine inspired by MosDNS, designed for performance and complete configurability.',
-  favicon: 'img/logo-light.png',
+  favicon: 'img/logo-next-light.png',
 
   scripts: [
     {
-      src: '/js/theme-favicon.js',
+      src: `${siteBaseUrl}js/theme-favicon.js`,
       defer: true,
     },
   ],
@@ -36,11 +38,11 @@ const config = {
     v4: true,
   },
 
-  url: 'https://oxidns.org',
-  baseUrl: '/',
+  url: siteUrl,
+  baseUrl: siteBaseUrl,
 
-  organizationName: 'svenshi',
-  projectName: 'oxidns',
+  organizationName: 'ciallothu',
+  projectName: 'oxidns-next',
 
   onBrokenLinks: 'throw',
 
@@ -93,7 +95,7 @@ const config = {
           path: './docs',
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
-          editUrl: 'https://github.com/svenshi/oxidns/tree/main/docs/',
+          editUrl: 'https://github.com/ciallothu/oxidns-next/tree/main/docs/',
         },
         blog: false,
         theme: {
@@ -110,11 +112,11 @@ const config = {
         respectPrefersColorScheme: false,
       },
       navbar: {
-        title: 'OxiDNS',
+        title: 'OxiDNS Next',
         logo: {
-          alt: 'OxiDNS Logo',
-          src: 'img/logo-light.png',
-          srcDark: 'img/logo-dark.png',
+          alt: 'OxiDNS Next Logo',
+          src: 'img/logo-next-light.png',
+          srcDark: 'img/logo-next-dark.png',
           width: 32,
           height: 32,
         },
@@ -124,7 +126,7 @@ const config = {
             position: 'right',
           },
           {
-            href: 'https://github.com/svenshi/oxidns',
+            href: 'https://github.com/ciallothu/oxidns-next',
             'aria-label': 'GitHub repository',
             className: 'header-github-link',
             position: 'right',
@@ -139,7 +141,7 @@ const config = {
         style: 'light',
         links: [
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} OxiDNS`,
+        copyright: `Copyright © ${new Date().getFullYear()} OxiDNS Next contributors · Based on OxiDNS by Sven Shi`,
       },
       prism: {
         theme: prismThemes.oneDark,

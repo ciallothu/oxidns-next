@@ -6,9 +6,9 @@ name: Custom Build (reusable)
 #
 #   jobs:
 #     build:
-#       uses: svenshi/oxidns/.github/workflows/custom-build.yml@main
+#       uses: ciallothu/oxidns-next/.github/workflows/custom-build.yml@main
 #       with:
-#         tag: v1.2.0
+#         tag: v0.1.0
 #         bundle: custom
 #         features: api,webui,server-doh,...
 #         targets: '["x86_64-unknown-linux-musl", "aarch64-apple-darwin"]'
@@ -17,18 +17,18 @@ name: Custom Build (reusable)
 #       secrets: inherit
 #
 # When this reusable workflow runs:
-#   - github.repository = the caller repo (e.g. user-A/oxidns-build)
+#   - github.repository = the caller repo (e.g. user-A/oxidns-next-build)
 #   - secrets.GITHUB_TOKEN = the caller's token, with write access to the
 #     caller's release feed
 #   - runner usage is billed to the caller account
 # So the release is published to the caller repo automatically and stays
-# isolated from upstream oxidns.
+# isolated from OxiDNS Next's main release feed.
 
 on:
   workflow_call:
     inputs:
       tag:
-        description: 'Upstream oxidns release tag (e.g. v1.2.0)'
+        description: 'OxiDNS Next release tag (e.g. v0.1.0)'
         required: true
         type: string
       bundle:
@@ -103,7 +103,7 @@ jobs:
 
           # `targets` is a JSON array — expand it into a matrix.include list.
           # The runner / build_tool / upx_kind mapping must stay 1:1 with the
-          # upstream release.yml — check there before changing this table.
+          # release.yml — check there before changing this table.
           MATRIX=$(jq -c -n --argjson t "$TARGETS_IN" '
             $t | map({
               "target": .,
@@ -112,7 +112,7 @@ jobs:
                 elif test("windows") then "windows-latest"
                 else "ubuntu-24.04" end
               ),
-              "exe": (if test("windows") then "oxidns.exe" else "oxidns" end),
+              "exe": (if test("windows") then "oxidns-next.exe" else "oxidns-next" end),
               "archive_ext": (if test("windows") then "zip" else "tar.gz" end),
               "build_tool": (
                 if test("apple-darwin") or test("windows") or . == "x86_64-unknown-linux-gnu"
@@ -144,10 +144,10 @@ jobs:
     if: inputs.bundle != 'minimal'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout oxidns source
+      - name: Checkout OxiDNS Next source
         uses: actions/checkout@v7
         with:
-          repository: svenshi/oxidns
+          repository: ciallothu/oxidns-next
           ref: ${{ inputs.tag }}
 
       - uses: pnpm/action-setup@v6
@@ -175,7 +175,7 @@ jobs:
 
   # -------------------------------------------------------------------------
   # Main build matrix. Naming and packaging must stay strictly aligned with
-  # the upstream release.yml.
+  # release.yml.
   # -------------------------------------------------------------------------
   build:
     needs: [plan, webui]
@@ -185,10 +185,10 @@ jobs:
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout oxidns source
+      - name: Checkout OxiDNS Next source
         uses: actions/checkout@v7
         with:
-          repository: svenshi/oxidns
+          repository: ciallothu/oxidns-next
           ref: ${{ inputs.tag }}
 
       - name: Install Rust
@@ -250,7 +250,7 @@ jobs:
         if: inputs.make_deb && matrix.deb_eligible
         uses: actions/upload-artifact@v7
         with:
-          name: oxidns-${{ matrix.target }}.deb
+          name: oxidns-next-${{ matrix.target }}.deb
           path: target/debian/*.deb
           compression-level: 0
           if-no-files-found: error
@@ -274,9 +274,9 @@ jobs:
           args: -q --best --lzma
 
       # ---------------------------------------------------------------------
-      # The archive filename and its contents must stay 1:1 with upstream
-      # release.yml, otherwise `oxidns upgrade` cannot find the asset or
-      # cannot locate the `oxidns` binary after extracting.
+      # The archive filename and its contents must stay 1:1 with the main
+      # release.yml, otherwise `oxidns-next upgrade` cannot find the asset or
+      # cannot locate the `oxidns-next` binary after extracting.
       # ---------------------------------------------------------------------
       - name: Determine archive name
         id: name
@@ -288,10 +288,10 @@ jobs:
           EXT="${{ matrix.archive_ext }}"
           case "$BUNDLE" in
             full|custom)
-              echo "archive=oxidns-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
+              echo "archive=oxidns-next-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
               ;;
             standard|minimal)
-              echo "archive=oxidns-${BUNDLE}-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
+              echo "archive=oxidns-next-${BUNDLE}-${TARGET}.${EXT}" >> "$GITHUB_OUTPUT"
               ;;
           esac
 
@@ -324,20 +324,30 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          $BUNDLE = '${{ inputs.bundle }}'
           $TARGET = '${{ matrix.target }}'
           $EXE = '${{ matrix.exe }}'
           $DIR = "target/${TARGET}/release"
           $ARCHIVE = '${{ steps.name.outputs.archive }}'
 
-          Copy-Item -Path "config.yaml" -Destination "$DIR/"
           Copy-Item -Path "LICENSE" -Destination "$DIR/"
-          if (Test-Path "$DIR/webui") { Remove-Item "$DIR/webui" -Recurse -Force }
-          Copy-Item -Path "webui/out" -Destination "$DIR/webui" -Recurse
-
-          Compress-Archive `
-            -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE", "$DIR/webui" `
-            -DestinationPath "$DIR/$ARCHIVE" `
-            -Force
+          if ($BUNDLE -eq 'minimal') {
+            Copy-Item -Path "config.minimal.yaml" -Destination "$DIR/config.yaml"
+            Compress-Archive `
+              -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE" `
+              -DestinationPath "$DIR/$ARCHIVE" `
+              -Force
+          } else {
+            Copy-Item -Path "config.yaml" -Destination "$DIR/"
+            if (Test-Path "$DIR/webui") {
+              Remove-Item "$DIR/webui" -Recurse -Force
+            }
+            Copy-Item -Path "webui/out" -Destination "$DIR/webui" -Recurse
+            Compress-Archive `
+              -Path "$DIR/$EXE", "$DIR/config.yaml", "$DIR/LICENSE", "$DIR/webui" `
+              -DestinationPath "$DIR/$ARCHIVE" `
+              -Force
+          }
 
       - name: Upload archive artifact
         uses: actions/upload-artifact@v7
@@ -381,14 +391,14 @@ jobs:
           tag_name: ${{ inputs.tag }}
           name: ${{ inputs.tag }} ${{ inputs.release_name_suffix }}
           body: |
-            Custom build of svenshi/oxidns ${{ inputs.tag }}
+            Custom build of ciallothu/oxidns-next ${{ inputs.tag }}
 
             - Bundle: `${{ inputs.bundle }}`
             - Features: `${{ needs.plan.outputs.features }}`
 
             Upgrade command:
             ```bash
-            oxidns upgrade apply \
+            oxidns-next upgrade apply \
               --repository ${{ github.repository }} \
               --bundle ${{ inputs.bundle == 'custom' && 'full' || inputs.bundle }}
             ```

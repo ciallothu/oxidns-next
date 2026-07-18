@@ -1,22 +1,22 @@
-# Install OxiDNS release archives on Windows.
+# Install OxiDNS Next release archives on Windows.
 #
 # Common overrides:
-#   $env:OXIDNS_VERSION = "v1.0.1"
-#   $env:OXIDNS_INSTALL_DIR = "C:\OxiDNS"
-#   $env:OXIDNS_TARGET = "x86_64-pc-windows-msvc"
-#   $env:OXIDNS_BUNDLE = "full"
-#   $env:OXIDNS_INSTALL_SERVICE = "0"
-#   $env:OXIDNS_START_SERVICE = "0"
+#   $env:OXIDNS_NEXT_VERSION = "v0.1.0"
+#   $env:OXIDNS_NEXT_INSTALL_DIR = "C:\OxiDNS Next"
+#   $env:OXIDNS_NEXT_TARGET = "x86_64-pc-windows-msvc"
+#   $env:OXIDNS_NEXT_BUNDLE = "full"
+#   $env:OXIDNS_NEXT_INSTALL_SERVICE = "0"
+#   $env:OXIDNS_NEXT_START_SERVICE = "0"
 
 param(
-    [string]$Version = $env:OXIDNS_VERSION,
-    [string]$Repository = $env:OXIDNS_REPO,
-    [string]$Target = $env:OXIDNS_TARGET,
-    [string]$Bundle = $env:OXIDNS_BUNDLE,
-    [string]$InstallDir = $env:OXIDNS_INSTALL_DIR,
-    [string]$NoPath = $env:OXIDNS_NO_PATH,
-    [string]$InstallService = $env:OXIDNS_INSTALL_SERVICE,
-    [string]$StartService = $env:OXIDNS_START_SERVICE
+    [string]$Version = $env:OXIDNS_NEXT_VERSION,
+    [string]$Repository = $env:OXIDNS_NEXT_REPO,
+    [string]$Target = $env:OXIDNS_NEXT_TARGET,
+    [string]$Bundle = $env:OXIDNS_NEXT_BUNDLE,
+    [string]$InstallDir = $env:OXIDNS_NEXT_INSTALL_DIR,
+    [string]$NoPath = $env:OXIDNS_NEXT_NO_PATH,
+    [string]$InstallService = $env:OXIDNS_NEXT_INSTALL_SERVICE,
+    [string]$StartService = $env:OXIDNS_NEXT_START_SERVICE
 )
 
 Set-StrictMode -Version Latest
@@ -33,14 +33,14 @@ function Write-Info {
     Write-Host $Message
 }
 
-function Get-OxiDnsTarget {
+function Get-OxiDnsNextTarget {
     $arch = $env:PROCESSOR_ARCHITECTURE
     switch ($arch) {
         "AMD64" { return "x86_64-pc-windows-msvc" }
         "ARM64" { return "aarch64-pc-windows-msvc" }
         "x86"   { return "i686-pc-windows-msvc" }
         default {
-            throw "unsupported Windows architecture: $arch. Set OXIDNS_TARGET to override."
+            throw "unsupported Windows architecture: $arch. Set OXIDNS_NEXT_TARGET to override."
         }
     }
 }
@@ -84,7 +84,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "latest"
 }
 if ([string]::IsNullOrWhiteSpace($Repository)) {
-    $Repository = "svenshi/oxidns"
+    $Repository = "ciallothu/oxidns-next"
 }
 if ([string]::IsNullOrWhiteSpace($InstallService)) {
     $InstallService = "1"
@@ -97,13 +97,13 @@ if ([string]::IsNullOrWhiteSpace($Bundle)) {
 }
 $Bundle = $Bundle.ToLowerInvariant()
 if ($Bundle -ne "full") {
-    throw "Windows release archives are only published for OXIDNS_BUNDLE=full"
+    throw "Windows release archives are only published for OXIDNS_NEXT_BUNDLE=full"
 }
 $serviceInstall = Test-Truthy $InstallService
 $serviceStart = Test-Truthy $StartService
 if ($serviceInstall -and -not (Test-Administrator)) {
-    if (-not [string]::IsNullOrWhiteSpace($env:OXIDNS_INSTALL_SERVICE)) {
-        throw "service installation requires an elevated PowerShell session; rerun as Administrator or set OXIDNS_INSTALL_SERVICE=0 for a user install"
+    if (-not [string]::IsNullOrWhiteSpace($env:OXIDNS_NEXT_INSTALL_SERVICE)) {
+        throw "service installation requires an elevated PowerShell session; rerun as Administrator or set OXIDNS_NEXT_INSTALL_SERVICE=0 for a user install"
     }
     Write-Info "Note: not running as Administrator; falling back to user install (no Windows service)."
     Write-Info "To install as a service, rerun from an elevated PowerShell session."
@@ -111,7 +111,7 @@ if ($serviceInstall -and -not (Test-Administrator)) {
     $serviceStart = $false
 }
 if ([string]::IsNullOrWhiteSpace($Target)) {
-    $Target = Get-OxiDnsTarget
+    $Target = Get-OxiDnsNextTarget
 }
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     if ($serviceInstall) {
@@ -125,14 +125,14 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
             $base = Join-Path $HOME "AppData\Local"
         }
     }
-    $InstallDir = Join-Path $base "OxiDNS"
+    $InstallDir = Join-Path $base "OxiDNS Next"
 }
 
 if ($Target -notlike "*windows*" -and $Target -notlike "*msvc*") {
     throw "non-Windows targets are installed with scripts/install.sh"
 }
 
-$asset = "oxidns-$Target.zip"
+$asset = "oxidns-next-$Target.zip"
 if ($Version -eq "latest") {
     $url = "https://github.com/$Repository/releases/latest/download/$asset"
 } else {
@@ -143,7 +143,7 @@ if ([enum]::GetNames([Net.SecurityProtocolType]) -contains "Tls12") {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
 
-$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("oxidns-install-" + [Guid]::NewGuid().ToString("N"))
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("oxidns-next-install-" + [Guid]::NewGuid().ToString("N"))
 $archivePath = Join-Path $tempRoot $asset
 $unpackDir = Join-Path $tempRoot "unpack"
 
@@ -162,10 +162,10 @@ try {
 
     Expand-Archive -Path $archivePath -DestinationPath $unpackDir -Force
 
-    $exeSource = Join-Path $unpackDir "oxidns.exe"
+    $exeSource = Join-Path $unpackDir "oxidns-next.exe"
     $configSource = Join-Path $unpackDir "config.yaml"
     if (-not (Test-Path -LiteralPath $exeSource)) {
-        throw "archive does not contain oxidns.exe"
+        throw "archive does not contain oxidns-next.exe"
     }
     if (-not (Test-Path -LiteralPath $configSource)) {
         throw "archive does not contain config.yaml"
@@ -173,9 +173,9 @@ try {
 
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
-    $exePath = Join-Path $InstallDir "oxidns.exe"
+    $exePath = Join-Path $InstallDir "oxidns-next.exe"
     $configPath = Join-Path $InstallDir "config.yaml"
-    $tempExePath = Join-Path $InstallDir "oxidns.exe.tmp"
+    $tempExePath = Join-Path $InstallDir "oxidns-next.exe.tmp"
     Copy-Item -LiteralPath $exeSource -Destination $tempExePath -Force
     Move-Item -LiteralPath $tempExePath -Destination $exePath -Force
 
@@ -224,17 +224,17 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "Service was installed but failed to start automatically."
                 Write-Warning "To start it manually, run from an elevated PowerShell:"
-                Write-Warning "  oxidns.exe service start"
+                Write-Warning "  oxidns-next.exe service start"
                 Write-Warning "Or check the Windows Event Log for details."
             }
         }
     }
 
-    Write-Info "OxiDNS installed to $InstallDir"
+    Write-Info "OxiDNS Next installed to $InstallDir"
     if (-not (Test-Truthy $NoPath)) {
-        Write-Info "Added install directory to $pathScope PATH. Open a new PowerShell window if oxidns is not found."
+        Write-Info "Added install directory to $pathScope PATH. Open a new PowerShell window if oxidns-next is not found."
     }
-    Write-Info "Try: oxidns.exe start -c `"$configPath`" -d `"$InstallDir`""
+    Write-Info "Try: oxidns-next.exe start -c `"$configPath`" -d `"$InstallDir`""
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

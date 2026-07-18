@@ -12,7 +12,7 @@ export { LOCALES, WEBUI };
 export type { Locale, TranslationParams } from "./types";
 
 export const DEFAULT_LOCALE: Locale = "zh-CN";
-export const LOCALE_STORAGE_KEY = "oxidns.locale";
+export const LOCALE_STORAGE_KEY = "oxidns-next.locale";
 
 export const localeLabels: Record<Locale, string> = {
   "zh-CN": "简体中文",

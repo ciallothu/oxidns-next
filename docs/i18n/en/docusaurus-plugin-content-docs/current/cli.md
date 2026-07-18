@@ -3,9 +3,9 @@ title: CLI Tools
 sidebar_position: 3
 ---
 
-This page explains the OxiDNS CLI by day-to-day task. For normal deployment, the most common flow is to run `check` first and then `start`.
+This page explains the OxiDNS Next CLI by day-to-day task. For normal deployment, the most common flow is to run `check` first and then `start`.
 
-OxiDNS ships a single executable: `oxidns`.
+OxiDNS Next ships a single executable: `oxidns-next`.
 
 Available top-level commands:
 
@@ -21,47 +21,47 @@ Available top-level commands:
 
 | Goal | Command |
 | --- | --- |
-| Validate a config | `oxidns check -c config.yaml` |
-| Start in the foreground | `oxidns start -c config.yaml` |
-| Temporarily enable debug logging | `oxidns start -c config.yaml -l debug` |
-| Print the plugin dependency graph | `oxidns check -c config.yaml --graph` |
-| Inspect compiled binary capabilities | `oxidns build-info` |
-| Probe upstream reachability and concurrency behavior | `oxidns probe upstream tcp://1.1.1.1:53` |
-| Install as a system service | `sudo oxidns service install -d /var/lib/oxidns -c /etc/oxidns/config.yaml` |
-| Check for a new release | `oxidns upgrade check` |
-| Export rules from a dat file | `oxidns export-dat --file ./rules/geosite.dat --kind geosite --selector cn --out-dir ./rules/exported` |
+| Validate a config | `oxidns-next check -c config.yaml` |
+| Start in the foreground | `oxidns-next start -c config.yaml` |
+| Temporarily enable debug logging | `oxidns-next start -c config.yaml -l debug` |
+| Print the plugin dependency graph | `oxidns-next check -c config.yaml --graph` |
+| Inspect compiled binary capabilities | `oxidns-next build-info` |
+| Probe upstream reachability and concurrency behavior | `oxidns-next probe upstream tcp://1.1.1.1:53` |
+| Install as a system service | `sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml` |
+| Check for a new release | `oxidns-next upgrade check` |
+| Export rules from a dat file | `oxidns-next export-dat --file ./rules/geosite.dat --kind geosite --selector cn --out-dir ./rules/exported` |
 
 ## Help
 
 Show top-level help:
 
 ```bash
-oxidns --help
+oxidns-next --help
 ```
 
 Show help for a specific subcommand:
 
 ```bash
-oxidns start --help
-oxidns check --help
-oxidns build-info --help
-oxidns export-dat --help
-oxidns probe --help
-oxidns probe upstream --help
-oxidns service --help
-oxidns upgrade --help
+oxidns-next start --help
+oxidns-next check --help
+oxidns-next build-info --help
+oxidns-next export-dat --help
+oxidns-next probe --help
+oxidns-next probe upstream --help
+oxidns-next service --help
+oxidns-next upgrade --help
 ```
 
 ## `start`
 
-Starts OxiDNS in the foreground.
+Starts OxiDNS Next in the foreground.
 
 Typical usage:
 
 ```bash
-oxidns start -c config.yaml
-oxidns start -c config.yaml -l debug
-oxidns start -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+oxidns-next start -c config.yaml
+oxidns-next start -c config.yaml -l debug
+oxidns-next start -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
 Arguments:
@@ -72,7 +72,7 @@ Arguments:
 - `-d, --working-dir <PATH>`
   - Change to the specified working directory before startup.
   - All runtime relative paths use this directory as their base, including logs, SQLite files, rule files, and `api.http.webui.root`.
-  - In the Debian default layout, the config lives at `/etc/oxidns/config.yaml`, while runtime-relative resources live under `/var/lib/oxidns`.
+  - In the Debian default layout, the config lives at `/etc/oxidns-next/config.yaml`, while runtime-relative resources live under `/var/lib/oxidns-next`.
 - `-l, --log-level <LEVEL>`
   - Temporarily override the configured log level.
   - Supported values: `off` `trace` `debug` `info` `warn` `error`
@@ -85,15 +85,15 @@ Common use cases:
 
 ## `check`
 
-Statically validates a configuration file without starting OxiDNS.
+Statically validates a configuration file without starting OxiDNS Next.
 
 Typical usage:
 
 ```bash
-oxidns check -c config.yaml
-oxidns check -c /etc/oxidns/config.yaml
-oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
-oxidns check -c config.yaml --graph
+oxidns-next check -c config.yaml
+oxidns-next check -c /etc/oxidns-next/config.yaml
+oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
+oxidns-next check -c config.yaml --graph
 ```
 
 Arguments:
@@ -128,11 +128,11 @@ Actively probes runtime-facing external targets. The current subcommand is `prob
 Typical usage:
 
 ```bash
-oxidns probe upstream udp://1.1.1.1:53
-oxidns probe upstream tcp://1.1.1.1:53
-oxidns probe upstream tls://dns.google:853 --qname example.com. --qtype A
-oxidns probe upstream https://dns.google/dns-query --json
-oxidns probe upstream tcp://dns.example.com:53 -c config.yaml --outbound remote
+oxidns-next probe upstream udp://1.1.1.1:53
+oxidns-next probe upstream tcp://1.1.1.1:53
+oxidns-next probe upstream tls://dns.google:853 --qname example.com. --qtype A
+oxidns-next probe upstream https://dns.google/dns-query --json
+oxidns-next probe upstream tcp://dns.example.com:53 -c config.yaml --outbound remote
 ```
 
 Arguments:
@@ -197,12 +197,12 @@ Protocol behavior:
 
 ## `build-info`
 
-Prints the compile-time capabilities of the current `oxidns` binary.
+Prints the compile-time capabilities of the current `oxidns-next` binary.
 
 Typical usage:
 
 ```bash
-oxidns build-info
+oxidns-next build-info
 ```
 
 Behavior:
@@ -232,7 +232,7 @@ These exported files can be referenced directly from `domain_set.files` or `ip_s
 Typical usage:
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --selector cn \
   --selector geolocation-\!cn \
@@ -242,7 +242,7 @@ oxidns export-dat \
 Generate an additional merged union file:
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --kind geosite \
   --selector cn \
@@ -254,7 +254,7 @@ oxidns export-dat \
 Export from `geoip.dat`:
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geoip.dat \
   --kind geoip \
   --selector cn \
@@ -264,7 +264,7 @@ oxidns export-dat \
 Export the entire dat file without selectors:
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --kind geosite \
   --out-dir ./rules/exported
@@ -273,7 +273,7 @@ oxidns export-dat \
 Export using the original text format:
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --kind geosite \
   --format original \
@@ -291,8 +291,9 @@ Arguments:
   - Default: `auto`
 - `--format <FORMAT>`
   - Output text format.
-  - Values: `oxidns` `original`
-  - Default: `oxidns`
+  - Values: `oxidns-next` `original`
+  - Default: `oxidns-next`
+  - For compatibility with upstream scripts, the legacy value `oxidns` remains an alias for `oxidns-next`.
 - `--selector <SELECTOR>`
   - Selector to export.
   - Repeat the flag to export multiple selectors.
@@ -309,14 +310,14 @@ Arguments:
 
 Behavior:
 
-- By default, OxiDNS writes one file per selector, for example `cn.txt` or `geolocation-!cn.txt`.
-- When no selector is provided, OxiDNS writes one full-export file named `geosite.txt` or `geoip.txt` by default.
-- `geosite` exports OxiDNS domain rule expressions such as `full:`, `domain:`, `keyword:`, and `regexp:`.
-- In `oxidns` format, exported files add a header comment such as `# selector: cn`; when no selector is provided, the header becomes `# selector: all`.
+- By default, OxiDNS Next writes one file per selector, for example `cn.txt` or `geolocation-!cn.txt`.
+- When no selector is provided, OxiDNS Next writes one full-export file named `geosite.txt` or `geoip.txt` by default.
+- `geosite` exports OxiDNS Next domain rule expressions such as `full:`, `domain:`, `keyword:`, and `regexp:`.
+- In `oxidns-next` format, exported files add a header comment such as `# selector: cn`; when no selector is provided, the header becomes `# selector: all`.
 - In `original` format, `geosite` preserves the source type names and writes values such as `plain:`, `regex:`, `root_domain:`, and `full:`.
 - In `original` format, `geosite` output is grouped by code, and domain attributes are appended after the domain text, for example `@cn` or `@ads=1`.
 - `geoip` exports plain IP / CIDR lines.
-- In `oxidns` format, `geoip` exports also include selector header comments.
+- In `oxidns-next` format, `geoip` exports also include selector header comments.
 - In `original` format, `geoip` output is grouped by code with section headers like `[code]`.
 - `geosite` selectors support `code@attribute`, for example `mastercard@cn`.
 - If any selector matches no rules, the command fails instead of silently skipping it.
@@ -338,7 +339,7 @@ Supported subcommands:
 Installs the service definition without starting it immediately.
 
 ```bash
-sudo oxidns service install -d /var/lib/oxidns -c /etc/oxidns/config.yaml
+sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml
 ```
 
 Arguments:
@@ -346,7 +347,7 @@ Arguments:
 - `-d, --working-dir <PATH>`
   - Service working directory, and the base for all runtime relative paths inside the service.
   - Must be an absolute path.
-  - The generated service passes this to OxiDNS through `ExecStart ... -d <PATH>`; if a custom systemd unit also sets `WorkingDirectory=`, keep both values aligned.
+  - The generated service passes this to OxiDNS Next through `ExecStart ... -d <PATH>`; if a custom systemd unit also sets `WorkingDirectory=`, keep both values aligned.
 - `-c, --config <PATH>`
   - Configuration path used by the installed service.
 
@@ -355,7 +356,7 @@ Arguments:
 Starts the installed system service.
 
 ```bash
-sudo oxidns service start
+sudo oxidns-next service start
 ```
 
 ### `service stop`
@@ -363,7 +364,7 @@ sudo oxidns service start
 Stops the installed system service.
 
 ```bash
-sudo oxidns service stop
+sudo oxidns-next service stop
 ```
 
 ### `service restart`
@@ -371,7 +372,7 @@ sudo oxidns service stop
 Restarts the installed system service.
 
 ```bash
-sudo oxidns service restart
+sudo oxidns-next service restart
 ```
 
 ### `service uninstall`
@@ -379,12 +380,12 @@ sudo oxidns service restart
 Removes the installed system service.
 
 ```bash
-sudo oxidns service uninstall
+sudo oxidns-next service uninstall
 ```
 
 ## `upgrade`
 
-Checks, downloads, or applies OxiDNS upgrades from GitHub Releases.
+Checks, downloads, or applies OxiDNS Next upgrades from GitHub Releases.
 
 Supported subcommands:
 
@@ -395,12 +396,12 @@ Supported subcommands:
 Common usage:
 
 ```bash
-oxidns upgrade
-oxidns upgrade --force
-oxidns upgrade check
-oxidns upgrade download --target latest
-sudo oxidns upgrade apply
-sudo oxidns upgrade apply --no-restart
+oxidns-next upgrade
+oxidns-next upgrade --force
+oxidns-next upgrade check
+oxidns-next upgrade download --target latest
+sudo oxidns-next upgrade apply
+sudo oxidns-next upgrade apply --no-restart
 ```
 
 Common arguments:
@@ -410,20 +411,20 @@ Common arguments:
   - Default: `latest`
 - `--repository <OWNER/REPO>`
   - GitHub repository.
-  - Default: `svenshi/oxidns`
+  - Default: `ciallothu/oxidns-next`
 - `--asset <NAME|auto>`
   - Release asset name. `auto` selects the archive for the current platform and build bundle.
   - Default: `auto`
 - `-c, --config <PATH>`
   - Runtime configuration file used to read `api.http.webui.root` when `--webui-dir` is not set.
-  - When omitted, `upgrade` first checks `config.yaml` in the current directory. On Linux package installs, it also uses `/etc/oxidns/config.yaml` when present.
+  - When omitted, `upgrade` first checks `config.yaml` in the current directory. On Linux package installs, it also uses `/etc/oxidns-next/config.yaml` when present.
 - `-d, --working-dir <DIR>`
   - Base directory for runtime-relative paths, with the same semantics as `start -d/--working-dir`.
-  - When omitted and the Linux package configuration is detected, `/var/lib/oxidns` is used; otherwise the current directory is used.
+  - When omitted and the Linux package configuration is detected, `/var/lib/oxidns-next` is used; otherwise the current directory is used.
 - `--bundle <auto|full|standard|minimal>`
   - Selects the release build bundle when `--asset auto` is used.
   - Default: `auto`, which follows the current binary's build bundle.
-  - `full` uses the legacy asset name, for example `oxidns-x86_64-unknown-linux-musl.tar.gz`; `standard` / `minimal` use slim asset names such as `oxidns-standard-x86_64-unknown-linux-musl.tar.gz`.
+  - `full` uses the legacy asset name, for example `oxidns-next-x86_64-unknown-linux-musl.tar.gz`; `standard` / `minimal` use slim asset names such as `oxidns-next-standard-x86_64-unknown-linux-musl.tar.gz`.
 - `--cache-dir <DIR>`
   - Directory for cached upgrade files.
   - Default: `./upgrade-cache`
@@ -459,10 +460,10 @@ Behavior:
 - `apply` updates only when a newer version is available by default. `--force` forces the update.
 - On Unix, `apply` unpacks the `.tar.gz`, backs up the current binary, and replaces it. On Windows, `apply` unpacks the `.zip`, backs up and replaces the binary, and also upgrades the WebUI directory.
 - By default, after replacing the binary `apply` backs up and installs the archive's `webui/` directory into `--webui-dir`; `--skip-webui` skips it, and an archive without `webui/` is skipped without affecting the binary upgrade.
-- In the default Debian package layout, `sudo oxidns upgrade apply` infers the WebUI directory from `/etc/oxidns/config.yaml` and `/var/lib/oxidns`; when `/var/lib/oxidns/webui` is a symlink, the real target directory is updated.
+- In the default Debian package layout, `sudo oxidns-next upgrade apply` infers the WebUI directory from `/etc/oxidns-next/config.yaml` and `/var/lib/oxidns-next`; when `/var/lib/oxidns-next/webui` is a symlink, the real target directory is updated.
 - After a successful `apply`, the service is restarted automatically via the system service manager. Pass `--no-restart` to skip the automatic restart.
 - After a successful `apply`, the CLI asks whether to clean the cache and backup directories. The default answer is `Y`.
 
 ## Page Scope
 
-This page covers the commands above. To confirm every argument supported by the local binary, run `oxidns <subcommand> --help`.
+This page covers the commands above. To confirm every argument supported by the local binary, run `oxidns-next <subcommand> --help`.

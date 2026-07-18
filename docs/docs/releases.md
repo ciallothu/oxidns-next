@@ -7,10 +7,28 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 
 # 版本更新
 
+本页首先记录 OxiDNS Next 的版本；后续内容保留为上游 OxiDNS 的历史版本记录。
+
+## 2026-07
+
+<div className="release-stack">
+  <ReleaseCard version="v0.1.0" badge="OxiDNS Next 首发" date="2026-07-18" defaultOpen>
+      **本次更新**
+
+      - OxiDNS Next 首个公开版本，建立独立的品牌与发布渠道。
+      - 新增本地登录、OIDC、通行密钥和 TOTP 多重账户安全选项。
+      - 查询日志独立展示，并支持按关键词与日期查找。
+      - 仪表盘与插件中心合并，常用状态与所有插件可在一处查看。
+      - 完成功能实现审计，并更新用户说明。
+  </ReleaseCard>
+</div>
+
+## 上游 OxiDNS 历史版本
+
 ## 2026-06
 
 <div className="release-stack">
-   <ReleaseCard version="v1.4.0" badge="Minor Release" date="2026-06-24" defaultOpen>
+   <ReleaseCard version="v1.4.0" badge="Minor Release" date="2026-06-24">
        **版本定位**
 
        - Minor Release。v1.4.0 的核心是补齐复杂网络环境下的“出口控制、上游诊断和并发裁决”能力：新增 `network.outbound` 统一出口层，新增 `oxidns probe upstream` 上游诊断命令，增强 `forward` 多上游并发结果选择，并优化缓存、DoH 入站、WebUI 升级体验和查询记录读取性能。

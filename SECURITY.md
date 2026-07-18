@@ -1,6 +1,6 @@
 # Security Policy
 
-OxiDNS is a DNS policy orchestration engine that can run on gateways,
+OxiDNS Next is a DNS policy orchestration engine that can run on gateways,
 servers, homelabs, and other network edge systems. Security reports are
 handled privately so fixes can be prepared before details are disclosed.
 
@@ -21,15 +21,14 @@ Please do not open a public GitHub issue for suspected vulnerabilities.
 
 Use one of these private channels instead:
 
-- Email: `isvenshi@gmail.com`
-- GitHub Security Advisory / private vulnerability reporting, if available for
-  this repository.
+- GitHub Security Advisory / private vulnerability reporting for
+  `ciallothu/oxidns-next`.
 
-Use a subject such as `[OxiDNS Security] <short summary>`.
+Use a subject such as `[OxiDNS Next Security] <short summary>`.
 
 Helpful reports include:
 
-- Affected OxiDNS version, release artifact, platform, and commit if known.
+- Affected OxiDNS Next version, release artifact, platform, and commit if known.
 - Whether the issue affects server listeners, upstreams, cache behavior,
   plugins, WebUI hosting, install scripts, or one of the workspace crates.
 - A minimal configuration or reproduction steps with secrets redacted.
@@ -65,9 +64,9 @@ Reports are most useful when they involve one of these areas:
   `ros_address_list`.
 - Management API, health endpoints, metrics, WebUI hosting, and release/install
   scripts.
-- Workspace crates such as `oxidns-proto`, `oxidns-ripset`, macros, and the
+- Workspace crates such as `oxidns-next-proto`, `oxidns-next-ripset`, macros, and the
   zone parser.
-- Dependency or supply-chain issues that create a concrete risk for OxiDNS
+- Dependency or supply-chain issues that create a concrete risk for OxiDNS Next
   users.
 
 The following are usually not treated as security vulnerabilities by
@@ -79,7 +78,7 @@ themselves:
   configuration.
 - Denial of service from intentionally expensive local configurations without a
   separate remote trigger.
-- Outdated dependencies without a demonstrated impact on OxiDNS.
+- Outdated dependencies without a demonstrated impact on OxiDNS Next.
 
 ## Safe Testing
 
@@ -90,7 +89,7 @@ to the minimum needed for verification.
 
 ## Deployment Hardening
 
-OxiDNS operators should consider these baseline precautions:
+OxiDNS Next operators should consider these baseline precautions:
 
 - Bind management APIs and WebUI hosting to localhost or a trusted management
   network unless they are protected by a firewall, VPN, or authenticated reverse
@@ -103,5 +102,5 @@ OxiDNS operators should consider these baseline precautions:
 - Disable unused server protocols and plugins.
 - Review configurations that execute commands, download remote content, issue
   HTTP requests, upgrade binaries, or synchronize external systems.
-- Keep OxiDNS, Rust toolchains, operating system packages, and TLS certificates
+- Keep OxiDNS Next, Rust toolchains, operating system packages, and TLS certificates
   up to date.

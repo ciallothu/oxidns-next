@@ -28,7 +28,7 @@ use std::thread;
 use ahash::AHashSet;
 use async_trait::async_trait;
 #[cfg(target_os = "linux")]
-use ripset::{IpCidr, ipset_add};
+use oxidns_next_ripset::{IpCidr, ipset_add};
 use serde::Deserialize;
 use serde_yaml_ng::Value;
 use tracing::debug;
@@ -422,7 +422,7 @@ fn write_ipset_entries(entries: &[IpSetEntry]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "linux")]
-    use ripset::IpCidr;
+    use oxidns_next_ripset::IpCidr;
 
     use super::*;
 

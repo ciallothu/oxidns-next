@@ -48,7 +48,7 @@ pub struct StartConfig {
     pub log_level: Option<String>,
 }
 
-/// Start OxiDNS in the foreground using the provided CLI options.
+/// Start OxiDNS Next in the foreground using the provided CLI options.
 pub fn run(start: StartConfig) -> Result<()> {
     // Capture the exe path before any binary replacement can invalidate it.
     ORIGINAL_EXE.get_or_init(|| std::env::current_exe().unwrap_or_default());
@@ -82,7 +82,7 @@ fn init_runtime(options: StartConfig, config: Config) -> Result<()> {
     let mut tokio_runtime = runtime::Builder::new_multi_thread();
     tokio_runtime
         .enable_all()
-        .thread_name("oxidns-worker")
+        .thread_name("oxidns-next-worker")
         .worker_threads(worker_threads);
     let tokio_runtime = tokio_runtime
         .build()
@@ -93,7 +93,7 @@ fn init_runtime(options: StartConfig, config: Config) -> Result<()> {
     }
 }
 
-/// Replace the current process image with a fresh copy of OxiDNS using the
+/// Replace the current process image with a fresh copy of OxiDNS Next using the
 /// original command-line arguments.
 ///
 /// On Unix, `exec()` keeps the same PID so any process supervisor (systemd,
@@ -313,7 +313,7 @@ async fn run_async_main(options: StartConfig, config: Config) -> Result<Shutdown
             "Log level overridden by CLI option"
         );
     }
-    info!(log_level = %effective_log_level, "OxiDNS server initializing");
+    info!(log_level = %effective_log_level, "OxiDNS Next server initializing");
 
     let mut current_config = config;
     let mut assembly =
@@ -322,7 +322,7 @@ async fn run_async_main(options: StartConfig, config: Config) -> Result<Shutdown
                 app_controller.set_running_config_version(
                     crate::infra::control::config_file_version(app_controller.config_path()),
                 );
-                info!("OxiDNS server started successfully");
+                info!("OxiDNS Next server started successfully");
                 assembly
             }
             Err(err) => {

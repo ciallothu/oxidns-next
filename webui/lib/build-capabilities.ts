@@ -1,4 +1,4 @@
-import type { BuildInfo, SupportedPlugins } from "./oxidns-api";
+import type { BuildInfo, SupportedPlugins } from "./oxidns-next-api";
 import type { PluginType } from "./types";
 
 const supportedPluginFieldByType: Record<PluginType, keyof SupportedPlugins> = {

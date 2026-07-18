@@ -4,21 +4,22 @@ use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
 #[cfg(feature = "webui")]
 use http::HeaderValue;
-use http::header::{AUTHORIZATION, CONTENT_TYPE};
+use http::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
 use http::{HeaderMap, Method, Request, StatusCode, Uri};
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::{Request as HyperRequest, Version};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use serde::Serialize;
 
-use super::cors::{add_cors_headers, infer_cors_config_from_listen, resolve_cors_config};
+use super::cors::{
+    add_cors_headers, infer_cors_config_from_listen, resolve_authenticated_cors_config,
+    resolve_cors_config,
+};
 #[cfg(feature = "webui")]
 use super::static_files::match_static_path;
 use super::*;
@@ -90,6 +91,8 @@ fn test_api_hub_with_options(
         .expect("api hub config should be valid")
         .expect("api hub should be enabled");
     let register = ApiRegister::new(hub.clone());
+    auth::register_builtin_routes(&register, hub.auth_service())
+        .expect("auth routes should register");
     health::register_builtin_routes(&register, hub.health_state())
         .expect("health routes should register");
     #[cfg(feature = "metrics")]
@@ -112,6 +115,10 @@ fn http2_client() -> Client<HttpConnector, Empty<Bytes>> {
         .build_http()
 }
 
+fn http1_full_client() -> Client<HttpConnector, Full<Bytes>> {
+    Client::builder(TokioExecutor::new()).build_http()
+}
+
 #[test]
 fn test_build_plugin_route_path() {
     let route = build_plugin_route_path("cache_main", "/flush").expect("route should be built");
@@ -125,17 +132,17 @@ fn test_build_plugin_route_path_without_subpath() {
 }
 
 #[test]
-fn test_basic_auth_matches_expected_credentials() {
-    let auth = ApiAuthConfig::Basic {
-        username: "admin".to_string(),
-        password: "secret".to_string(),
-    };
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        AUTHORIZATION,
-        http::HeaderValue::from_static("Basic YWRtaW46c2VjcmV0"),
-    );
-    assert!(is_authorized(&headers, Some(&auth)));
+fn test_only_authentication_handshake_routes_are_public() {
+    assert!(auth::is_public_route(&Method::GET, "/auth/session"));
+    assert!(auth::is_public_route(&Method::POST, "/auth/login"));
+    assert!(auth::is_public_route(&Method::POST, "/auth/oidc/start"));
+    assert!(auth::is_public_json_route(
+        &Method::POST,
+        "/auth/oidc/start"
+    ));
+    assert!(!auth::is_public_route(&Method::GET, "/auth/oidc/start"));
+    assert!(!auth::is_public_route(&Method::GET, "/healthz"));
+    assert!(!auth::is_public_route(&Method::POST, "/auth/logout"));
 }
 
 #[test]
@@ -261,6 +268,24 @@ fn test_empty_configured_cors_falls_back_to_listen_inference() {
         response_headers.get(http::header::ACCESS_CONTROL_ALLOW_ORIGIN),
         Some(&http::HeaderValue::from_static("*"))
     );
+}
+
+#[test]
+fn test_authenticated_cors_requires_explicit_origins() {
+    assert!(resolve_authenticated_cors_config(None).is_none());
+    assert!(resolve_authenticated_cors_config(Some(ApiCorsConfig::default())).is_none());
+
+    let configured = ApiCorsConfig {
+        allowed_origins: vec!["https://dns.example.test".to_string()],
+        ..Default::default()
+    };
+    let resolved = resolve_authenticated_cors_config(Some(configured))
+        .expect("explicit authenticated CORS should be retained");
+    assert_eq!(
+        resolved.allowed_origins,
+        vec!["https://dns.example.test".to_string()]
+    );
+    assert!(resolved.allowed_origin_hosts.is_empty());
 }
 
 #[tokio::test]
@@ -424,12 +449,20 @@ async fn test_global_api_route_macros_register_routes_and_clear() {
 #[tokio::test]
 async fn test_hyper_http1_serves_auth_and_plugin_route() {
     AppClock::start();
+    let temp = tempfile::tempdir().expect("temp auth directory");
     let addr = reserve_local_addr();
     let hub = test_api_hub(
         addr,
-        Some(ApiAuthConfig::Basic {
-            username: "admin".to_string(),
-            password: "secret".to_string(),
+        Some(ApiAuthConfig::Accounts {
+            database: temp.path().join("auth.db").display().to_string(),
+            bootstrap_token: None,
+            bootstrap_token_env: None,
+            session_ttl_seconds: 3600,
+            cookie_secure: Some(false),
+            cookie_same_site: crate::config::types::ApiCookieSameSite::Lax,
+            public_url: None,
+            oidc: None,
+            passkey: None,
         }),
     );
     let register = ApiRegister::new(hub.clone());
@@ -439,31 +472,159 @@ async fn test_hyper_http1_serves_auth_and_plugin_route() {
 
     start_test_api_hub(&hub).await;
 
-    let client = http1_client();
+    let client = http1_full_client();
     let uri: Uri = format!("http://{addr}/api/plugins/test_plugin/echo")
         .parse()
         .expect("request uri");
+
+    let methods_uri: Uri = format!("http://{addr}/api/auth/methods")
+        .parse()
+        .expect("auth methods uri");
+    let methods = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::GET)
+                .uri(methods_uri)
+                .header(http::header::ORIGIN, "http://127.0.0.1:5173")
+                .body(Full::new(Bytes::new()))
+                .expect("auth methods request"),
+        )
+        .await
+        .expect("auth methods response");
+    assert_eq!(methods.status(), StatusCode::OK);
+    assert!(
+        methods
+            .headers()
+            .get(http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none(),
+        "authenticated deployments must not infer credentialed CORS from the listen host"
+    );
 
     let unauthorized = client
         .request(
             HyperRequest::builder()
                 .method(Method::POST)
                 .uri(uri.clone())
-                .body(Empty::new())
+                .body(Full::new(Bytes::new()))
                 .expect("request"),
         )
         .await
         .expect("unauthorized response");
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
 
-    let auth_header = format!("Basic {}", STANDARD.encode("admin:secret"));
+    let expired = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::POST)
+                .uri(uri.clone())
+                .header(COOKIE, "oxidns_next_session=invalid")
+                .body(Full::new(Bytes::new()))
+                .expect("expired-session request"),
+        )
+        .await
+        .expect("expired-session response");
+    assert_eq!(expired.status(), StatusCode::UNAUTHORIZED);
+    let expired_body = expired
+        .into_body()
+        .collect()
+        .await
+        .expect("expired-session body")
+        .to_bytes();
+    let expired_json: serde_json::Value =
+        serde_json::from_slice(&expired_body).expect("expired-session json");
+    assert_eq!(expired_json["code"], "session_expired");
+
+    let bootstrap_uri: Uri = format!("http://{addr}/api/auth/bootstrap")
+        .parse()
+        .expect("bootstrap uri");
+    let wrong_content_type = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::POST)
+                .uri(bootstrap_uri.clone())
+                .header(CONTENT_TYPE, "text/plain")
+                .body(Full::new(Bytes::from_static(
+                    br#"{"username":"admin","password":"correct horse battery staple"}"#,
+                )))
+                .expect("wrong-content-type bootstrap request"),
+        )
+        .await
+        .expect("wrong-content-type bootstrap response");
+    assert_eq!(
+        wrong_content_type.status(),
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
+
+    let cross_origin = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::POST)
+                .uri(bootstrap_uri.clone())
+                .header(CONTENT_TYPE, "application/json")
+                .header(http::header::ORIGIN, "https://evil.example.test")
+                .body(Full::new(Bytes::from_static(
+                    br#"{"username":"admin","password":"correct horse battery staple"}"#,
+                )))
+                .expect("cross-origin bootstrap request"),
+        )
+        .await
+        .expect("cross-origin bootstrap response");
+    assert_eq!(cross_origin.status(), StatusCode::FORBIDDEN);
+
+    let bootstrap = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::POST)
+                .uri(bootstrap_uri)
+                .header(CONTENT_TYPE, "application/json")
+                .body(Full::new(Bytes::from_static(
+                    br#"{"username":"admin","password":"correct horse battery staple"}"#,
+                )))
+                .expect("bootstrap request"),
+        )
+        .await
+        .expect("bootstrap response");
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let session_cookie = bootstrap
+        .headers()
+        .get(SET_COOKIE)
+        .expect("session cookie")
+        .to_str()
+        .expect("cookie text")
+        .split(';')
+        .next()
+        .expect("cookie pair")
+        .to_string();
+    let bootstrap_body = bootstrap
+        .into_body()
+        .collect()
+        .await
+        .expect("bootstrap body")
+        .to_bytes();
+    let bootstrap_json: serde_json::Value =
+        serde_json::from_slice(&bootstrap_body).expect("bootstrap json");
+    let csrf = bootstrap_json["csrf_token"].as_str().expect("csrf token");
+    let missing_csrf = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::POST)
+                .uri(uri.clone())
+                .header(COOKIE, session_cookie.clone())
+                .body(Full::new(Bytes::new()))
+                .expect("missing-CSRF request"),
+        )
+        .await
+        .expect("missing-CSRF response");
+    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+
     let authorized = client
         .request(
             HyperRequest::builder()
                 .method(Method::POST)
                 .uri(uri)
-                .header(AUTHORIZATION, auth_header)
-                .body(Empty::new())
+                .header(COOKIE, session_cookie)
+                .header("x-csrf-token", csrf)
+                .body(Full::new(Bytes::new()))
                 .expect("authorized request"),
         )
         .await
@@ -631,7 +792,7 @@ async fn test_hyper_serves_build_info_route() {
 async fn test_hyper_serves_webui_static_files_and_spa_fallback() {
     AppClock::start();
     let temp = tempfile::tempdir().expect("temp webui dir");
-    fs::write(temp.path().join("index.html"), "<html>oxidns</html>").expect("write index");
+    fs::write(temp.path().join("index.html"), "<html>oxidns-next</html>").expect("write index");
     fs::create_dir_all(temp.path().join("assets")).expect("create assets");
     fs::write(temp.path().join("assets/app.js"), "console.log('ok');").expect("write asset");
     // Mirror Next.js static export: /logs is served by logs.html, and
@@ -642,10 +803,7 @@ async fn test_hyper_serves_webui_static_files_and_spa_fallback() {
     let addr = reserve_local_addr();
     let hub = test_api_hub_with_webui(
         addr,
-        Some(ApiAuthConfig::Basic {
-            username: "admin".to_string(),
-            password: "secret".to_string(),
-        }),
+        None,
         ApiWebUiConfig {
             root: temp.path().display().to_string(),
             index: None,
@@ -681,7 +839,7 @@ async fn test_hyper_serves_webui_static_files_and_spa_fallback() {
         .await
         .expect("collect body")
         .to_bytes();
-    assert_eq!(body, Bytes::from_static(b"<html>oxidns</html>"));
+    assert_eq!(body, Bytes::from_static(b"<html>oxidns-next</html>"));
 
     let asset_uri: Uri = format!("http://{addr}/assets/app.js")
         .parse()
@@ -755,10 +913,6 @@ async fn test_hyper_serves_webui_static_files_and_spa_fallback() {
             HyperRequest::builder()
                 .method(Method::GET)
                 .uri(api_unknown_uri)
-                .header(
-                    AUTHORIZATION,
-                    format!("Basic {}", STANDARD.encode("admin:secret")),
-                )
                 .body(Empty::new())
                 .expect("request"),
         )

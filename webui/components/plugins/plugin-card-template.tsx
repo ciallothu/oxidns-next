@@ -2,13 +2,6 @@
 
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Pin, PinOff } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAppStore } from "@/lib/store";
 import { selectCardMetrics } from "@/lib/metrics";
 import { isPluginKindSupported } from "@/lib/build-capabilities";
@@ -29,7 +22,7 @@ export function PluginCardTemplate({
   children,
 }: PluginCardTemplateProps) {
   const { locale, t } = useI18n();
-  const { setSelectedPlugin, setDetailOpen, togglePluginPin } = useAppStore();
+  const { setSelectedPlugin, setDetailOpen } = useAppStore();
   const series = useAppStore((s) => s.pluginMetrics[plugin.name]);
   const buildInfo = useAppStore((s) => s.buildInfo);
   const cardMetrics = selectCardMetrics(series, plugin.pluginKind, 4, locale);
@@ -57,7 +50,6 @@ export function PluginCardTemplate({
     <Card
       className={cn(
         "group flex h-full min-h-[9.25rem] cursor-pointer flex-col transition-all hover:border-primary/50 hover:shadow-md",
-        plugin.pinned && "border-primary/30",
         !supported && "border-dashed opacity-70",
       )}
       aria-disabled={!supported}
@@ -70,9 +62,6 @@ export function PluginCardTemplate({
             <span className="truncate font-mono text-sm font-medium">
               {plugin.name}
             </span>
-            {plugin.pinned && (
-              <Pin className="h-3 w-3 flex-shrink-0 text-primary" />
-            )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <Badge
@@ -108,35 +97,6 @@ export function PluginCardTemplate({
               </div>
             </div>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "h-7 w-7 flex-shrink-0 transition-opacity",
-                  plugin.pinned
-                    ? "text-primary opacity-100"
-                    : "opacity-0 group-hover:opacity-100",
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePluginPin(plugin.id);
-                }}
-              >
-                {plugin.pinned ? (
-                  <PinOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Pin className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {plugin.pinned
-                ? t(WEBUI.plugins.unpin)
-                : t(WEBUI.plugins.pinDashboard)}
-            </TooltipContent>
-          </Tooltip>
           <PluginDeleteButton
             plugin={plugin}
             className="h-7 w-7 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"

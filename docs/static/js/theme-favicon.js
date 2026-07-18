@@ -1,4 +1,7 @@
 (function () {
+  var scriptUrl = document.currentScript && document.currentScript.src;
+  var staticRoot = scriptUrl ? new URL('../', scriptUrl) : new URL('./', window.location.origin);
+
   function currentTheme() {
     var theme = document.documentElement.getAttribute('data-theme');
 
@@ -12,15 +15,16 @@
   }
 
   function updateFavicon() {
-    var href =
-      currentTheme() === 'dark' ? '/img/logo-dark.png' : '/img/logo-light.png';
+    var logo =
+      currentTheme() === 'dark' ? 'img/logo-next-dark.png' : 'img/logo-next-light.png';
+    var href = new URL(logo, staticRoot).href;
     var icons = document.querySelectorAll("link[rel~='icon']");
-    var icon = document.querySelector('link[data-oxidns-theme-icon]');
+    var icon = document.querySelector('link[data-oxidns-next-theme-icon]');
 
     if (icons.length === 0) {
       icon = document.createElement('link');
       icon.setAttribute('rel', 'icon');
-      icon.setAttribute('data-oxidns-theme-icon', 'true');
+      icon.setAttribute('data-oxidns-next-theme-icon', 'true');
       document.head.appendChild(icon);
       icons = [icon];
     }

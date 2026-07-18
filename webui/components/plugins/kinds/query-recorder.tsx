@@ -71,6 +71,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { apiRequest, readApiResponseBody } from "@/lib/api-client";
 import {
   apiHeaders,
   apiUrl,
@@ -94,7 +95,7 @@ import {
   type QueryRecorderTimeseriesBucket,
   type QueryRecorderTimeseriesResponse,
   type QueryRecorderTopResponse,
-} from "@/lib/oxidns-api";
+} from "@/lib/oxidns-next-api";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type {
@@ -149,9 +150,8 @@ function QueryRecorderDetail(props: PluginDetailComponentProps) {
 }
 
 type QueryRecordFilterForm = {
-  qname: string;
+  search: string;
   qtype: string;
-  clientIp: string;
   rcode: string;
   status: QueryRecordStatusFilter;
   sinceLocal: string;
@@ -159,9 +159,8 @@ type QueryRecordFilterForm = {
 };
 
 const EMPTY_FILTER_FORM: QueryRecordFilterForm = {
-  qname: "",
+  search: "",
   qtype: "all",
-  clientIp: "",
   rcode: "all",
   status: "all",
   sinceLocal: "",
@@ -218,7 +217,7 @@ const CHART_MAX_HEIGHT = 640;
 // below, sharing a single filter form (incl. matcherTag).
 // ---------------------------------------------------------------------------
 
-function QueryRecordsPanel({ tag }: { tag: string }) {
+export function QueryRecordsPanel({ tag }: { tag: string }) {
   const appliedStatus = usePluginAppliedStatus(tag);
   if (appliedStatus === "not-applied") {
     return <PluginNotAppliedPlaceholder />;
@@ -418,7 +417,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
     setStreaming(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await apiRequest(
         apiUrl(`/plugins/${encodeURIComponent(tag)}/stream?tail=20`),
         {
           headers: { ...apiHeaders(), Accept: "text/event-stream" },
@@ -434,7 +433,9 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       const decoder = new TextDecoder();
       let buffer = "";
       while (!controller.signal.aborted) {
-        const { done, value } = await reader.read();
+        const { done, value } = await readApiResponseBody(response, () =>
+          reader.read(),
+        );
         if (done) break;
         buffer += decoder
           .decode(value, { stream: true })
@@ -623,16 +624,16 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
             }}
           >
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-              <FilterField label={t(WEBUI.queryRecorder.qnameFilter)}>
+              <FilterField label={t(WEBUI.queryRecorder.keywordFilter)}>
                 <Input
-                  value={filterForm.qname}
+                  value={filterForm.search}
                   onChange={(event) =>
                     setFilterForm((current) => ({
                       ...current,
-                      qname: event.target.value,
+                      search: event.target.value,
                     }))
                   }
-                  placeholder="example.com"
+                  placeholder={t(WEBUI.queryRecorder.keywordPlaceholder)}
                   className="h-8 font-mono"
                 />
               </FilterField>
@@ -655,19 +656,6 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                     ))}
                   </SelectContent>
                 </Select>
-              </FilterField>
-              <FilterField label={t(WEBUI.queryRecorder.clientIpFilter)}>
-                <Input
-                  value={filterForm.clientIp}
-                  onChange={(event) =>
-                    setFilterForm((current) => ({
-                      ...current,
-                      clientIp: event.target.value,
-                    }))
-                  }
-                  placeholder="192.168 / ::1"
-                  className="h-8 font-mono"
-                />
               </FilterField>
               <FilterField label="RCODE">
                 <Select
@@ -1091,7 +1079,7 @@ function defaultBucketForRange(
   return range === "24h" || range === "all" ? "hour" : "minute";
 }
 
-function QueryRecorderInsightsPanel({ tag }: { tag: string }) {
+export function QueryRecorderInsightsPanel({ tag }: { tag: string }) {
   const appliedStatus = usePluginAppliedStatus(tag);
   if (appliedStatus === "not-applied") {
     return <PluginNotAppliedPlaceholder />;
@@ -2367,9 +2355,8 @@ function queryElapsedTitle(elapsedMs: number, t: TFn) {
 
 function filtersFromForm(form: QueryRecordFilterForm): QueryRecordFilters {
   return {
-    qname: optionalTrimmed(form.qname),
+    search: optionalTrimmed(form.search),
     qtype: form.qtype === "all" ? undefined : form.qtype,
-    clientIp: optionalTrimmed(form.clientIp),
     rcode: form.rcode === "all" ? undefined : form.rcode,
     status: form.status === "all" ? undefined : form.status,
     sinceMs: parseLocalDateTime(form.sinceLocal),
@@ -2462,6 +2449,14 @@ function recordMatchesFilters(
   if (filters.untilMs !== undefined && record.created_at_ms > filters.untilMs) {
     return false;
   }
+  if (filters.search) {
+    const needle = filters.search.toLowerCase();
+    const matchesQuestion = record.questions_json.some((question) =>
+      question.name.toLowerCase().includes(needle),
+    );
+    const matchesClient = record.client_ip.toLowerCase().includes(needle);
+    if (!matchesQuestion && !matchesClient) return false;
+  }
   if (filters.qname) {
     const needle = filters.qname.toLowerCase();
     if (
@@ -2520,6 +2515,7 @@ function recordMatchesFilters(
 
 function countActiveFilters(filters: QueryRecordFilters) {
   return [
+    filters.search,
     filters.qname,
     filters.qtype,
     filters.clientIp,

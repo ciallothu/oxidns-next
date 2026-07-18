@@ -11,13 +11,13 @@ Most mosdns v5 configuration files can be **copied and used directly**. If error
 
 </Admonition>
 
-OxiDNS and mosdns v5 share almost the same plugin model and configuration structure: the `plugins` array, `sequence` orchestration, `jump` / `goto` / `accept` / `return` / `reject` control flow, and plugins such as `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` — including their field names — are all highly compatible.
+OxiDNS Next and mosdns v5 share almost the same plugin model and configuration structure: the `plugins` array, `sequence` orchestration, `jump` / `goto` / `accept` / `return` / `reject` control flow, and plugins such as `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` — including their field names — are all highly compatible.
 
 ## Syntax Differences to Check During Migration
 
 ### `env` matcher
 
-In OxiDNS, every item in the `env` matcher's `args` array is an independent environment expression.
+In OxiDNS Next, every item in the `env` matcher's `args` array is an independent environment expression.
 
 ```yaml
 - tag: env_profile_prod
@@ -58,16 +58,15 @@ A built-in web management interface for viewing and editing configuration, inspe
 
 ### HTTP Management API
 
-`api.http` exposes a REST API for hot reload, health checks, Prometheus metrics scraping, and plugin status queries, with Basic Auth and TLS support. See [Management API](api.mdx).
+`api.http` exposes a REST API for configuration reload, health checks, Prometheus metrics scraping, and plugin status queries, with local account sessions, OIDC, passkeys, TOTP, and TLS. See [Management API](api.mdx).
 
 ```yaml
 api:
   http:
     listen: "127.0.0.1:9088"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
 ```
 
 ### `query_recorder`: Query History and Live Streaming
@@ -107,7 +106,7 @@ Executor plugins including `forward`, `cache`, `hosts`, `fallback`, `black_hole`
 ```yaml
 log:
   level: info
-  file: ./oxidns.log
+  file: ./oxidns-next.log
   rotation:
     type: daily       # minutely / hourly / daily / weekly / never
     max_files: 7      # max historical files to keep; 0 disables auto-cleanup
@@ -161,11 +160,11 @@ Refreshes the internal data snapshot of specific providers only, without trigger
 
 ## Performance
 
-OxiDNS is built on Rust + Tokio and has no GC pauses. Performance relative to mosdns varies by scenario:
+OxiDNS Next is built on Rust + Tokio and has no GC pauses. Performance relative to mosdns varies by scenario:
 
-- **Rule set matching (`domain set`, `composite provider chain`)**: OxiDNS has a significant advantage — several times higher QPS and much lower latency under load.
-- **Concurrent upstream queries**: OxiDNS leads in both throughput and latency.
-- **Latency jitter**: OxiDNS produces more stable latency in most scenarios.
+- **Rule set matching (`domain set`, `composite provider chain`)**: OxiDNS Next has a significant advantage — several times higher QPS and much lower latency under load.
+- **Concurrent upstream queries**: OxiDNS Next leads in both throughput and latency.
+- **Latency jitter**: OxiDNS Next produces more stable latency in most scenarios.
 - **Local answers, basic sequence, ip set filtering**: mosdns is on par or slightly faster.
 - **Basic forwarding**: QPS is comparable; the gap is small.
 

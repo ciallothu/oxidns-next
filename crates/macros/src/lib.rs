@@ -5,7 +5,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Fields, ItemStruct, LitStr, parse_macro_input};
 
-/// Register an empty plugin factory struct with the OxiDNS inventory.
+/// Register an empty plugin factory struct with the OxiDNS Next inventory.
 ///
 /// Supported forms:
 ///

@@ -5,7 +5,7 @@
 
 // Stage Monaco's prebuilt `min/vs` assets into public/monaco/vs so the WebUI
 // can self-host the editor instead of pulling it from the jsdelivr CDN at
-// runtime. OxiDNS serves this console from the device itself, often on a LAN
+// runtime. OxiDNS Next serves this console from the device itself, often on a LAN
 // with no outbound internet (or with the CDN blocked/unresolvable), where the
 // default CDN loader leaves the YAML editor stuck on "Loading…". Run before
 // `next dev` / `next build`; Next copies public/* into the static export.

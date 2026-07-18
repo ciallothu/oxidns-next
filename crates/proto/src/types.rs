@@ -407,7 +407,7 @@ mod tests {
     }
 }
 
-/// DNS class values supported by OxiDNS.
+/// DNS class values supported by OxiDNS Next.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[allow(dead_code)]
 pub enum DNSClass {

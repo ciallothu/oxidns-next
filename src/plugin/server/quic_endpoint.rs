@@ -21,7 +21,7 @@ use crate::plugin::server::udp;
 
 /// Bind a QUIC [`Endpoint`] on `addr` using the provided rustls server config.
 ///
-/// The endpoint reuses OxiDNS's tuned UDP socket builder and applies the
+/// The endpoint reuses OxiDNS Next's tuned UDP socket builder and applies the
 /// configured idle timeout to the QUIC transport.
 pub fn build_quic_endpoint(
     addr: SocketAddr,

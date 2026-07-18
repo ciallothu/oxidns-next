@@ -3,8 +3,8 @@ import type { LocaleResourceShape } from "../../types";
 
 export const enUSWebui = {
   metadata: {
-    title: "OxiDNS - Console",
-    description: "Management console for the programmable OxiDNS DNS system",
+    title: "OxiDNS Next - Console",
+    description: "Management console for the programmable OxiDNS Next DNS system",
   },
   locale: {
     toggleToEnglish: "Switch to English",
@@ -57,7 +57,8 @@ export const enUSWebui = {
     navigation: "Navigation",
     dashboard: "Dashboard",
     plugins: "Plugin Center",
-    logs: "Runtime Logs",
+    queryLog: "Query Log",
+    logs: "System Logs",
     settings: "System Settings",
     docs: "Documentation",
     logout: "Sign out",
@@ -74,7 +75,7 @@ export const enUSWebui = {
     toggleTheme: "Toggle theme",
   },
   plugins: {
-    centerTitle: "Plugin Center",
+    centerTitle: "Plugins",
     systemOverview: "System Overview",
     pinnedPlugins: "Pinned Plugins",
     viewAll: "View All",
@@ -151,6 +152,7 @@ export const enUSWebui = {
     itemCount: "{count} items",
     valueLabel: "Value",
     docsDefaultGroup: "Notes",
+    resetDisplayOrder: "Reset default order",
   },
   pluginTypes: {
     server: "Server",
@@ -451,6 +453,12 @@ export const enUSWebui = {
     expiredBadge: "Expired",
   },
   queryRecorder: {
+    pageTitle: "Query Log",
+    sourceLabel: "Recorder",
+    noRecorderTitle: "Query logging is not configured",
+    noRecorderDescription:
+      "Add a query_recorder plugin as the first step of an entry sequence to collect searchable DNS query history.",
+    recordsTab: "Records",
     memoryTailLabel: "Memory tail",
     retentionLabel: "Retention",
     retentionDays: "{days} days",
@@ -478,6 +486,8 @@ export const enUSWebui = {
     clearHistoryTitle: "Clear query history?",
     clearHistoryDesc:
       'This will delete all persisted query records and execution path events for plugin "{tag}", and clear the in-memory tail. This action cannot be undone.',
+    keywordFilter: "Domain or client IP",
+    keywordPlaceholder: "example.com / 192.168 / ::1",
     qnameFilter: "QNAME contains",
     clientIpFilter: "Client IP contains",
     statusFilter: "Status",
@@ -593,7 +603,7 @@ export const enUSWebui = {
     restartService: "Restart service",
     runningVersion: "Running",
     pendingVersion: "Pending (current config)",
-    restartDialogTitle: "Restart OxiDNS service?",
+    restartDialogTitle: "Restart OxiDNS Next service?",
     restartDialogDesc:
       "The running service will be replaced with a new process. DNS resolution will be briefly interrupted and all in-memory state (such as cache) will be cleared. The config will be saved to disk before the restart is triggered.",
     confirmRestart: "Confirm restart",
@@ -649,7 +659,7 @@ export const enUSWebui = {
     snapshotTitle: "Snapshot {version}",
     offlineImportTitle: "Edit config file offline",
     offlineImportDesc:
-      "WebUI is not connected to the OxiDNS management API. Paste or upload a YAML config file to edit locally. Changes are kept only in memory and will be lost on refresh unless you download or copy them.",
+      "WebUI is not connected to the OxiDNS Next management API. Paste or upload a YAML config file to edit locally. Changes are kept only in memory and will be lost on refresh unless you download or copy them.",
     pastePlaceholder: "Paste config.yaml content here…",
     loadedFile: "Loaded file: {file}",
     uploadFile: "Upload file",
@@ -701,6 +711,13 @@ export const enUSWebui = {
     connectionFailed: "Connection failed",
     loginExpired: "Login expired. Please sign in again.",
     invalidJsonResponse: "Response is not valid JSON: {preview}",
+    passkeyUnsupported:
+      "Passkeys require a secure browser context with WebAuthn support.",
+    passkeyInvalidOptions: "Invalid passkey options: missing {field}.",
+    passkeyUnexpectedRegistration:
+      "Passkey registration returned an unexpected response.",
+    passkeyUnexpectedAuthentication:
+      "Passkey authentication returned an unexpected response.",
     updateCheckFailed: "Failed to check for updates",
     upgradeStartFailed: "Failed to start upgrade",
     upgradeFailed: "Upgrade failed",
@@ -747,7 +764,7 @@ export const enUSWebui = {
     connectingBackend: "Connecting to backend…",
   },
   restartOverlay: {
-    title: "Restarting OxiDNS service",
+    title: "Restarting OxiDNS Next service",
     description:
       "DNS resolution will be briefly interrupted. The page will recover automatically after restart; do not refresh or close it.",
     saving: "Saving config to disk",
@@ -760,8 +777,28 @@ export const enUSWebui = {
     loginTitle: "Sign in",
     credentialsExpired: "Your credentials expired. Enter your password again.",
     authRequired: "This service requires authentication. Sign in to continue.",
+    setupTitle: "Create the first administrator",
+    setupDescription:
+      "Set up the local administrator account before opening the console.",
     username: "Username",
     password: "Password",
+    confirmPassword: "Confirm password",
+    passwordMismatch: "Passwords do not match.",
+    bootstrapToken: "Bootstrap token (remote setup only)",
+    bootstrapTokenPlaceholder: "Not required from the local machine",
+    createAdmin: "Create administrator",
+    totpTitle: "Two-step verification",
+    totpDescription:
+      "Enter the code from your authenticator app or a recovery code.",
+    totpCode: "Verification code",
+    verifying: "Verifying…",
+    verifyAndLogin: "Verify and sign in",
+    backToPassword: "Back to password sign-in",
+    otherMethods: "Other sign-in methods",
+    usePasskey: "Use passkey",
+    passkeyFailed: "Passkey sign-in failed.",
+    useOidc: "Continue with OIDC",
+    oidcFailed: "OIDC sign-in could not be started.",
     rememberLogin: "Remember sign-in",
     rememberLoginDesc: "When disabled, you will enter your password next time.",
     loggingIn: "Signing in…",
@@ -769,12 +806,58 @@ export const enUSWebui = {
     offlineEditConfig: "Edit config offline",
     pendingTitle: "Connecting to backend",
     pendingDesc:
-      "Connecting to the OxiDNS management API using the default address.",
+      "Connecting to the OxiDNS Next management API using the default address.",
     requiredTitle: "Backend connection required",
     requiredDesc:
-      "WebUI is not connected to the OxiDNS management API. Connect to the backend in System Settings first.",
+      "WebUI is not connected to the OxiDNS Next management API. Connect to the backend in System Settings first.",
     goSettings: "Go to System Settings",
     offlineEditConfigFile: "Edit config file offline",
+  },
+  accountSecurity: {
+    title: "Account security",
+    description: "Security methods for {username}",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    available: "Available",
+    notConfigured: "Not configured",
+    loading: "Loading security settings…",
+    passwordTitle: "Local password",
+    passwordDescription:
+      "Changing the password signs out this account's other sessions.",
+    newPassword: "New password",
+    confirmPassword: "Confirm new password",
+    passwordMismatch: "The new passwords do not match.",
+    changePassword: "Change password",
+    totpTitle: "Authenticator app (TOTP)",
+    totpDescription:
+      "Require a rotating verification code after password sign-in.",
+    enableTotp: "Enable TOTP",
+    totpSetupInstructions:
+      "Add this secret to your authenticator, then enter the generated code.",
+    openAuthenticator: "Open in an authenticator app",
+    verificationCode: "Verification or recovery code",
+    confirmTotp: "Confirm",
+    disableTotp: "Disable TOTP",
+    currentPassword: "Current password",
+    recoveryCodesTitle: "Save your recovery codes now",
+    recoveryCodesDescription:
+      "Each code can be used once. They will not be shown again.",
+    copyCodes: "Copy recovery codes",
+    copied: "Copied",
+    done: "Done",
+    passkeysTitle: "Passkeys",
+    passkeysDescription:
+      "Use your device unlock, security key, or password manager to sign in.",
+    passkeyName: "Passkey name",
+    passkeyNamePlaceholder: "For example: Work laptop",
+    addPasskey: "Add passkey",
+    deletePasskey: "Delete passkey",
+    deletePasskeyConfirm: "Delete passkey “{name}”?",
+    noPasskeys: "No passkeys have been registered.",
+    addedAt: "Added {date}",
+    oidcTitle: "OpenID Connect",
+    oidcDescription:
+      "OIDC providers are configured on the server. Linked identities are shown below.",
   },
   settings: {
     backendCard: "Backend Service",
@@ -935,7 +1018,7 @@ export const enUSWebui = {
     checkUpdates: "Check for Updates",
     upgrading: "Upgrading…",
     upgradeNow: "Upgrade Now",
-    upgradeProgressTitle: "Upgrading OxiDNS",
+    upgradeProgressTitle: "Upgrading OxiDNS Next",
     upgradeProgressDesc:
       "The backend is applying the new release and will reconnect automatically. Do not refresh or close this page.",
     upgradePhaseRequesting: "Sending upgrade request",
@@ -959,23 +1042,12 @@ export const enUSWebui = {
     outboundProfilePlaceholder: "profile-1",
     socks5Proxy: "SOCKS5 Proxy",
     socks5ProxyDesc:
-      "SOCKS5 proxy used for downloads. Do not include a protocol prefix; username and password are supported.",
+      "SOCKS5 proxy used for downloads. Do not include a protocol prefix; username and password are supported. This value remains only in memory and is cleared on refresh, logout, or backend switch.",
     socks5ProxyPlaceholder: "127.0.0.1:1080 or user:pass@127.0.0.1:1080",
     githubToken: "GitHub Token (optional)",
     githubTokenDesc:
-      "Improves API rate limits or grants access to private repositories. Leave empty for anonymous requests.",
+      "Improves API rate limits or grants access to private repositories. It remains only in the current signed-in session and is cleared on refresh, logout, or backend switch.",
     githubTokenPlaceholder: "ghp_... / github_pat_...",
-    persistGithubToken: "Persist token",
-    persistGithubTokenDesc:
-      "When off, the token is used only for this page session and is cleared on refresh.",
-    tokenSaveRisk: "Storage risk",
-    tokenPersistenceAdviceTitle: "Token storage guidance",
-    tokenPersistenceSafe:
-      "Reasonable to persist on a personal device, localhost or trusted intranet console, with browser profile data protected by the OS account and HTTPS or a trusted local connection.",
-    tokenPersistenceUnsafe:
-      "Do not persist on shared computers, shared browser profiles, managed or temporary operations environments, plaintext HTTP across a network, or hosts where multiple people can read browser data.",
-    tokenPersistenceScope:
-      "Whether persisted or not, the token is sent to the current backend during check and upgrade requests. Prefer a fine-grained token with read-only access to the target repository.",
     allowPrerelease: "Allow Pre-release Versions",
     allowPrereleaseDesc:
       "Includes pre-release tags such as alpha, beta, and rc",

@@ -1,11 +1,11 @@
 #!/bin/sh
 set -e
 
-mkdir -p /var/lib/oxidns
-mkdir -p /etc/oxidns
+mkdir -p /var/lib/oxidns-next
+mkdir -p /etc/oxidns-next
 
-if [ -d /usr/share/oxidns/webui ] && [ ! -e /var/lib/oxidns/webui ]; then
-    ln -s /usr/share/oxidns/webui /var/lib/oxidns/webui
+if [ -d /usr/share/oxidns-next/webui ] && [ ! -e /var/lib/oxidns-next/webui ]; then
+    ln -s /usr/share/oxidns-next/webui /var/lib/oxidns-next/webui
 fi
 
 #DEBHELPER#

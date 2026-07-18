@@ -2,7 +2,7 @@
 
 ## Project Focus
 
-- OxiDNS is a high-performance, plugin-driven DNS server written in Rust.
+- OxiDNS Next is a high-performance, plugin-driven DNS server written in Rust.
 - The current project already includes UDP/TCP/DoT/DoQ/DoH server and upstream support, sequence-based policy orchestration, TTL-aware cache with negative caching, fallback chains, local and synthetic answers, query/response rewriting, ECS handling, dual-stack selection, provider-backed domain/IP rule sets, management APIs, health endpoints, metrics, and system integrations such as `ipset`, `nftset`, and MikroTik route sync.
 - Prefer designs that preserve the core request path: `server -> DnsContext -> matcher/executor/provider pipeline -> upstream or side effects -> response`.
 
@@ -13,7 +13,7 @@
 - `src/cli/` contains command definitions, parsing, command dispatch, CLI output, and option-to-runtime adapter code.
 - `src/app/` contains foreground startup orchestration for wiring config, runtime, API, plugins, and graceful shutdown/reload flows.
 - `src/api/` contains the management/control and health HTTP endpoints plus API route macros under `src/api/macros.rs`.
-- `src/message/` contains OxiDNS's DNS message model and wire codec implementation.
+- `src/message/` contains OxiDNS Next's DNS message model and wire codec implementation.
 - `src/core/` is the DNS execution core and should stay focused on `DnsContext`, request lifecycle state, and reusable rule matching primitives.
 - `src/infra/` contains project infrastructure shared by CLI, API, app, and plugins: errors, clocks, environment helpers, service management, task orchestration, TTL cache primitives, observability/logging/metrics, build info, upgrade support, and networking.
 - `src/config/` defines the YAML schema and validation for runtime configuration.
@@ -48,7 +48,7 @@
 **Individual commands:**
 - `cargo check` — fastest sanity check during iteration.
 - `cargo build --release` — builds the optimized binary.
-- `cargo run -- -c config.yaml` — runs OxiDNS with the default config.
+- `cargo run -- -c config.yaml` — runs OxiDNS Next with the default config.
 - `cargo run --release -- -c config.yaml` — preferred for performance-sensitive validation.
 - `cargo run -- -c config.yaml -l debug` — overrides the log level for local debugging.
 - `cargo test` — runs all unit and integration tests.

@@ -266,7 +266,7 @@ impl Default for IpSetCreateOptions {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::{ipset_create, IpSetCreateOptions, IpSetType, IpSetFamily};
+/// use oxidns_next_ripset::{ipset_create, IpSetCreateOptions, IpSetType, IpSetFamily};
 ///
 /// let opts = IpSetCreateOptions {
 ///     set_type: IpSetType::HashIp,
@@ -347,7 +347,7 @@ pub fn ipset_create(setname: &str, options: &IpSetCreateOptions) -> Result<()> {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::ipset_destroy;
+/// use oxidns_next_ripset::ipset_destroy;
 ///
 /// ipset_destroy("myset").unwrap();
 /// ```
@@ -401,7 +401,7 @@ pub fn ipset_destroy(setname: &str) -> Result<()> {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::ipset_flush;
+/// use oxidns_next_ripset::ipset_flush;
 ///
 /// ipset_flush("myset").unwrap();
 /// ```
@@ -456,7 +456,7 @@ pub fn ipset_flush(setname: &str) -> Result<()> {
 ///
 /// ```no_run
 /// use std::net::IpAddr;
-/// use ripset::ipset_add;
+/// use oxidns_next_ripset::ipset_add;
 ///
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// ipset_add("myset", addr).unwrap();
@@ -476,7 +476,7 @@ pub fn ipset_add<E: Into<IpEntry>>(setname: &str, entry: E) -> Result<()> {
 ///
 /// ```no_run
 /// use std::net::IpAddr;
-/// use ripset::ipset_del;
+/// use oxidns_next_ripset::ipset_del;
 ///
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// ipset_del("myset", addr).unwrap();
@@ -502,7 +502,7 @@ pub fn ipset_del<E: Into<IpEntry>>(setname: &str, entry: E) -> Result<()> {
 ///
 /// ```no_run
 /// use std::net::IpAddr;
-/// use ripset::ipset_test;
+/// use oxidns_next_ripset::ipset_test;
 ///
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// let exists = ipset_test("myset", addr).unwrap();
@@ -528,7 +528,7 @@ pub fn ipset_test<E: Into<IpEntry>>(setname: &str, entry: E) -> Result<bool> {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::ipset_list;
+/// use oxidns_next_ripset::ipset_list;
 ///
 /// let entries = ipset_list("myset").unwrap();
 /// for entry in entries {

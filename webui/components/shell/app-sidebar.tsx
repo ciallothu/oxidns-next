@@ -23,10 +23,10 @@ import {
 import { useAuthStore } from "@/lib/auth-store";
 import {
   BookOpen,
+  Database,
   GitBranch,
   LayoutDashboard,
   LogOut,
-  Puzzle,
   ScrollText,
   Settings,
   User,
@@ -41,9 +41,9 @@ const navItems = [
     icon: LayoutDashboard,
   },
   {
-    titleKey: WEBUI.shell.plugins,
-    href: "/plugins",
-    icon: Puzzle,
+    titleKey: WEBUI.shell.queryLog,
+    href: "/query-log",
+    icon: Database,
   },
   {
     titleKey: WEBUI.shell.logs,
@@ -61,7 +61,7 @@ export function AppSidebar() {
   const { t } = useI18n();
   const pathname = usePathname();
   const isConnected = useAuthStore((s) => s.isConnected);
-  const serverConfig = useAuthStore((s) => s.serverConfig);
+  const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
   return (
@@ -73,16 +73,16 @@ export function AppSidebar() {
               <Link href="/">
                 <div className="relative size-8 shrink-0">
                   <Image
-                    src="/logo-light.png"
-                    alt="OxiDNS"
+                    src="/logo-next-light.png"
+                    alt="OxiDNS Next"
                     width={32}
                     height={32}
                     className="size-8 object-contain dark:hidden"
                     priority
                   />
                   <Image
-                    src="/logo-dark.png"
-                    alt="OxiDNS"
+                    src="/logo-next-dark.png"
+                    alt="OxiDNS Next"
                     width={32}
                     height={32}
                     className="hidden size-8 object-contain dark:block"
@@ -90,7 +90,7 @@ export function AppSidebar() {
                   />
                 </div>
                 <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-semibold">OxiDNS</span>
+                  <span className="font-semibold">OxiDNS Next</span>
                   <span className="text-xs text-muted-foreground">
                     {t(WEBUI.shell.console)}
                   </span>
@@ -123,17 +123,17 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
-          {isConnected && serverConfig.requiresAuth && (
+          {isConnected && user && (
             <SidebarMenuItem>
               <div className="flex items-center justify-between gap-1 px-2 py-1">
                 <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                   <User className="size-3.5 shrink-0" />
-                  <span className="truncate">{serverConfig.username}</span>
+                  <span className="truncate">{user.username}</span>
                 </span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={logout}
+                      onClick={() => void logout()}
                       className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     >
                       <LogOut className="size-3.5" />
@@ -150,7 +150,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
               <a
-                href="https://oxidns.org"
+                href="https://github.com/ciallothu/oxidns-next/tree/main/docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground"
@@ -163,7 +163,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
               <a
-                href="https://github.com/svenshi/oxidns"
+                href="https://github.com/ciallothu/oxidns-next"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground"

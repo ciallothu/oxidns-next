@@ -19,15 +19,17 @@ use tokio::sync::{oneshot, watch};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn};
 
-use crate::api::auth::is_authorized;
+use crate::api::auth::{
+    AuthPrincipal, AuthService, PeerAddr, is_public_json_route, is_public_route,
+};
 use crate::api::cors::add_cors_headers;
 use crate::api::health::HealthState;
 use crate::api::request::{read_hyper_request, rewrite_request_path, strip_api_prefix};
 use crate::api::route::{PrefixRoute, RouteKey, lookup_handler};
 #[cfg(feature = "webui")]
 use crate::api::static_files::StaticFileServer;
-use crate::api::{ApiHandler, ApiResponse, simple_response};
-use crate::config::types::{ApiAuthConfig, ApiCorsConfig, ResolvedApiHttpConfig};
+use crate::api::{ApiHandler, ApiResponse, json_error, simple_response};
+use crate::config::types::{ApiCorsConfig, ResolvedApiHttpConfig};
 use crate::infra::error::{DnsError, Result};
 use crate::infra::network::listen;
 use crate::infra::network::tls_config::load_server_tls_config;
@@ -37,7 +39,7 @@ pub(super) struct ApiServerContext {
     pub(super) routes: AHashMap<RouteKey, Arc<dyn ApiHandler>>,
     pub(super) prefix_routes: Vec<PrefixRoute>,
     pub(super) tls_acceptor: Option<Arc<TlsAcceptor>>,
-    pub(super) auth: Option<ApiAuthConfig>,
+    pub(super) auth: Option<Arc<AuthService>>,
     pub(super) cors: Option<ApiCorsConfig>,
     #[cfg(feature = "webui")]
     pub(super) webui: Option<Arc<StaticFileServer>>,
@@ -204,10 +206,11 @@ async fn handle_hyper_request(
             ));
         }
     };
-    let request = match rewrite_request_path(request, &api_path) {
+    let mut request = match rewrite_request_path(request, &api_path) {
         Ok(request) => request,
         Err(()) => return Ok(simple_response(StatusCode::BAD_REQUEST, Bytes::new())),
     };
+    request.extensions_mut().insert(PeerAddr(remote_addr));
 
     // Handle CORS preflight requests before authentication so browsers can
     // discover whether credentials are allowed.
@@ -223,15 +226,83 @@ async fn handle_hyper_request(
         ));
     }
 
-    let response = if !is_authorized(request.headers(), context.auth.as_ref()) {
-        let mut response =
-            simple_response(StatusCode::UNAUTHORIZED, Bytes::from("401 Unauthorized"));
-        response.headers_mut().insert(
-            http::header::WWW_AUTHENTICATE,
-            http::HeaderValue::from_static("Basic realm=\"oxidns\""),
-        );
-        with_cors(response, &request_headers, context.cors.as_ref())
-    } else if let Some(handler) = lookup_handler(
+    let public_route = is_public_route(request.method(), api_path.as_str());
+    if is_public_json_route(request.method(), api_path.as_str()) {
+        if !has_json_content_type(request.headers()) {
+            return Ok(with_cors(
+                json_error(
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    "json_content_type_required",
+                    "Content-Type: application/json is required",
+                ),
+                &request_headers,
+                context.cors.as_ref(),
+            ));
+        }
+        if !public_auth_origin_allowed(&request, &context) {
+            return Ok(with_cors(
+                json_error(
+                    StatusCode::FORBIDDEN,
+                    "origin_not_allowed",
+                    "request Origin is not allowed",
+                ),
+                &request_headers,
+                context.cors.as_ref(),
+            ));
+        }
+    }
+    if let Some(auth) = &context.auth {
+        let had_session_cookie = auth.has_session_cookie(request.headers());
+        let principal = match auth.authenticate(request.headers()).await {
+            Ok(principal) => principal,
+            Err(err) => {
+                warn!(error = %err, "Authentication session lookup failed");
+                return Ok(with_cors(
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "internal_error",
+                        "authentication service failed",
+                    ),
+                    &request_headers,
+                    context.cors.as_ref(),
+                ));
+            }
+        };
+        if let Some(principal) = principal {
+            request.extensions_mut().insert(principal);
+        } else if !public_route {
+            let (code, message) = if had_session_cookie {
+                ("session_expired", "authentication session expired")
+            } else {
+                ("unauthorized", "authentication required")
+            };
+            return Ok(with_cors(
+                json_error(StatusCode::UNAUTHORIZED, code, message),
+                &request_headers,
+                context.cors.as_ref(),
+            ));
+        }
+
+        if !public_route && is_mutating(request.method()) {
+            let csrf_valid = request
+                .extensions()
+                .get::<AuthPrincipal>()
+                .is_some_and(|principal| auth.verify_csrf(request.headers(), principal));
+            if !csrf_valid {
+                return Ok(with_cors(
+                    json_error(
+                        StatusCode::FORBIDDEN,
+                        "invalid_csrf_token",
+                        "valid X-CSRF-Token header required",
+                    ),
+                    &request_headers,
+                    context.cors.as_ref(),
+                ));
+            }
+        }
+    }
+
+    let response = if let Some(handler) = lookup_handler(
         request.method(),
         api_path.as_str(),
         &context.routes,
@@ -251,6 +322,84 @@ async fn handle_hyper_request(
     };
 
     Ok(response)
+}
+
+fn is_mutating(method: &Method) -> bool {
+    method != Method::GET && method != Method::HEAD && method != Method::OPTIONS
+}
+
+fn has_json_content_type(headers: &http::HeaderMap) -> bool {
+    let values = headers.get_all(http::header::CONTENT_TYPE);
+    let mut values = values.iter();
+    let Some(value) = values.next().and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    values.next().is_none()
+        && value
+            .split(';')
+            .next()
+            .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("application/json"))
+}
+
+fn public_auth_origin_allowed(request: &http::Request<Bytes>, context: &ApiServerContext) -> bool {
+    let origin_values = request.headers().get_all(http::header::ORIGIN);
+    let mut origins = origin_values.iter();
+    let Some(origin) = origins.next() else {
+        return request
+            .headers()
+            .get("sec-fetch-site")
+            .and_then(|value| value.to_str().ok())
+            .is_none_or(|value| matches!(value, "same-origin" | "none"));
+    };
+    if origins.next().is_some() {
+        return false;
+    }
+    let Some(origin_value) = origin.to_str().ok() else {
+        return false;
+    };
+    let Some(origin) = canonical_origin(origin_value) else {
+        return false;
+    };
+    if origin != origin_value {
+        return false;
+    }
+    if context
+        .auth
+        .as_ref()
+        .is_some_and(|auth| auth.allows_public_origin(&origin))
+    {
+        return true;
+    }
+    if request_origin(request, context.tls_acceptor.is_some()).as_deref() == Some(origin.as_str()) {
+        return true;
+    }
+    context.cors.as_ref().is_some_and(|cors| {
+        cors.allowed_origins
+            .iter()
+            .any(|allowed| allowed != "*" && allowed == &origin)
+    })
+}
+
+fn request_origin(request: &http::Request<Bytes>, tls: bool) -> Option<String> {
+    let host_values = request.headers().get_all(http::header::HOST);
+    let mut hosts = host_values.iter();
+    let host = hosts.next()?.to_str().ok()?;
+    if hosts.next().is_some() {
+        return None;
+    }
+    canonical_origin(&format!("{}://{host}", if tls { "https" } else { "http" }))
+}
+
+fn canonical_origin(value: &str) -> Option<String> {
+    let url = url::Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    Some(url.origin().ascii_serialization())
 }
 
 fn with_cors(

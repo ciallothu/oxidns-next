@@ -25,7 +25,7 @@ export const matcherPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "args",
         "域名规则",
-        "full:login.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^api[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns/domains.txt",
+        "full:login.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^api[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns-next/domains.txt",
         true,
         "定义域名匹配规则来源。",
         undefined,
@@ -190,7 +190,7 @@ export const matcherPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "args",
         "CNAME 规则",
-        "full:alias.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^edge[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns/cnames.txt",
+        "full:alias.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^edge[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns-next/cnames.txt",
         true,
         "定义响应 CNAME 目标域名匹配规则来源。",
         undefined,

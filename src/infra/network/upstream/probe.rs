@@ -1268,9 +1268,9 @@ fn pipeline_name(base: &str, round: usize, index: usize) -> Result<Name> {
         Some(parse_name(format!("{base}.").as_str())?)
     };
     let raw = if base.is_empty() {
-        format!("oxidns-probe-{round}-{index}.")
+        format!("oxidns-next-probe-{round}-{index}.")
     } else {
-        format!("oxidns-probe-{round}-{index}.{base}.")
+        format!("oxidns-next-probe-{round}-{index}.{base}.")
     };
     match parse_name(&raw) {
         Ok(name) => Ok(name),
@@ -1727,7 +1727,7 @@ mod tests {
     fn pipeline_name_uses_synthetic_prefix_when_it_fits() {
         let name = pipeline_name("example.com.", 1, 2).expect("pipeline name should parse");
 
-        assert_eq!(name.to_fqdn(), "oxidns-probe-1-2.example.com.");
+        assert_eq!(name.to_fqdn(), "oxidns-next-probe-1-2.example.com.");
     }
 
     #[test]
