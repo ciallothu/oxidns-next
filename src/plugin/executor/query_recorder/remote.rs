@@ -1687,9 +1687,7 @@ fn mysql_string_at(row: &MySqlRow, index: usize) -> Result<String> {
     match row.try_get::<String, _>(index) {
         Ok(value) => Ok(value),
         Err(string_error) => {
-            let bytes = row
-                .try_get::<Vec<u8>, _>(index)
-                .map_err(|_| string_error)?;
+            let bytes = row.try_get::<Vec<u8>, _>(index).map_err(|_| string_error)?;
             String::from_utf8(bytes).map_err(|_| {
                 DnsError::runtime(format!(
                     "query_recorder MySQL column {index} contains invalid UTF-8"
