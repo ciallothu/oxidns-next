@@ -471,7 +471,7 @@ Query parameters:
 * `cursor`: Pagination cursor.
 * `qname`: Case-insensitive substring filter for the query domain in the cache key.
 
-#### `GET /api/plugins/<cache_tag>/flush`
+#### `POST /api/plugins/<cache_tag>/flush`
 
 Clears the cache.
 
@@ -530,9 +530,11 @@ Responses:
 
 ### query_recorder
 
+These endpoints use the same request and response shapes for SQLite, PostgreSQL, and MySQL. When `query_recorder.args.api_cache` is configured, successful record-list, detail, and statistics responses may be served briefly from Redis; an unavailable or invalid cache falls through to the SQL database.
+
 #### `GET /api/plugins/<tag>/records`
 
-Returns recorder rows ordered by `created_at_ms` descending and does not include `steps`.
+Returns lightweight record summaries ordered by `created_at_ms` descending. It omits `steps` and the full DNS RR arrays. `answer_preview` contains at most four short answers so the list can show resolved IP, CNAME, and similar values directly; use the detail endpoint for the complete response.
 
 Query parameters:
 
@@ -576,37 +578,20 @@ Responses:
       "questions_json": [
         { "name": "www.example.com.", "qtype": "A", "qclass": "IN" }
       ],
-      "req_rd": true,
-      "req_cd": false,
-      "req_ad": false,
-      "req_opcode": "Query",
-      "req_edns_json": null,
       "error": null,
       "has_response": true,
       "rcode": "NoError",
-      "resp_aa": false,
-      "resp_tc": false,
-      "resp_ra": true,
-      "resp_ad": false,
-      "resp_cd": false,
       "answer_count": 1,
       "authority_count": 0,
       "additional_count": 0,
-      "answers_json": [
+      "answer_preview": [
         {
           "name": "www.example.com.",
-          "class": "IN",
-          "ttl": 300,
           "rr_type": "A",
-          "payload_kind": "A",
           "payload_text": "192.0.2.1",
-          "payload": { "ip": "192.0.2.1" }
+          "truncated": false
         }
-      ],
-      "authorities_json": [],
-      "additionals_json": [],
-      "signature_json": [],
-      "resp_edns_json": null
+      ]
     }
   ]
 }
@@ -614,18 +599,18 @@ Responses:
 
 #### `GET /api/plugins/<tag>/records/<id>`
 
-Returns one full record plus its `steps` array.
+Returns one full record plus its `steps` array. The full record includes request/response flags, EDNS data, and the `answers_json`, `authorities_json`, `additionals_json`, and `signature_json` RR arrays.
 
 Responses:
 
 * `200 OK`
-  * JSON containing a `record` object. `record.record` holds the fixed main-table fields and `record.steps` holds path events.
+  * JSON containing a `record` object. Full record fields live directly on that object and `record.steps` holds path events.
 * `404 Not Found`
   * The record does not exist.
 
 #### `DELETE /api/plugins/<tag>/records`
 
-Clears all persisted query-history rows and `steps` path events for the current recorder. The operation first flushes the background writer queue, then deletes all rows from the SQLite records table and clears the in-memory tail.
+Clears all persisted query-history rows and `steps` path events for the current recorder. The operation first flushes the background writer queue, deletes this recorder's rows from the selected SQL backend, and clears the in-memory tail and matching Redis API-cache namespace.
 
 Responses:
 
@@ -667,7 +652,7 @@ Aggregates query counts by client IP.
 Query parameters:
 
 * `limit=<n>`
-  * Number of buckets to return. Defaults to `20`. The backend no longer enforces a `200` cap; large values increase SQLite sorting and response-size cost.
+  * Number of buckets to return. Defaults to `20`. The backend no longer enforces a `200` cap; large values increase database sorting and response-size cost.
 * Same as `/records`, supports `since_ms`, `until_ms`, `qname`, `client_ip`, `qtype`, `rcode`, `status`, and `matcher_tag` filters.
 
 Response fields:

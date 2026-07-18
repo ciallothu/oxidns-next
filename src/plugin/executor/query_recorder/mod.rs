@@ -4,21 +4,23 @@
 //! `query_recorder` executor plugin.
 //!
 //! Records structured request/response snapshots plus execution-path events
-//! into recorder-scoped SQLite tables.
+//! into recorder-scoped SQLite, PostgreSQL, or MySQL tables.
 //!
 //! Design constraints:
 //! - pure executor observer, no server-path finalization hook;
 //! - request snapshot is captured at recorder entry, response snapshot after
 //!   `next`;
-//! - each recorder owns its own queue, SQLite connection, writer thread, tail
-//!   buffer, and SSE broadcaster;
+//! - each recorder owns its own bounded writer queue, tail buffer, and SSE
+//!   broadcaster;
 //! - persistence uses one `records` table and one `steps` table per recorder
 //!   schema version.
 
 mod api;
+mod api_cache;
 mod backend;
 mod capture;
 mod model;
+mod remote;
 mod store;
 
 #[cfg(test)]
@@ -26,7 +28,6 @@ mod tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -34,7 +35,10 @@ use jiff::Timestamp;
 use serde_yaml_ng::Value as YamlValue;
 
 use self::backend::RecorderBackend;
-use self::model::{PendingRecord, QueryRecorderConfig, ResolvedRecorderConfig};
+use self::model::{
+    PendingRecord, QueryRecorderConfig, RecorderDatabaseConfig, ResolvedDatabaseConfig,
+    ResolvedRecorderConfig,
+};
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::clock::AppClock;
@@ -51,6 +55,12 @@ const DEFAULT_MEMORY_TAIL: usize = 1_024;
 const DEFAULT_RETENTION_DAYS: u64 = 7;
 const DEFAULT_CLEANUP_INTERVAL_HOURS: u64 = 1;
 const DEFAULT_READER_CONCURRENCY: usize = 2;
+const DEFAULT_DATABASE_MAX_CONNECTIONS: u32 = 8;
+const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_ACQUIRE_TIMEOUT_MS: u64 = 3_000;
+const DEFAULT_QUERY_TIMEOUT_MS: u64 = 20_000;
+const MAX_DATABASE_CONNECTIONS: u32 = 256;
+const MAX_DATABASE_TIMEOUT_MS: u64 = 300_000;
 const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Debug)]
@@ -68,8 +78,20 @@ impl Plugin for QueryRecorder {
     }
 
     async fn init(&mut self, _context: &crate::plugin::PluginInitContext<'_>) -> Result<()> {
-        let backend = RecorderBackend::run(self.tag.clone(), self.config.clone())?;
-        api::register(&backend)?;
+        let backend = RecorderBackend::run(self.tag.clone(), self.config.clone()).await?;
+        let api_cache = self
+            .config
+            .api_cache
+            .clone()
+            .map(|config| {
+                api_cache::ApiCache::new(
+                    &self.tag,
+                    &self.config.database.cache_identity_digest(),
+                    config,
+                )
+            })
+            .transpose()?;
+        api::register(&backend, api_cache)?;
 
         let recorder_backend = backend.clone();
         let retention_ms = self.config.retention_days.saturating_mul(ONE_DAY_MS) as i64;
@@ -91,21 +113,8 @@ impl Plugin for QueryRecorder {
         if let Some(task_id) = self.cleanup_task_id {
             task_center::stop_task(task_id).await;
         }
-        let join_handle = if let Some(backend) = &self.backend {
-            backend.stop_requested.store(true, Ordering::Relaxed);
-            let mut guard = backend
-                .writer_handle
-                .lock()
-                .map_err(|_| DnsError::runtime("query_recorder writer lock poisoned"))?;
-            guard.take()
-        } else {
-            None
-        };
-        if let Some(handle) = join_handle {
-            let join_result = tokio::task::spawn_blocking(move || handle.join())
-                .await
-                .map_err(|err| DnsError::runtime(format!("query_recorder join failed: {err}")))?;
-            let _ = join_result;
+        if let Some(backend) = &self.backend {
+            backend.shutdown().await?;
         }
         Ok(())
     }
@@ -169,11 +178,6 @@ fn resolve_config(args: Option<YamlValue>) -> Result<ResolvedRecorderConfig> {
     let parsed = serde_yaml_ng::from_value::<QueryRecorderConfig>(args)
         .map_err(|err| DnsError::plugin(format!("failed to parse query_recorder config: {err}")))?;
 
-    let path = parsed.path.trim();
-    if path.is_empty() {
-        return Err(DnsError::plugin("query_recorder path cannot be empty"));
-    }
-
     let queue_size = parsed.queue_size.unwrap_or(DEFAULT_QUEUE_SIZE);
     let batch_size = parsed.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
     let flush_interval_ms = parsed
@@ -224,8 +228,12 @@ fn resolve_config(args: Option<YamlValue>) -> Result<ResolvedRecorderConfig> {
         ));
     }
 
+    let database = resolve_database_config(parsed.path, parsed.database, reader_concurrency)?;
+    let api_cache = api_cache::resolve_config(parsed.api_cache)?;
+
     Ok(ResolvedRecorderConfig {
-        path: PathBuf::from(path),
+        database,
+        api_cache,
         queue_size,
         batch_size,
         flush_interval_ms,
@@ -234,6 +242,177 @@ fn resolve_config(args: Option<YamlValue>) -> Result<ResolvedRecorderConfig> {
         cleanup_interval_hours,
         reader_concurrency,
     })
+}
+
+fn resolve_database_config(
+    legacy_path: Option<String>,
+    database: Option<RecorderDatabaseConfig>,
+    reader_concurrency: usize,
+) -> Result<ResolvedDatabaseConfig> {
+    if legacy_path.is_some() && database.is_some() {
+        return Err(DnsError::plugin(
+            "query_recorder args.path and args.database are mutually exclusive",
+        ));
+    }
+
+    let database = match (legacy_path, database) {
+        (Some(path), None) => RecorderDatabaseConfig::Sqlite {
+            path,
+            acquire_timeout_ms: None,
+            query_timeout_ms: None,
+        },
+        (None, Some(database)) => database,
+        (None, None) => {
+            return Err(DnsError::plugin(
+                "query_recorder requires args.database or legacy args.path",
+            ));
+        }
+        (Some(_), Some(_)) => unreachable!("mutual exclusion checked above"),
+    };
+
+    match database {
+        RecorderDatabaseConfig::Sqlite {
+            path,
+            acquire_timeout_ms,
+            query_timeout_ms,
+        } => {
+            let path = path.trim();
+            if path.is_empty() {
+                return Err(DnsError::plugin(
+                    "query_recorder database.path cannot be empty",
+                ));
+            }
+            Ok(ResolvedDatabaseConfig::Sqlite {
+                path: PathBuf::from(path),
+                acquire_timeout_ms: checked_timeout(
+                    "acquire_timeout_ms",
+                    acquire_timeout_ms.unwrap_or(DEFAULT_ACQUIRE_TIMEOUT_MS),
+                )?,
+                query_timeout_ms: checked_timeout(
+                    "query_timeout_ms",
+                    query_timeout_ms.unwrap_or(DEFAULT_QUERY_TIMEOUT_MS),
+                )?,
+            })
+        }
+        RecorderDatabaseConfig::Postgres {
+            url,
+            max_connections,
+            connect_timeout_ms,
+            acquire_timeout_ms,
+            query_timeout_ms,
+        } => resolve_remote_database(
+            true,
+            url,
+            max_connections,
+            connect_timeout_ms,
+            acquire_timeout_ms,
+            query_timeout_ms,
+            reader_concurrency,
+        ),
+        RecorderDatabaseConfig::Mysql {
+            url,
+            max_connections,
+            connect_timeout_ms,
+            acquire_timeout_ms,
+            query_timeout_ms,
+        } => resolve_remote_database(
+            false,
+            url,
+            max_connections,
+            connect_timeout_ms,
+            acquire_timeout_ms,
+            query_timeout_ms,
+            reader_concurrency,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_remote_database(
+    postgres: bool,
+    url: String,
+    max_connections: Option<u32>,
+    connect_timeout_ms: Option<u64>,
+    acquire_timeout_ms: Option<u64>,
+    query_timeout_ms: Option<u64>,
+    reader_concurrency: usize,
+) -> Result<ResolvedDatabaseConfig> {
+    let trimmed_url = url.trim();
+    if trimmed_url.is_empty() {
+        return Err(DnsError::plugin(
+            "query_recorder database.url cannot be empty",
+        ));
+    }
+    let parsed_url = url::Url::parse(trimmed_url)
+        .map_err(|_| DnsError::plugin("query_recorder database.url is invalid"))?;
+    let scheme_valid = if postgres {
+        matches!(parsed_url.scheme(), "postgres" | "postgresql")
+    } else {
+        parsed_url.scheme() == "mysql"
+    };
+    if !scheme_valid {
+        let expected = if postgres {
+            "postgres:// or postgresql://"
+        } else {
+            "mysql://"
+        };
+        return Err(DnsError::plugin(format!(
+            "query_recorder database.url must use {expected}"
+        )));
+    }
+
+    let max_connections = max_connections.unwrap_or(DEFAULT_DATABASE_MAX_CONNECTIONS);
+    if !(2..=MAX_DATABASE_CONNECTIONS).contains(&max_connections) {
+        return Err(DnsError::plugin(format!(
+            "query_recorder database.max_connections must be between 2 and {MAX_DATABASE_CONNECTIONS}"
+        )));
+    }
+    if reader_concurrency >= max_connections as usize {
+        return Err(DnsError::plugin(
+            "query_recorder reader_concurrency must be less than database.max_connections",
+        ));
+    }
+
+    let connect_timeout_ms = checked_timeout(
+        "connect_timeout_ms",
+        connect_timeout_ms.unwrap_or(DEFAULT_CONNECT_TIMEOUT_MS),
+    )?;
+    let acquire_timeout_ms = checked_timeout(
+        "acquire_timeout_ms",
+        acquire_timeout_ms.unwrap_or(DEFAULT_ACQUIRE_TIMEOUT_MS),
+    )?;
+    let query_timeout_ms = checked_timeout(
+        "query_timeout_ms",
+        query_timeout_ms.unwrap_or(DEFAULT_QUERY_TIMEOUT_MS),
+    )?;
+    let url = trimmed_url.to_string();
+
+    if postgres {
+        Ok(ResolvedDatabaseConfig::Postgres {
+            url,
+            max_connections,
+            connect_timeout_ms,
+            acquire_timeout_ms,
+            query_timeout_ms,
+        })
+    } else {
+        Ok(ResolvedDatabaseConfig::Mysql {
+            url,
+            max_connections,
+            connect_timeout_ms,
+            acquire_timeout_ms,
+            query_timeout_ms,
+        })
+    }
+}
+
+fn checked_timeout(field: &str, value: u64) -> Result<u64> {
+    if !(1..=MAX_DATABASE_TIMEOUT_MS).contains(&value) {
+        return Err(DnsError::plugin(format!(
+            "query_recorder database.{field} must be between 1 and {MAX_DATABASE_TIMEOUT_MS}"
+        )));
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone)]

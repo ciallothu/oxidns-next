@@ -114,12 +114,29 @@ import { QueryRecordFlowCanvas } from "../query-record-flow";
 
 function QueryRecorderDetail(props: PluginDetailComponentProps) {
   const { t } = useI18n();
+  const rawDatabase = props.plugin.config.database;
+  const database =
+    rawDatabase && typeof rawDatabase === "object" && !Array.isArray(rawDatabase)
+      ? (rawDatabase as Record<string, unknown>)
+      : undefined;
+  const databaseType = String(database?.type ?? "sqlite").toLowerCase();
+  const storageSummary =
+    databaseType === "postgres" || databaseType === "postgresql"
+      ? { label: "PostgreSQL", value: t(WEBUI.common.configured) }
+      : databaseType === "mysql"
+        ? { label: "MySQL", value: t(WEBUI.common.configured) }
+        : {
+            label: "SQLite",
+            value: String(
+              database?.path ?? props.plugin.config.path ?? "-",
+            ),
+          };
   return (
     <PluginDetailTemplate
       {...props}
       icon={<Radio className="h-5 w-5" />}
       summaryItems={[
-        { label: "SQLite", value: String(props.plugin.config.path ?? "-") },
+        storageSummary,
         {
           label: t(WEBUI.queryRecorder.memoryTailLabel),
           value: String(
@@ -253,13 +270,15 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
   const recordsAbortRef = useRef<AbortController | null>(null);
   const statsAbortRef = useRef<AbortController | null>(null);
   const filtersRef = useRef<QueryRecordFilters>({});
+  const mountedRef = useRef(false);
+  const refreshGenerationRef = useRef(0);
 
   useEffect(() => {
     filtersRef.current = appliedFilters;
   }, [appliedFilters]);
 
   const loadRecords = useCallback(
-    async (filters: QueryRecordFilters, cursor?: string) => {
+    async (filters: QueryRecordFilters, cursor?: string): Promise<boolean> => {
       recordsAbortRef.current?.abort();
       const controller = new AbortController();
       recordsAbortRef.current = controller;
@@ -272,22 +291,24 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
           ...filters,
           signal: controller.signal,
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !mountedRef.current) return false;
         setRecords((current) =>
           cursor ? [...current, ...response.records] : response.records,
         );
         setNextCursor(response.next_cursor);
+        return true;
       } catch (err) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !mountedRef.current) return false;
         setError(
           err instanceof Error
             ? err.message
             : t(WEBUI.queryRecorder.readRecordsFailed),
         );
+        return false;
       } finally {
         if (recordsAbortRef.current === controller) {
           recordsAbortRef.current = null;
-          setLoading(false);
+          if (mountedRef.current) setLoading(false);
         }
       }
     },
@@ -308,11 +329,11 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
           matcherTag: undefined,
           signal: controller.signal,
         });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !mountedRef.current) return;
         setMatcherStats(response.stats.filter((row) => row.kind === "matcher"));
         setStatsQueryTotal(response.query_total);
       } catch (err) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !mountedRef.current) return;
         setStatsError(
           err instanceof Error
             ? err.message
@@ -321,7 +342,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
       } finally {
         if (statsAbortRef.current === controller) {
           statsAbortRef.current = null;
-          setStatsLoading(false);
+          if (mountedRef.current) setStatsLoading(false);
         }
       }
     },
@@ -329,27 +350,37 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
   );
 
   const refresh = useCallback(
-    async (filters: QueryRecordFilters = appliedFilters) => {
-      await Promise.all([loadRecords(filters), loadMatcherStats(filters)]);
+    async (filters: QueryRecordFilters) => {
+      const generation = ++refreshGenerationRef.current;
+      statsAbortRef.current?.abort();
+      const recordsLoaded = await loadRecords(filters);
+      if (
+        !recordsLoaded ||
+        !mountedRef.current ||
+        refreshGenerationRef.current !== generation
+      ) {
+        return;
+      }
+      await loadMatcherStats(filters);
     },
-    [appliedFilters, loadMatcherStats, loadRecords],
+    [loadMatcherStats, loadRecords],
   );
 
   useEffect(() => {
+    mountedRef.current = true;
     const initialFilters = filtersRef.current;
     const timer = window.setTimeout(() => {
-      void Promise.all([
-        loadRecords(initialFilters),
-        loadMatcherStats(initialFilters),
-      ]);
+      void refresh(initialFilters);
     }, 0);
     return () => {
+      mountedRef.current = false;
+      refreshGenerationRef.current += 1;
       window.clearTimeout(timer);
       abortRef.current?.abort();
       recordsAbortRef.current?.abort();
       statsAbortRef.current?.abort();
     };
-  }, [loadMatcherStats, loadRecords]);
+  }, [refresh]);
 
   const applyFilters = () => {
     const nextFilters = filtersFromForm(filterForm);
@@ -751,7 +782,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
               {error}
             </div>
           )}
-          <div className="relative overflow-hidden rounded-md border">
+          <div className="relative overflow-x-auto rounded-md border">
             {loading && (
               <div
                 className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-[1px]"
@@ -764,13 +795,16 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                 </div>
               </div>
             )}
-            <Table className="min-w-[760px]">
+            <Table className="min-w-[980px]">
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
                   <TableHead>{t(WEBUI.queryRecorder.queryColumn)}</TableHead>
                   <TableHead>{t(WEBUI.queryRecorder.clientColumn)}</TableHead>
                   <TableHead>{t(WEBUI.queryRecorder.timeColumn)}</TableHead>
                   <TableHead>{t(WEBUI.queryRecorder.resultColumn)}</TableHead>
+                  <TableHead>
+                    {t(WEBUI.queryRecorder.answerPreviewColumn)}
+                  </TableHead>
                   <TableHead>{t(WEBUI.queryRecorder.elapsedColumn)}</TableHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
@@ -825,6 +859,9 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                       {formatTime(record.created_at_ms)}
                     </TableCell>
                     <TableCell>{queryStatusBadge(record)}</TableCell>
+                    <TableCell className="max-w-[20rem]">
+                      <AnswerPreviewCell record={record} />
+                    </TableCell>
                     <TableCell className="font-mono">
                       <span
                         className={cn(
@@ -849,7 +886,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                 {!records.length && (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={7}
                       className="h-24 text-center text-muted-foreground"
                     >
                       {loading
@@ -2175,6 +2212,47 @@ function MetricChip({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div className="font-mono text-sm">{value}</div>
+    </div>
+  );
+}
+
+function AnswerPreviewCell({ record }: { record: QueryRecordRow }) {
+  const preview = record.answer_preview ?? [];
+  if (preview.length === 0) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
+  const title = preview
+    .map(
+      (answer) =>
+        `${answer.name} ${answer.rr_type} ${answer.payload_text}${answer.truncated ? "…" : ""}`,
+    )
+    .join("\n");
+
+  return (
+    <div className="min-w-0 space-y-1" title={title}>
+      {preview.slice(0, 2).map((answer, index) => (
+        <div
+          key={`${answer.name}-${answer.rr_type}-${answer.payload_text}-${index}`}
+          className="flex min-w-0 items-center gap-1.5"
+        >
+          <Badge
+            variant="outline"
+            className="shrink-0 px-1 py-0 font-mono text-[10px]"
+          >
+            {answer.rr_type}
+          </Badge>
+          <span className="min-w-0 truncate font-mono text-xs">
+            {answer.payload_text || "-"}
+            {answer.truncated && "…"}
+          </span>
+        </div>
+      ))}
+      {preview.length > 2 && (
+        <span className="block text-[10px] text-muted-foreground">
+          +{preview.length - 2}
+        </span>
+      )}
     </div>
   );
 }

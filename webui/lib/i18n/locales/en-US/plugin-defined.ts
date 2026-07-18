@@ -548,6 +548,38 @@ export const enUSPluginDefined = {
           description:
             "Controls whether the ECS scope is included in cache key calculation.",
         },
+        redis: {
+          label: "Redis L2 cache",
+          description:
+            "Use global storage.redis as an optional L2 cache; failures fall back to the in-process cache and upstream.",
+        },
+        "redis.enabled": {
+          label: "Enable Redis",
+          description: "Enable Redis L2 for this DNS cache.",
+        },
+        "redis.command_timeout_ms": {
+          label: "Redis timeout (ms)",
+          description: "Maximum wait for one Redis read or write.",
+        },
+        "redis.max_inflight": {
+          label: "Maximum concurrent reads",
+          description:
+            "Maximum concurrent Redis reads; saturated requests bypass Redis immediately.",
+        },
+        "redis.write_queue_size": {
+          label: "Write queue capacity",
+          description: "Capacity of the Redis background write queue.",
+        },
+        "redis.failure_threshold": {
+          label: "Circuit failure threshold",
+          description:
+            "Number of consecutive failures before Redis is temporarily bypassed.",
+        },
+        "redis.retry_after_ms": {
+          label: "Circuit retry interval (ms)",
+          description:
+            "Wait before attempting one Redis recovery probe after circuit breaking.",
+        },
       },
       quickSetup: {
         paramPlaceholder: "short_circuit=true",
@@ -561,6 +593,8 @@ export const enUSPluginDefined = {
           cache_insert_total: "Writes",
           cache_skip_total: "Skipped",
           cache_lazy_refresh_total: "Lazy refresh",
+          cache_l2_lookup_total: "Redis L2 lookups",
+          cache_l2_write_total: "Redis L2 writes",
           cache_entry_count: "Entries",
         },
         help: {
@@ -577,6 +611,10 @@ export const enUSPluginDefined = {
             "The total number of responses that were skipped from cache due to write policy (truncated responses, no TTL, low positive TTL).",
           cache_lazy_refresh_total:
             "Total number of Lazy Cache background refresh attempts (by result: started / success / failed).",
+          cache_l2_lookup_total:
+            "Total Redis L2 lookups by result (hit / miss / error / bypass).",
+          cache_l2_write_total:
+            "Total Redis L2 background writes by result (success / error / dropped).",
           cache_entry_count: "The number of entries currently in the cache.",
         },
         derived: {
@@ -1141,13 +1179,53 @@ export const enUSPluginDefined = {
     query_recorder: {
       name: "Query Recorder",
       description:
-        "Persists requests, responses, and sequence path events to SQLite",
+        "Persists requests, responses, and sequence path events to SQLite, PostgreSQL, or MySQL",
       fields: {
         path: {
-          label: "SQLite file",
+          label: "Legacy SQLite file",
           description:
-            "Specifies the SQLite file path of the current recorder.",
+            "Legacy SQLite file path; it cannot be used together with database.",
           placeholder: "./data/query-recorder-main.sqlite",
+        },
+        database: {
+          label: "Query log database",
+          description:
+            "Select the query log database. PostgreSQL is preferred for production, MySQL is also supported, and SQLite suits a single node.",
+        },
+        "database.type": {
+          label: "Database type",
+          description: "Select SQLite, PostgreSQL, or MySQL.",
+          options: {
+            sqlite: "SQLite",
+            postgres: "PostgreSQL (recommended)",
+            mysql: "MySQL",
+          },
+        },
+        "database.path": {
+          label: "SQLite file",
+          description: "File path used when database.type is sqlite.",
+        },
+        "database.url": {
+          label: "Database URL",
+          description:
+            "Connection URL used when database.type is postgres or mysql; provide credentials through an environment variable.",
+        },
+        "database.max_connections": {
+          label: "Max connections",
+          description: "Maximum PostgreSQL/MySQL pool connections.",
+        },
+        "database.connect_timeout_ms": {
+          label: "Connect timeout (ms)",
+          description: "Timeout for opening PostgreSQL/MySQL connections.",
+        },
+        "database.acquire_timeout_ms": {
+          label: "Acquire timeout (ms)",
+          description:
+            "Maximum wait for an available database connection or SQLite reader.",
+        },
+        "database.query_timeout_ms": {
+          label: "Query timeout (ms)",
+          description: "Maximum duration of one query-log API database operation.",
         },
         queue_size: {
           label: "Queue size",
@@ -1157,7 +1235,7 @@ export const enUSPluginDefined = {
         batch_size: {
           label: "Batch size",
           description:
-            "Defines how many records are written to SQLite in each background batch.",
+            "Defines how many records are written to the query-log database in each background batch.",
         },
         flush_interval_ms: {
           label: "Flush interval (ms)",
@@ -1181,7 +1259,32 @@ export const enUSPluginDefined = {
         reader_concurrency: {
           label: "Reader concurrency",
           description:
-            "Limits how many SQLite readers may run concurrently for query_recorder API/statistics reads, preventing WebUI or API bursts from occupying too many blocking threads and too much memory.",
+            "Limits concurrent query-log API/statistics reads so bursts cannot exhaust database connections.",
+        },
+        api_cache: {
+          label: "Query-log API cache",
+          description:
+            "Uses storage.redis for query-log list, detail, and statistics responses; database reads continue if Redis is unavailable.",
+        },
+        "api_cache.enabled": {
+          label: "Enable cache",
+          description: "Enable the query-log API Redis cache.",
+        },
+        "api_cache.records_ttl_ms": {
+          label: "Record cache TTL (ms)",
+          description: "Cache lifetime for record lists and details.",
+        },
+        "api_cache.stats_ttl_ms": {
+          label: "Statistics cache TTL (ms)",
+          description: "Cache lifetime for statistics, rankings, and distributions.",
+        },
+        "api_cache.command_timeout_ms": {
+          label: "Redis timeout (ms)",
+          description: "Maximum wait for one Redis read or write.",
+        },
+        "api_cache.max_value_bytes": {
+          label: "Maximum cache value (bytes)",
+          description: "Largest response value that may be written to Redis.",
         },
       },
     },

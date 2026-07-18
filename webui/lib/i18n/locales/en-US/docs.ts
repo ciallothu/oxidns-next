@@ -115,6 +115,20 @@ export const enUSDocs = {
       "- Type: `integer`; Required: No; Default: None\n- Unit: seconds\n- Function: Define the minimum TTL required before writing a positive response to cache.\n- Notes: Positive responses whose effective cache TTL is lower than this value are not cached. The check runs after `max_positive_ttl` capping.",
     ecs_in_key:
       "- Type: `boolean`; required: no; default value: `false`\n- Function: Control whether the ECS scope is included in cache key calculation.",
+    redis:
+      "- Type: `object`; Required: No\n- Function: Use top-level `storage.redis` as a DNS L2 cache.\n- Fallback: An unavailable Redis service falls through immediately to the in-process cache and upstream.",
+    "redis.enabled":
+      "- Type: `boolean`; Required: No; Default: `true`\n- Function: Enable Redis L2 for this cache.",
+    "redis.command_timeout_ms":
+      "- Type: `integer`; Required: No; Default: `20`\n- Unit: milliseconds\n- Function: Bound the wait for one Redis command.",
+    "redis.max_inflight":
+      "- Type: `integer`; Required: No; Default: `64`\n- Function: Limit concurrent Redis reads; saturation bypasses Redis immediately.",
+    "redis.write_queue_size":
+      "- Type: `integer`; Required: No; Default: `4096`\n- Function: Set the Redis background write queue capacity.",
+    "redis.failure_threshold":
+      "- Type: `integer`; Required: No; Default: `3`\n- Function: Set the consecutive failure count that opens the Redis circuit.",
+    "redis.retry_after_ms":
+      "- Type: `integer`; Required: No; Default: `30000`\n- Unit: milliseconds\n- Function: Set the recovery probe interval after circuit breaking.",
   },
   fallback: {
     primary:
@@ -255,11 +269,27 @@ export const enUSDocs = {
       "- Type: `duration`; required: no; default value: `1s`\n- Function: Limit the maximum time to wait for provider writing to complete when `async: false` is used.\n- Supported units: `ms`, `s`, `m`, `h`, `d`.",
   },
   query_recorder: {
-    path: "- Type: `string`; Required: Yes\n- Function: Specify the SQLite file path of the current recorder.",
+    path: "- Type: `string`; required: no\n- Function: Legacy SQLite file-path shorthand.\n- Requirement: It cannot be used together with `database`.",
+    database:
+      "- Type: `object`; required: choose either this field or `path`\n- Function: Select SQLite, PostgreSQL, or MySQL for query-log storage.\n- Recommendation: Prefer PostgreSQL in production.",
+    "database.type":
+      "- Type: `string`; required: yes\n- Values: `sqlite`, `postgres`, `mysql`\n- Function: Select the query-log database type.",
+    "database.path":
+      "- Type: `string`; required when `database.type: sqlite`\n- Function: Set the SQLite file path.",
+    "database.url":
+      "- Type: `string`; required when `database.type` is `postgres` or `mysql`\n- Function: Set the database connection URL.\n- Recommendation: Use the `${OXIDNS_NEXT_QUERY_DATABASE_URL}` environment variable instead of placing credentials in YAML.",
+    "database.max_connections":
+      "- Type: `integer`; required: no; default: `8`\n- Function: Limit the PostgreSQL/MySQL connection-pool size.",
+    "database.connect_timeout_ms":
+      "- Type: `integer`; required: no; default: `5000`\n- Unit: milliseconds\n- Function: Limit the wait for a new PostgreSQL/MySQL connection.",
+    "database.acquire_timeout_ms":
+      "- Type: `integer`; required: no; default: `3000`\n- Unit: milliseconds\n- Function: Limit the wait for a database connection or SQLite reader.",
+    "database.query_timeout_ms":
+      "- Type: `integer`; required: no; default: `20000`\n- Unit: milliseconds\n- Function: Limit one query-log API database operation; a timeout returns a clear error and releases resources.",
     queue_size:
       "- Type: `integer`; Required: No; Default: `8192`\n- Function: Define the bounded queue size between the request path and the background writer.",
     batch_size:
-      "- Type: `integer`; required: no; default value: `256`\n- Function: Define how many records are written to SQLite in each background batch.",
+      "- Type: `integer`; required: no; default value: `256`\n- Function: Define how many records are written to the query-log database in each background batch.",
     flush_interval_ms:
       "- Type: `integer`; required: no; default value: `200`\n- Function: Define the batch flush interval for the background writer.",
     memory_tail:
@@ -269,7 +299,19 @@ export const enUSDocs = {
     cleanup_interval_hours:
       "- Type: `integer`; required: no; default value: `1`\n- Minimum value: `1`\n- Function: Define how often the expired-data cleanup task runs.",
     reader_concurrency:
-      "- Type: `integer`; required: no; default value: `2`\n- Minimum value: `1`\n- Function: Limit how many SQLite readers may run concurrently for query_recorder API/statistics reads, preventing WebUI or API bursts from occupying too many blocking threads and too much memory.",
+      "- Type: `integer`; required: no; default value: `2`\n- Minimum value: `1`\n- Function: Limit concurrent query-log API and statistics reads so bursts cannot exhaust database connections.",
+    api_cache:
+      "- Type: `object`; required: no\n- Function: Cache query-log API responses through global `storage.redis`.\n- Fallback: Database reads continue if Redis is unavailable; DNS queries and log writes are unaffected.",
+    "api_cache.enabled":
+      "- Type: `boolean`; required: no; default: `false`\n- Function: Enable the query-log API Redis cache.",
+    "api_cache.records_ttl_ms":
+      "- Type: `integer`; required: no; default: `2000`\n- Unit: milliseconds\n- Function: Set the cache lifetime for record lists and details.",
+    "api_cache.stats_ttl_ms":
+      "- Type: `integer`; required: no; default: `5000`\n- Unit: milliseconds\n- Function: Set the cache lifetime for statistics, rankings, and distributions.",
+    "api_cache.command_timeout_ms":
+      "- Type: `integer`; required: no; default: `100`\n- Unit: milliseconds\n- Function: Limit one Redis read or write.",
+    "api_cache.max_value_bytes":
+      "- Type: `integer`; required: no; default: `1048576`\n- Unit: bytes\n- Function: Responses larger than this limit are not written to Redis.",
   },
   metrics_collector: {
     name: '- Type: `string`; Required: No; Default value: `"default"`\n- Function: Define the name label of the current indicator collector.',

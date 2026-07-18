@@ -485,6 +485,14 @@ import Admonition from "@theme/Admonition";
     dump_file: "./dns_cache.dump"
     # 定期落盘周期，单位秒
     dump_interval: 600
+    # 可选 Redis 二级缓存；需先配置顶层 storage.redis
+    redis:
+      enabled: true
+      command_timeout_ms: 20
+      max_inflight: 64
+      write_queue_size: 4096
+      failure_threshold: 3
+      retry_after_ms: 30000
 ```
 
 ### 配置项
@@ -559,6 +567,18 @@ import Admonition from "@theme/Admonition";
 - 类型：`boolean`；必填：否；默认值：`false`
 - 作用：控制 ECS scope 是否参与缓存键计算。
 
+#### `redis`
+
+- 类型：`object`；必填：否；默认：关闭
+- 作用：在进程内 L1 之外启用共享 Redis L2。需先配置顶层 [`storage.redis`](../configuration.md#storage)。
+- `enabled`：是否启用；配置该对象时默认 `true`。
+- `command_timeout_ms`：单次 Redis 命令超时，默认 `20`。
+- `max_inflight`：允许同时执行的 Redis 命令数，默认 `64`。
+- `write_queue_size`：异步写入队列大小，默认 `4096`。
+- `failure_threshold`：连续失败多少次后打开熔断器，默认 `3`。
+- `retry_after_ms`：熔断后再次试探 Redis 的等待时间，默认 `30000`。
+- Redis 不可用、超时、队列满或熔断时，查询不会失败，而是继续使用进程内缓存和上游。Redis key 不明文保存 qname 或客户端 IP。
+
 ### quick setup
 
 ```yaml
@@ -577,12 +597,13 @@ import Admonition from "@theme/Admonition";
 - 既会读缓存，也会在后续拿到响应后写缓存。
 - 命中缓存时，返回缓存副本并按剩余 TTL 输出。
 - 内置过期清理和近似 LRU 回收。
+- 启用 Redis 时，进程内缓存仍是 L1；Redis 只是可丢弃的共享 L2，不改变 DNS TTL、负缓存或 lazy cache 规则。
 
 ### 插件 API
 
 - `GET /plugins/<tag>/entries`
   - 分页读取缓存项；支持 `limit`、`cursor` 和 `qname` 查询参数，其中 `qname` 按缓存键域名做大小写不敏感的包含筛选。
-- `GET /plugins/<tag>/flush`
+- `POST /plugins/<tag>/flush`
   - 清空缓存。
 - `GET /plugins/<tag>/dump`
   - 导出缓存内容。
@@ -612,6 +633,7 @@ import Admonition from "@theme/Admonition";
 
 - 如果前面有会直接生成本地应答的插件，放置位置会决定这些结果是否进入缓存。
 - `ecs_in_key` 开启后，缓存碎片会明显增加。
+- `dump_file` 是本地缓存快照；Redis L2 与 dump 互不替代。不要把 Redis 当作唯一持久化副本。
 
 </Admonition>
 
@@ -1686,7 +1708,7 @@ old-static.example.com static.example.net
 
 ### 作用
 
-把入口 request、执行后 response 以及 `sequence` 路径事件持久化到 recorder 自己的 SQLite 数据库，并暴露历史查询、统计和 SSE 实时推送接口。
+把入口 request、执行后 response 以及 `sequence` 路径事件持久化到 recorder 配置的 SQLite、PostgreSQL 或 MySQL 数据库，并暴露历史查询、统计和 SSE 实时推送接口。可选 Redis 只缓存短时 API 响应，不替代 SQL 持久化。
 
 仓库默认 `config.yaml` 已启用 `query_log`，并把它放在 `main_sequence` 的第一步，使其 `with_next` 包裹完整的下游请求/响应链。自定义链路时也应把 recorder 放在希望观察的执行范围之前。
 
@@ -1696,8 +1718,11 @@ old-static.example.com static.example.net
 - tag: query_recorder_main
   type: query_recorder
   args:
-    # SQLite 文件路径；不同 recorder 应使用不同 path
-    path: "./data/query-recorder-main.sqlite"
+    database:
+      type: sqlite
+      path: "./data/query-recorder-main.sqlite"
+      acquire_timeout_ms: 3000
+      query_timeout_ms: 20000
     # 热路径入队缓冲大小
     queue_size: 8192
     # 后台批量写入条数
@@ -1710,16 +1735,53 @@ old-static.example.com static.example.net
     retention_days: 7
     # 定时清理周期，单位小时；最小 1
     cleanup_interval_hours: 1
-    # SQLite 读取侧最大并发数；最小 1
+    # API 读取侧最大并发数；最小 1
     reader_concurrency: 2
+    # 可选 Redis API 短缓存；需先配置顶层 storage.redis
+    api_cache:
+      enabled: true
+      records_ttl_ms: 2000
+      stats_ttl_ms: 5000
+      command_timeout_ms: 100
+      max_value_bytes: 1048576
 ```
 
 ### 配置项
 
-#### `path`
+#### `database`
 
-- 类型：`string`；必填：是
-- 作用：指定当前 recorder 的 SQLite 文件路径。
+- 类型：`object`；必填：新配置是
+- 作用：选择查询记录的 SQL 持久化后端。
+- `type: sqlite`
+  - `path`：必填，本地数据库文件路径。
+  - `acquire_timeout_ms`：可选，默认 `3000`，范围 `1..=300000`。
+  - `query_timeout_ms`：可选，默认 `20000`，范围 `1..=300000`。
+- `type: postgres` 或 `type: mysql`
+  - `url`：必填。PostgreSQL 接受 `postgres://` 或 `postgresql://`，MySQL 使用 `mysql://`。推荐写成 `${OXIDNS_NEXT_QUERY_DATABASE_URL}`，通过环境变量提供凭据。
+  - `max_connections`：可选，默认 `8`，范围 `2..=256`。
+  - `connect_timeout_ms`：可选，默认 `5000`，范围 `1..=300000`。
+  - `acquire_timeout_ms`：可选，默认 `3000`，范围 `1..=300000`。
+  - `query_timeout_ms`：可选，默认 `20000`，范围 `1..=300000`。
+
+PostgreSQL 示例：
+
+```yaml
+database:
+  type: postgres
+  url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+  max_connections: 8
+  connect_timeout_ms: 5000
+  acquire_timeout_ms: 3000
+  query_timeout_ms: 20000
+```
+
+MySQL 使用相同连接池字段，只需改为 `type: mysql` 并提供 `mysql://` URL。目标数据库必须预先存在；连接账号需要在该数据库中创建/迁移表以及读写、清理记录的权限。插件只创建自己的版本化表，不会创建数据库。完整 Compose 示例见 [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage)。
+
+#### `path`（旧写法）
+
+- 类型：`string`；必填：否
+- 作用：兼容旧 SQLite 配置；等价于 `database: { type: sqlite, path: ... }`。
+- 限制：不能和 `database` 同时配置。新配置应使用 `database`。
 
 #### `queue_size`
 
@@ -1729,7 +1791,7 @@ old-static.example.com static.example.net
 #### `batch_size`
 
 - 类型：`integer`；必填：否；默认值：`256`
-- 作用：定义后台批量写入 SQLite 的单批记录数。
+- 作用：定义后台写入 SQL 数据库的单批记录数。
 
 #### `flush_interval_ms`
 
@@ -1757,14 +1819,25 @@ old-static.example.com static.example.net
 
 - 类型：`integer`；必填：否；默认值：`2`
 - 最小值：`1`
-- 作用：限制 WebUI / API 统计与历史查询同时运行的 SQLite reader 数量，避免突发读取在大库上占用过多阻塞线程和内存。
+- 作用：限制 WebUI / API 统计与历史查询的同时读取数。PostgreSQL/MySQL 下必须小于 `database.max_connections`，为写入与清理保留连接池容量。
+
+#### `api_cache`
+
+- 类型：`object`；必填：否；默认：关闭
+- 作用：使用顶层 `storage.redis` 缓存成功的记录列表、详情与统计 API JSON 响应。Redis 不保存查询记录，也不参与写入队列。
+- `enabled`：是否启用。
+- `records_ttl_ms`：记录列表缓存时间，默认 `2000`。
+- `stats_ttl_ms`：统计结果缓存时间，默认 `5000`。
+- `command_timeout_ms`：单次 Redis 命令超时，默认 `100`。
+- `max_value_bytes`：单个缓存值上限，默认 `1048576`。
+- Redis 连接失败、超时、熔断或缓存值无效时，请求会直接回退到 SQL 数据库。
 
 ### 行为说明
 
 - 这是纯 executor 观察器，不会修改 `server` 收口逻辑。
 - 进入时抓取入口 request 的结构化快照，并启用 `DnsContext.execution_path`。
 - `next` 返回后立即提交记录；成功时记录当前 response，失败时记录 `error` 和空 response。
-- request / response 不保存 wire 数据，而是把问题区、RR、EDNS 等字段拆成 JSON 文本列。
+- request / response 不保存 wire 数据，而是把问题区、RR、EDNS 等字段拆成结构化 JSON 列。
 - `client_ip` 字段来自 OxiDNS Next 看到的传输层来源地址；如果前面有 systemd-resolved、dnsmasq、AdGuardHome、dae、clash 等本机转发链路，记录中可能只看到 `127.0.0.1`。
 - 每个 recorder 使用同一前缀下的版本化表：
   - `qr_<safe_tag>_<fnv64hex>_v1_records`
@@ -1772,8 +1845,8 @@ old-static.example.com static.example.net
   - `qr_<safe_tag>_<fnv64hex>_v1_questions`
   - `qr_<safe_tag>_<fnv64hex>_v1_meta`
 - `records` 主表只保存固定字段集合；`steps` 表保存 `sequence` 路径事件，用于执行路径分析和命中率统计；`questions` 表是从 `questions_json` 派生的索引表，用于加速 qname/qtype 查询；`meta` 表记录已完成的派生表迁移。
-- 每个 recorder 独占自己的有界队列、SQLite 连接、后台写线程、内存 tail 和 SSE 广播器。
-- 默认假定不同 recorder 使用不同 `path`；v1 不做跨 recorder 写线程复用或路径协调。
+- 每个 recorder 独占自己的有界队列、数据库后端、内存 tail 和 SSE 广播器。
+- 表名前缀包含 plugin tag 的安全片段和完整哈希；同一数据库中的多个 recorder 使用不同表，不会互相覆盖。SQLite 仍可为不同 recorder 配置不同文件。
 
 ### 数据结构约定
 
@@ -1801,13 +1874,14 @@ old-static.example.com static.example.net
 ]
 ```
 
+- `answer_preview` 是列表接口使用的有界摘要：最多保留前 4 条 Answer，每条 `payload_text` 最多 160 个 Unicode 字符，并通过 `truncated` 标记截断；详情接口仍返回上述完整 RR 数组。已有 SQLite 行不会在启动时做大表回填，因此旧行的预览可为空，但完整详情不受影响。
 - `req_edns_json`、`resp_edns_json` 固定为 EDNS 对象或 `NULL`。
-- 表名中的 `v1` 是当前 schema 版本；后续升级会新增新版本表，不做原地改表。
+- 表名中的 `v1` 是当前逻辑 schema 版本；SQLite 的兼容性附加列会在启动时自动补齐，但不会在 SQLite、PostgreSQL 与 MySQL 之间迁移日志。
 
 ### API
 
 - `GET /plugins/<tag>/records`
-  - 按 `created_at_ms` 倒序分页返回主表记录。
+  - 按 `created_at_ms` 倒序分页返回轻量摘要与 `answer_preview`，不读取完整 RR 数组或 `steps`。
   - 查询参数：
     - `cursor=<created_at_ms>:<id>`
     - `limit=<n>`，默认 `100`，最大 `500`
@@ -1853,7 +1927,8 @@ old-static.example.com static.example.net
 - 想要拿到完整主链路路径，推荐把 recorder 放在入口附近。
 - 如果前置分支在 recorder 之前就短路返回，该请求不会被当前 recorder 记录。
 - 若 `next` 报错而 `server` 后续补发了兜底响应，数据库里仍只记录插件视角下的 `error` 和空 response。
-- 若未启用管理 API，recorder 仍会写库，但不会暴露查询与 SSE 路由。
+- 若未启用管理 API，recorder 仍会写入所选 SQL 数据库，但不会暴露查询与 SSE 路由。
+- SQLite 文件在 Unix 上创建或打开时会收紧为 `0600`；PostgreSQL/MySQL 的网络访问控制、TLS、账号权限与备份由数据库部署负责。
 - 若需要真实终端 IP，请让客户端直连 OxiDNS Next，或在 HTTP/DoH 反向代理场景配置可信的 `src_ip_header`。
 
 </Admonition>

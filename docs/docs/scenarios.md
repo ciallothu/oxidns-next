@@ -428,7 +428,9 @@ plugins:
   - tag: recorder_main
     type: query_recorder
     args:
-      path: "./query-recorder.sqlite"
+      database:
+        type: sqlite
+        path: "./query-recorder.sqlite"
       queue_size: 8192
       batch_size: 256
       flush_interval_ms: 200

@@ -452,11 +452,12 @@ export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
 docker run -d \
   --name oxidns-next \
   --restart unless-stopped \
-  -p 53:53/udp \
-  -p 53:53/tcp \
+  -p 53:5335/udp \
+  -p 53:5335/tcp \
   -p 9199:9199/tcp \
   -e OXIDNS_NEXT_BOOTSTRAP_TOKEN \
   -v "$(pwd)/config.yaml:/etc/oxidns-next/config.yaml:ro" \
+  -v "$(pwd)/data:/etc/oxidns-next/data" \
   ghcr.io/ciallothu/oxidns-next:latest
 ```
 
@@ -474,11 +475,13 @@ Linux 上 53 是特权端口；普通用户运行 Docker 时一般通过 Docker 
 oxidns-next start -c /etc/oxidns-next/config.yaml -d /etc/oxidns-next
 ```
 
-镜像内默认暴露：
+镜像元数据声明暴露：
 
 - `53/udp`
 - `53/tcp`
 - `9199/tcp`
+
+仓库根目录的 `config.yaml` 为了便于非 root 本地运行，DNS 监听使用 `:5335`。上面的 `docker run` 和下面的 Compose 示例把宿主机 `53` 映射到容器 `5335`；如果你改成容器内监听 `:53`，端口映射也应改回 `53:53`。
 
 ### Docker Compose 示例
 
@@ -491,13 +494,14 @@ services:
     container_name: oxidns-next
     restart: unless-stopped
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "53:5335/udp"
+      - "53:5335/tcp"
       - "9199:9199/tcp"
     environment:
       - OXIDNS_NEXT_BOOTSTRAP_TOKEN
     volumes:
       - ./config.yaml:/etc/oxidns-next/config.yaml:ro
+      - ./data:/etc/oxidns-next/data
 ```
 
 启动：
@@ -521,6 +525,8 @@ docker compose up -d --force-recreate
 ```bash
 docker compose logs -f oxidns-next
 ```
+
+默认单容器部署使用 SQLite 查询历史。需要 PostgreSQL、MySQL，或在 SQLite 之外启用 Redis DNS/API 缓存时，请使用仓库 [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage) 中带健康检查、环境变量占位符和持久卷的 Compose 示例。Redis 不是查询日志的持久化数据源。
 
 ## 7. 选择建议
 

@@ -3,4 +3,6 @@
 
 //! Shared infrastructure cache primitives.
 
+#[cfg(feature = "storage-redis")]
+pub(crate) mod redis;
 pub mod ttl;

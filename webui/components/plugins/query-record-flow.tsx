@@ -1,19 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  Background,
-  Controls,
-  Handle,
-  MarkerType,
-  Panel,
-  Position,
-  ReactFlow,
-  useNodesState,
-  type Edge,
-  type Node,
-  type NodeProps,
-} from "@xyflow/react";
+import { useMemo, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -21,7 +8,6 @@ import {
   CornerDownRight,
   GitBranch,
   Play,
-  RotateCcw,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -44,14 +30,9 @@ import {
   pluginKindAccentHex,
   pluginKindBadgeOutlineClass,
   pluginKindIconBgClass,
-  pluginTypeAccentHex,
 } from "@/components/plugins/display";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
-import {
-  removeLegacyStorageKey,
-  useAuthenticatedStorageScope,
-} from "@/lib/storage-scope";
 
 type MatchStatus = "matched" | "not_matched" | "unchecked";
 type ActionStatus =
@@ -71,14 +52,6 @@ interface RuntimeIndexes {
 interface SequenceRuntime {
   flow: SequenceFlowReport;
   steps: QueryRecorderStep[];
-  firstEventIndex: number;
-}
-
-interface SequenceEdge {
-  source: string;
-  target: string;
-  ruleIndex: number;
-  label: string;
 }
 
 type FlowModel =
@@ -91,47 +64,14 @@ type FlowModel =
   | {
       mode: "flow";
       sequences: SequenceRuntime[];
-      edges: SequenceEdge[];
       runtime: RuntimeIndexes;
       pluginByTag: Map<string, PluginInstance>;
     };
 
-interface QuerySequenceNodeData extends Record<string, unknown> {
-  // Content-derived storage key. Shared across records that exercise the same
-  // sequence so a layout the user tunes on one query carries over to others.
-  positionKey: string;
-  sequence: SequenceRuntime;
-  runtime: RuntimeIndexes;
-  pluginByTag: Map<string, PluginInstance>;
-  outgoingRuleIndexes: Set<number>;
-}
-
-interface QueryStepNodeData extends Record<string, unknown> {
-  positionKey: string;
-  step: QueryRecorderStep;
-}
-
-type QuerySequenceFlowNode = Node<QuerySequenceNodeData, "querySequence">;
-type QueryStepFlowNode = Node<QueryStepNodeData, "queryStep">;
-
-const QUERY_EDGE_COLOR = pluginTypeAccentHex.executor;
-const QUERY_MATCH_COLOR = pluginTypeAccentHex.matcher;
-
-const queryRecordNodeTypes = {
-  querySequence: QuerySequenceNode,
-  queryStep: QueryStepNode,
-};
-
-type NodePositions = Record<string, { x: number; y: number }>;
 type TFn = (
   key: string,
   params?: Record<string, string | number | boolean | null | undefined>,
 ) => string;
-
-// Content-keyed within one authenticated backend/account scope: positions
-// persist across records that exercise the same sequence without exposing
-// plugin metadata to another operator or OxiDNS Next instance.
-const QRF_STORAGE_KEY = "oxidns-next_qrf_positions";
 
 export function QueryRecordFlowCanvas({
   record,
@@ -143,90 +83,10 @@ export function QueryRecordFlowCanvas({
   plugins: PluginInstance[];
 }) {
   const { t } = useI18n();
-  const storageScope = useAuthenticatedStorageScope();
-  const positionStorageKey = `${QRF_STORAGE_KEY}:${storageScope}`;
-  const [savedPositions, setSavedPositions] = useState<NodePositions>(() => {
-    try {
-      return (
-        (JSON.parse(
-          localStorage.getItem(positionStorageKey) ?? "null",
-        ) as NodePositions | null) ?? {}
-      );
-    } catch {
-      return {};
-    }
-  });
-
-  useEffect(() => {
-    removeLegacyStorageKey(QRF_STORAGE_KEY);
-    try {
-      const stored = JSON.parse(
-        localStorage.getItem(positionStorageKey) ?? "null",
-      ) as NodePositions | null;
-      setSavedPositions(
-        stored && typeof stored === "object" && !Array.isArray(stored)
-          ? stored
-          : {},
-      );
-    } catch {
-      setSavedPositions({});
-    }
-  }, [positionStorageKey]);
-
-  const handlePositionChange = (
-    nodeId: string,
-    pos: { x: number; y: number },
-  ) => {
-    setSavedPositions((prev) => {
-      const next = { ...prev, [nodeId]: pos };
-      try {
-        localStorage.setItem(positionStorageKey, JSON.stringify(next));
-      } catch {
-        // Keep the position for this session when browser storage is disabled.
-      }
-      return next;
-    });
-  };
-
-  const resetPositions = () => {
-    setSavedPositions({});
-    removeLegacyStorageKey(positionStorageKey);
-  };
-
   const model = useMemo(
     () => buildFlowModel(record, dependencyGraph, plugins, t),
     [dependencyGraph, plugins, record, t],
   );
-
-  // Compute nodes/edges (memoised on model + savedPositions) so the reference
-  // is stable across renders and the useEffect below only re-syncs when the
-  // source data actually changes. Empty mode collapses to an empty graph so
-  // the hooks below run unconditionally.
-  const derived = useMemo<{ nodes: Node[]; edges: Edge[] }>(() => {
-    if (model.mode === "empty") return { nodes: [], edges: [] };
-    const baseNodes =
-      model.mode === "flow"
-        ? buildSequenceNodes(model)
-        : buildFallbackNodes(model);
-    const edges =
-      model.mode === "flow"
-        ? buildSequenceEdges(model)
-        : buildFallbackEdges(model);
-    const nodes = baseNodes.map((node) => {
-      const key = (node.data as { positionKey?: string }).positionKey;
-      return key && savedPositions[key]
-        ? { ...node, position: savedPositions[key] }
-        : node;
-    });
-    return { nodes, edges };
-  }, [model, savedPositions]);
-
-  // Hold nodes in state + funnel d3-drag updates through onNodesChange so the
-  // node follows the cursor during a drag (controlled-mode requirement).
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(derived.nodes);
-  useEffect(() => {
-    setNodes(derived.nodes);
-  }, [derived.nodes, setNodes]);
 
   if (model.mode === "empty") {
     return (
@@ -235,9 +95,6 @@ export function QueryRecordFlowCanvas({
       </div>
     );
   }
-
-  const edges = derived.edges;
-  const hasCustomPositions = Object.keys(savedPositions).length > 0;
 
   return (
     <div className="space-y-2">
@@ -256,10 +113,20 @@ export function QueryRecordFlowCanvas({
             </span>
           </>
         ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/70 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">
-            <AlertTriangle className="h-3 w-3" />
-            {model.reason}
-          </span>
+          <>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/70 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-300">
+              <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+              {model.reason}
+            </span>
+            <span className="rounded-full border bg-muted/30 px-2 py-0.5">
+              {t(WEBUI.queryRecordFlow.rawEventOrder)}
+            </span>
+            <span className="rounded-full border bg-muted/30 px-2 py-0.5">
+              {t(WEBUI.queryRecordFlow.eventCount, {
+                count: record.steps.length,
+              })}
+            </span>
+          </>
         )}
         <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">
           {t(WEBUI.queryRecordFlow.matched)}
@@ -272,43 +139,41 @@ export function QueryRecordFlowCanvas({
         </span>
       </div>
 
-      <div className="h-[520px] overflow-hidden rounded-md border bg-muted/10">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          nodeTypes={queryRecordNodeTypes}
-          fitView={!hasCustomPositions}
-          fitViewOptions={{ padding: 0.18 }}
-          minZoom={0.2}
-          maxZoom={2}
-          nodesDraggable
-          onNodeDragStop={(_event, node) => {
-            // Persist by the content-derived key, not the React Flow id, so
-            // dragging a sequence node in one record carries over to other
-            // records that exercise the same sequence.
-            const key = (node.data as { positionKey?: string }).positionKey;
-            if (key) handlePositionChange(key, node.position);
-          }}
-        >
-          <Background gap={20} size={1} className="opacity-30" />
-          <Controls showInteractive={false} />
-          <Panel position="bottom-left">
-            <QueryRecordFlowLegend fallback={model.mode === "fallback"} />
-          </Panel>
-          {hasCustomPositions && (
-            <Panel position="top-right">
-              <button
-                type="button"
-                title={t(WEBUI.topology.resetLayout)}
-                className="rounded border bg-card/90 p-1.5 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground"
-                onClick={resetPositions}
+      <div className="touch-pan-y rounded-md border bg-muted/10 p-2 sm:p-3">
+        {model.mode === "flow" ? (
+          <ol className="mx-auto max-w-5xl space-y-3">
+            {model.sequences.map((sequence, index) => (
+              <li
+                key={sequence.flow.tag}
+                className="relative pl-4 sm:pl-6"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-            </Panel>
-          )}
-        </ReactFlow>
+                {index < model.sequences.length - 1 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-4 bottom-[-1rem] left-[0.3rem] border-l border-dashed border-sky-500/35 sm:left-[0.55rem]"
+                  />
+                )}
+                <span
+                  aria-hidden="true"
+                  className="absolute top-4 left-0 h-2.5 w-2.5 rounded-full border-2 border-sky-500 bg-background sm:left-1"
+                />
+                <QuerySequencePanel
+                  sequence={sequence}
+                  runtime={model.runtime}
+                  pluginByTag={model.pluginByTag}
+                />
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <ol className="mx-auto max-w-3xl divide-y overflow-hidden rounded-md border bg-card/60">
+            {model.steps.map((step) => (
+              <li key={step.event_index}>
+                <QueryStepRow step={step} />
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   );
@@ -354,29 +219,12 @@ function buildFlowModel(
     return {
       flow: flowByTag.get(tag)!,
       steps: sequenceSteps,
-      firstEventIndex: sequenceSteps[0]?.event_index ?? 0,
     };
   });
-
-  const sequenceSet = new Set(sequenceTags);
-  const edges: SequenceEdge[] = [];
-  for (const sequence of sequences) {
-    for (const rule of sequence.flow.rules) {
-      const target = targetSequenceTag(rule.exec, flowByTag, sequenceSet);
-      if (!target) continue;
-      edges.push({
-        source: sequence.flow.tag,
-        target,
-        ruleIndex: rule.index,
-        label: `#${rule.index} ${sequenceActionLabel(rule.exec, t)}`,
-      });
-    }
-  }
 
   return {
     mode: "flow",
     sequences,
-    edges,
     runtime,
     pluginByTag,
   };
@@ -419,115 +267,25 @@ function buildRuntimeIndexes(steps: QueryRecorderStep[]): RuntimeIndexes {
   return { matchers, actions, stepsBySequence };
 }
 
-function buildSequenceNodes(model: Extract<FlowModel, { mode: "flow" }>) {
-  const outgoingBySequence = new Map<string, Set<number>>();
-  for (const edge of model.edges) {
-    const indexes = outgoingBySequence.get(edge.source) ?? new Set<number>();
-    indexes.add(edge.ruleIndex);
-    outgoingBySequence.set(edge.source, indexes);
-  }
-
-  return model.sequences.map<QuerySequenceFlowNode>((sequence, index) => ({
-    id: sequence.flow.tag,
-    type: "querySequence",
-    position: {
-      x: index * 660,
-      y: index % 2 === 0 ? 0 : 56,
-    },
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
-    data: {
-      // sequence tag uniquely identifies a sequence node within the flow;
-      // it's also the natural cross-record identity.
-      positionKey: `seq:${sequence.flow.tag}`,
-      sequence,
-      runtime: model.runtime,
-      pluginByTag: model.pluginByTag,
-      outgoingRuleIndexes:
-        outgoingBySequence.get(sequence.flow.tag) ?? new Set(),
-    },
-  }));
-}
-
-function buildSequenceEdges(model: Extract<FlowModel, { mode: "flow" }>) {
-  return model.edges.map<Edge>((edge, index) => ({
-    id: `${edge.source}-${edge.target}-${edge.ruleIndex}-${index}`,
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: `rule-${edge.ruleIndex}`,
-    type: "smoothstep",
-    label: edge.label,
-    style: { stroke: QUERY_EDGE_COLOR, strokeWidth: 2.2 },
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: QUERY_EDGE_COLOR,
-      width: 14,
-      height: 14,
-    },
-    labelStyle: {
-      fill: QUERY_EDGE_COLOR,
-      fontSize: 10,
-      fontFamily: "monospace",
-      fontWeight: 700,
-    },
-    labelBgPadding: [4, 2],
-    labelBgBorderRadius: 3,
-  }));
-}
-
-function buildFallbackNodes(model: Extract<FlowModel, { mode: "fallback" }>) {
-  // Fallback steps in different records can repeat the same kind:tag pair.
-  // Use occurrence counting so duplicates each keep an independent slot.
-  const keyCounts = new Map<string, number>();
-  return model.steps.map<QueryStepFlowNode>((step, index) => {
-    const base = `step:${step.kind}:${step.tag}`;
-    const occ = keyCounts.get(base) ?? 0;
-    keyCounts.set(base, occ + 1);
-    const positionKey = occ === 0 ? base : `${base}#${occ}`;
-    return {
-      id: `step:${step.event_index}`,
-      type: "queryStep",
-      position: { x: 0, y: index * 116 },
-      sourcePosition: Position.Bottom,
-      targetPosition: Position.Top,
-      data: { positionKey, step },
-    };
-  });
-}
-
-function buildFallbackEdges(model: Extract<FlowModel, { mode: "fallback" }>) {
-  return model.steps.slice(1).map<Edge>((step, index) => ({
-    id: `step-edge:${model.steps[index].event_index}-${step.event_index}`,
-    source: `step:${model.steps[index].event_index}`,
-    target: `step:${step.event_index}`,
-    type: "smoothstep",
-    style: { stroke: QUERY_EDGE_COLOR, strokeWidth: 1.8 },
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: QUERY_EDGE_COLOR,
-      width: 12,
-      height: 12,
-    },
-  }));
-}
-
-function QuerySequenceNode({ data }: NodeProps<QuerySequenceFlowNode>) {
+function QuerySequencePanel({
+  sequence,
+  runtime,
+  pluginByTag,
+}: {
+  sequence: SequenceRuntime;
+  runtime: RuntimeIndexes;
+  pluginByTag: Map<string, PluginInstance>;
+}) {
   const { t } = useI18n();
-  const { sequence, runtime, pluginByTag, outgoingRuleIndexes } = data;
   const flow = sequence.flow;
   const accent = pluginKindAccentHex("executor");
   const eventRange = eventRangeLabel(sequence.steps);
 
   return (
     <div
-      className="relative w-[34rem] overflow-hidden rounded-lg border bg-card shadow-sm"
+      className="overflow-hidden rounded-lg border bg-card shadow-sm"
       style={{ borderLeftColor: accent, borderLeftWidth: 4 }}
     >
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!h-2.5 !w-2.5 !border-border !bg-background"
-      />
       <div
         className="flex items-center gap-2 px-3 py-2.5"
         style={{ backgroundColor: `${accent}12` }}
@@ -538,7 +296,7 @@ function QuerySequenceNode({ data }: NodeProps<QuerySequenceFlowNode>) {
             pluginKindIconBgClass("executor"),
           )}
         >
-          <GitBranch className="h-3.5 w-3.5" />
+          <GitBranch aria-hidden="true" className="h-3.5 w-3.5" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-mono text-sm font-semibold">
@@ -563,7 +321,6 @@ function QuerySequenceNode({ data }: NodeProps<QuerySequenceFlowNode>) {
             isLast={index === flow.rules.length - 1}
             runtime={runtime}
             pluginByTag={pluginByTag}
-            hasOutgoingSequence={outgoingRuleIndexes.has(rule.index)}
           />
         ))}
       </div>
@@ -578,7 +335,6 @@ function SequenceRuleRow({
   isLast,
   runtime,
   pluginByTag,
-  hasOutgoingSequence,
 }: {
   sequenceTag: string;
   rule: SequenceFlowRule;
@@ -586,7 +342,6 @@ function SequenceRuleRow({
   isLast: boolean;
   runtime: RuntimeIndexes;
   pluginByTag: Map<string, PluginInstance>;
-  hasOutgoingSequence: boolean;
 }) {
   const { t } = useI18n();
   const matchStatuses = rule.matches.map((expression, matchIndex) =>
@@ -606,7 +361,7 @@ function SequenceRuleRow({
   return (
     <div
       className={cn(
-        "relative grid grid-cols-[2.35rem_minmax(0,1fr)_1rem_minmax(9rem,0.78fr)] items-center gap-2 px-3 py-2 transition-colors",
+        "grid grid-cols-[2.35rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 px-2 py-2 transition-colors sm:grid-cols-[2.35rem_minmax(0,1fr)_1rem_minmax(9rem,0.78fr)] sm:px-3",
         !isLast && "border-b border-dashed",
         ruleOffset % 2 === 1 && "bg-muted/15",
         missed && "bg-rose-500/5",
@@ -649,13 +404,14 @@ function SequenceRuleRow({
       </div>
 
       <CornerDownRight
+        aria-hidden="true"
         className={cn(
-          "h-3.5 w-3.5 shrink-0",
+          "hidden h-3.5 w-3.5 shrink-0 sm:block",
           ran ? "text-sky-500" : "text-muted-foreground/40",
         )}
       />
 
-      <div className="flex min-w-0 items-center overflow-hidden">
+      <div className="col-start-2 flex min-w-0 items-center overflow-hidden sm:col-start-auto">
         <ActionStatusChip
           sequenceTag={sequenceTag}
           ruleIndex={rule.index}
@@ -664,16 +420,6 @@ function SequenceRuleRow({
           pluginByTag={pluginByTag}
         />
       </div>
-
-      {hasOutgoingSequence && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          id={`rule-${rule.index}`}
-          className="!h-2.5 !w-2.5 !rounded-full !border-0 !bg-sky-500"
-          style={{ right: 0, transform: "translateY(-50%)" }}
-        />
-      )}
     </div>
   );
 }
@@ -820,11 +566,7 @@ function StatusPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="nodrag nopan min-w-0"
-          onClick={(event) => event.stopPropagation()}
-        >
+        <button type="button" className="min-w-0 max-w-full text-left">
           {children}
         </button>
       </PopoverTrigger>
@@ -886,102 +628,47 @@ function StatusSuffix({
   );
 }
 
-function QueryStepNode({ data }: NodeProps<QueryStepFlowNode>) {
-  const step = data.step;
+function QueryStepRow({ step }: { step: QueryRecorderStep }) {
   return (
-    <div className="relative w-72 rounded-md border bg-card px-3 py-2 shadow-sm">
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="!h-2 !w-2 !border-border !bg-background"
-      />
-      <div className="flex min-w-0 items-center justify-between gap-2">
+    <div className="grid min-w-0 gap-2 px-3 py-2.5 sm:grid-cols-[4rem_minmax(0,1fr)_auto] sm:items-center">
+      <div className="flex min-w-0 items-center justify-between gap-2 sm:block">
         <span className="font-mono text-xs text-muted-foreground">
           #{step.event_index}
         </span>
-        <Badge variant="outline" className="font-mono text-[10px]">
+        <Badge
+          variant="outline"
+          className="font-mono text-[10px] sm:hidden"
+        >
           {step.outcome}
         </Badge>
       </div>
-      <div className="mt-1 min-w-0 truncate font-mono text-xs">
-        {step.sequence_tag}
-        {typeof step.node_index === "number" ? ` / ${step.node_index}` : ""}
+      <div className="min-w-0">
+        <div className="truncate font-mono text-xs">
+          {step.sequence_tag}
+          {typeof step.node_index === "number" ? ` / ${step.node_index}` : ""}
+        </div>
+        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 font-mono text-[10px]",
+              step.kind === "matcher"
+                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                : "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+            )}
+          >
+            {step.kind}
+          </span>
+          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+            {step.tag ?? "-"}
+          </span>
+        </div>
       </div>
-      <div className="mt-2 flex min-w-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "rounded px-1.5 py-0.5 font-mono text-[10px]",
-            step.kind === "matcher"
-              ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-              : "bg-sky-500/10 text-sky-700 dark:text-sky-300",
-          )}
-        >
-          {step.kind}
-        </span>
-        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
-          {step.tag ?? "-"}
-        </span>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="!h-2 !w-2 !border-border !bg-background"
-      />
-    </div>
-  );
-}
-
-function QueryRecordFlowLegend({ fallback }: { fallback: boolean }) {
-  const { t } = useI18n();
-  return (
-    <div className="rounded-md border bg-card/90 p-2 text-[11px] shadow-sm backdrop-blur-sm">
-      <div className="mb-1.5 font-semibold text-muted-foreground">
-        {t(WEBUI.topology.legend)}
-      </div>
-      <div className="space-y-1">
-        <LegendLine
-          color={QUERY_MATCH_COLOR}
-          label={t(WEBUI.queryRecordFlow.matcherEdgeLabel)}
-          dashed
-        />
-        <LegendLine
-          color={QUERY_EDGE_COLOR}
-          label={t(WEBUI.queryRecordFlow.sequenceEdgeLabel)}
-        />
-        {fallback && (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <AlertTriangle className="h-3 w-3 text-amber-500" />
-            {t(WEBUI.queryRecordFlow.rawEventOrder)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LegendLine({
-  color,
-  label,
-  dashed,
-}: {
-  color: string;
-  label: string;
-  dashed?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <svg width="24" height="8" className="shrink-0">
-        <line
-          x1="0"
-          y1="4"
-          x2="20"
-          y2="4"
-          stroke={color}
-          strokeWidth="2"
-          strokeDasharray={dashed ? "4 2" : undefined}
-        />
-      </svg>
-      <span className="text-muted-foreground">{label}</span>
+      <Badge
+        variant="outline"
+        className="hidden font-mono text-[10px] sm:inline-flex"
+      >
+        {step.outcome}
+      </Badge>
     </div>
   );
 }
@@ -1076,24 +763,6 @@ function actionRuntimeTarget(
   return undefined;
 }
 
-function targetSequenceTag(
-  expression: SequenceFlowExpression | undefined,
-  flowByTag: Map<string, SequenceFlowReport>,
-  visibleSequences: Set<string>,
-) {
-  if (!expression?.target_tag || !visibleSequences.has(expression.target_tag)) {
-    return undefined;
-  }
-  if (expression.kind === "builtin") {
-    return expression.builtin === "jump" || expression.builtin === "goto"
-      ? expression.target_tag
-      : undefined;
-  }
-  return flowByTag.has(expression.target_tag)
-    ? expression.target_tag
-    : undefined;
-}
-
 function orderedSequenceTags(steps: QueryRecorderStep[]) {
   const seen = new Set<string>();
   const tags: string[] = [];
@@ -1176,15 +845,25 @@ function InvertMark() {
 }
 
 function matchStatusIcon(status: MatchStatus) {
-  if (status === "matched") return <Check className="h-3 w-3 shrink-0" />;
-  if (status === "not_matched") return <X className="h-3 w-3 shrink-0" />;
-  return <Circle className="h-3 w-3 shrink-0" />;
+  if (status === "matched") {
+    return <Check aria-hidden="true" className="h-3 w-3 shrink-0" />;
+  }
+  if (status === "not_matched") {
+    return <X aria-hidden="true" className="h-3 w-3 shrink-0" />;
+  }
+  return <Circle aria-hidden="true" className="h-3 w-3 shrink-0" />;
 }
 
 function actionStatusIcon(status: ActionStatus) {
-  if (status === "error") return <AlertTriangle className="h-3 w-3 shrink-0" />;
-  if (status === "not_executed") return <Circle className="h-3 w-3 shrink-0" />;
-  return <Play className="h-3 w-3 shrink-0" />;
+  if (status === "error") {
+    return (
+      <AlertTriangle aria-hidden="true" className="h-3 w-3 shrink-0" />
+    );
+  }
+  if (status === "not_executed") {
+    return <Circle aria-hidden="true" className="h-3 w-3 shrink-0" />;
+  }
+  return <Play aria-hidden="true" className="h-3 w-3 shrink-0" />;
 }
 
 function matchStatusLabel(status: MatchStatus, t: TFn) {

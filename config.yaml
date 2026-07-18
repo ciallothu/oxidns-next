@@ -6,8 +6,18 @@
 log:
   level: info
   # Optional plain-text sink for debug_print/query_summary query events. The
-  # searchable query history below is stored independently in SQLite.
+  # searchable query history below is stored independently in its configured
+  # SQLite, PostgreSQL, or MySQL database.
   # query_file: "./data/query-events.log"
+
+# Optional shared Redis connection. Defining it alone does not enable Redis;
+# uncomment a plugin's redis/api_cache block below to opt in. Redis is only a
+# cache layer: DNS falls back to memory/upstream and query APIs fall back to SQL.
+# storage:
+#   redis:
+#     url: "${OXIDNS_NEXT_REDIS_URL}"
+#     key_prefix: "oxidns-next"
+#     connect_timeout_ms: 1000
 
 # Management API (optional)
 api:
@@ -49,8 +59,50 @@ plugins:
   - tag: query_log
     type: query_recorder
     args:
-      path: "./data/query-log.sqlite"
+      database:
+        type: sqlite
+        path: "./data/query-log.sqlite"
+        # acquire_timeout_ms: 3000
+        # query_timeout_ms: 20000
+      # PostgreSQL alternative (replace the database block above):
+      # database:
+      #   type: postgres
+      #   url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+      #   max_connections: 8
+      #   connect_timeout_ms: 5000
+      #   acquire_timeout_ms: 3000
+      #   query_timeout_ms: 20000
+      # MySQL alternative (replace the active database block above):
+      # database:
+      #   type: mysql
+      #   url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+      #   max_connections: 8
+      #   connect_timeout_ms: 5000
+      #   acquire_timeout_ms: 3000
+      #   query_timeout_ms: 20000
       retention_days: 7
+      # Optional short-lived Redis cache for history/detail/statistics API responses.
+      # Requires the top-level storage.redis block above.
+      # api_cache:
+      #   enabled: true
+      #   records_ttl_ms: 2000
+      #   stats_ttl_ms: 5000
+      #   command_timeout_ms: 100
+      #   max_value_bytes: 1048576
+
+  # Optional DNS response cache with Redis L2. To enable it, uncomment this
+  # plugin, the top-level storage.redis block, and `$dns_cache` in the sequence.
+  # - tag: dns_cache
+  #   type: cache
+  #   args:
+  #     size: 4096
+  #     redis:
+  #       enabled: true
+  #       command_timeout_ms: 20
+  #       max_inflight: 64
+  #       write_queue_size: 4096
+  #       failure_threshold: 3
+  #       retry_after_ms: 30000
 
   # Forward to upstream DNS servers
   - tag: forward
@@ -63,6 +115,7 @@ plugins:
     type: sequence
     args:
       - exec: $query_log
+      # - exec: $dns_cache
       - exec: $forward
       - exec: accept
 

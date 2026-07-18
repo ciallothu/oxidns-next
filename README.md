@@ -13,7 +13,176 @@
 
 # OxiDNS Next
 
-**面向复杂网络的高性能 DNS 策略编排引擎。**
+**一个可自建、可检索、可精细分流的 DNS 服务。**
+
+## 产品特点
+
+- 支持 UDP、TCP、DoT、DoQ、DoH，并可为不同域名、客户端和查询结果选择不同处理策略。
+- 自带管理 API 与 WebUI，可查看运行状态、查询日志、统计数据和插件配置。
+- 支持本地账户、OIDC、通行密钥和 TOTP，适合家庭网络、旁路由、NAS 与 Homelab。
+- 查询日志与系统日志分开保存；列表直接显示解析结果，详情提供完整应答与执行流程；持久化存储可选 SQLite、PostgreSQL 或 MySQL。
+- 可选 Redis 为 DNS 缓存和查询日志 API 提供共享缓存；Redis 不保存唯一数据，停用或故障时仍可使用本地缓存、上游 DNS 与 SQL 数据库。
+- 提供 Linux、macOS、Windows、Docker 和多种路由器架构的发行包。
+
+## 快速开始
+
+Linux 或 macOS：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sudo sh
+```
+
+OpenWrt（便携安装）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
+```
+
+Windows 管理员 PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.ps1 | iex
+```
+
+Docker：
+
+```bash
+git clone https://github.com/ciallothu/oxidns-next.git
+cd oxidns-next
+docker compose up -d
+```
+
+默认配置监听 DNS `:5335` 和管理台 `:9199`；仓库 Compose 会把宿主机 DNS `53/udp`、`53/tcp` 映射到容器 `5335`。安装完成后访问 `http://127.0.0.1:9199`；远程首次创建管理员时，请先通过 `OXIDNS_NEXT_BOOTSTRAP_TOKEN` 配置引导令牌。完整安装、服务管理和反向代理说明见[快速开始](docs/docs/quickstart.mdx)。
+
+## 配置怎么写
+
+配置使用 YAML。下面是一个可直接运行的最小完整示例：它开启管理台，把查询记录保存到 SQLite，并将 DNS 请求转发到 `223.5.5.5`。
+
+```yaml
+log:
+  level: info
+
+api:
+  http:
+    listen: ":9199"
+    auth:
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      # bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+    webui:
+      root: "./webui"
+
+plugins:
+  - tag: query_log
+    type: query_recorder
+    args:
+      database:
+        type: sqlite
+        path: "./data/query-log.sqlite"
+      retention_days: 7
+
+  - tag: forward
+    type: forward
+    args:
+      upstreams:
+        - addr: "223.5.5.5"
+
+  - tag: main_sequence
+    type: sequence
+    args:
+      - exec: $query_log
+      - exec: $forward
+      - exec: accept
+
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: main_sequence
+      listen: ":5335"
+
+  - tag: tcp_server
+    type: tcp_server
+    args:
+      entry: main_sequence
+      listen: ":5335"
+```
+
+顶层字段负责全局设置，`plugins` 中的每一项都由唯一且不超过 255 个字符的 `tag`、插件 `type` 和可选 `args` 组成。`sequence` 通过 `$tag` 调用其他插件。`query_recorder` 应放在入口 sequence 的第一步，才能记录完整请求与响应。相对路径统一以 `-d/--working-dir` 指定的工作目录为基准。
+
+## 查询日志存储
+
+SQLite 是无需额外服务的默认选项，适合单机快速开始；生产环境首选 PostgreSQL，MySQL 也完整支持：
+
+```yaml
+database:
+  type: sqlite
+  path: "./data/query-log.sqlite"
+```
+
+PostgreSQL 和 MySQL 使用连接 URL。生产部署优先选择 PostgreSQL；请通过环境变量提供账号与密码，不要把凭据直接写入配置文件：
+
+```yaml
+# PostgreSQL
+database:
+  type: postgres
+  url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+  max_connections: 8
+  connect_timeout_ms: 5000
+  acquire_timeout_ms: 3000
+  query_timeout_ms: 20000
+```
+
+```yaml
+# MySQL
+database:
+  type: mysql
+  url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+  max_connections: 8
+  connect_timeout_ms: 5000
+  acquire_timeout_ms: 3000
+  query_timeout_ms: 20000
+```
+
+旧配置中的 `query_recorder.args.path` 仍兼容，等价于 `database.type: sqlite` 与 `database.path`；新配置建议使用显式 `database` 写法。
+
+Redis 是可选缓存层。先配置共享连接，再按需为 `cache` 或 `query_recorder` 启用：
+
+```yaml
+storage:
+  redis:
+    url: "${OXIDNS_NEXT_REDIS_URL}"
+    key_prefix: "oxidns-next"
+    connect_timeout_ms: 1000
+
+plugins:
+  - tag: dns_cache
+    type: cache
+    args:
+      redis:
+        enabled: true
+        command_timeout_ms: 20
+        max_inflight: 64
+        write_queue_size: 4096
+        failure_threshold: 3
+        retry_after_ms: 30000
+
+  - tag: query_log
+    type: query_recorder
+    args:
+      database:
+        type: sqlite
+        path: "./data/query-log.sqlite"
+      api_cache:
+        enabled: true
+        records_ttl_ms: 2000
+        stats_ttl_ms: 5000
+        command_timeout_ms: 100
+        max_value_bytes: 1048576
+```
+
+`query_recorder` 始终以 SQL 数据库为查询日志的持久化数据源；Redis 连接失败、超时或缓存内容无效时会回退到 SQL。可直接运行的外部数据库与 Redis 部署示例见 [`examples/storage`](examples/storage)。
+
+## 项目定位与设计
 
 > OxiDNS Next 是基于 [上游 OxiDNS](https://github.com/svenshi/oxidns) 的二次开发发行版，由 `ciallothu` 独立维护。项目保留上游作者 Sven Shi 的版权归属，并继续遵循 GPL-3.0-or-later 许可证；OxiDNS Next 与上游项目不是同一发行渠道。
 

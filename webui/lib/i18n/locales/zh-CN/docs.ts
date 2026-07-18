@@ -112,6 +112,20 @@ export const zhCNDocs = {
       "- 类型：`integer`；必填：否；默认值：无\n- 单位：秒\n- 作用：定义正响应进入缓存所需的最小 TTL。\n- 说明：正响应的有效缓存 TTL 低于该值时不会写入缓存。该判断在 `max_positive_ttl` 裁剪之后执行。",
     ecs_in_key:
       "- 类型：`boolean`；必填：否；默认值：`false`\n- 作用：控制 ECS scope 是否参与缓存键计算。",
+    redis:
+      "- 类型：`object`；必填：否\n- 作用：使用顶层 `storage.redis` 作为 DNS 二级缓存。\n- 降级：Redis 不可用时立即回退进程内缓存与上游。",
+    "redis.enabled":
+      "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：启用当前 cache 的 Redis 二级缓存。",
+    "redis.command_timeout_ms":
+      "- 类型：`integer`；必填：否；默认值：`20`\n- 单位：毫秒\n- 作用：限制单次 Redis 命令的等待时间。",
+    "redis.max_inflight":
+      "- 类型：`integer`；必填：否；默认值：`64`\n- 作用：限制 Redis 并发读取数，饱和时立即绕过。",
+    "redis.write_queue_size":
+      "- 类型：`integer`；必填：否；默认值：`4096`\n- 作用：设置 Redis 后台写入队列容量。",
+    "redis.failure_threshold":
+      "- 类型：`integer`；必填：否；默认值：`3`\n- 作用：设置触发 Redis 熔断的连续失败次数。",
+    "redis.retry_after_ms":
+      "- 类型：`integer`；必填：否；默认值：`30000`\n- 单位：毫秒\n- 作用：设置熔断后的恢复探测间隔。",
   },
   fallback: {
     primary: "- 类型：`string`；必填：是；默认值：无\n- 作用：指定主执行器。",
@@ -251,11 +265,27 @@ export const zhCNDocs = {
       "- 类型：`duration`；必填：否；默认值：`1s`\n- 作用：限制 `async: false` 时等待 provider 写入完成的最长时间。\n- 支持单位：`ms`、`s`、`m`、`h`、`d`。",
   },
   query_recorder: {
-    path: "- 类型：`string`；必填：是\n- 作用：指定当前 recorder 的 SQLite 文件路径。",
+    path: "- 类型：`string`；必填：否\n- 作用：兼容旧版 SQLite 文件路径。\n- 配置要求：不能与 `database` 同时使用。",
+    database:
+      "- 类型：`object`；必填：与 `path` 二选一\n- 作用：选择 SQLite、PostgreSQL 或 MySQL 作为查询日志数据库。\n- 建议：生产环境首选 PostgreSQL。",
+    "database.type":
+      "- 类型：`string`；必填：是\n- 可选值：`sqlite`、`postgres`、`mysql`\n- 作用：选择查询日志数据库类型。",
+    "database.path":
+      "- 类型：`string`；`database.type: sqlite` 时必填\n- 作用：指定 SQLite 文件路径。",
+    "database.url":
+      "- 类型：`string`；`database.type: postgres` 或 `mysql` 时必填\n- 作用：指定数据库连接 URL。\n- 建议：使用 `${OXIDNS_NEXT_QUERY_DATABASE_URL}` 环境变量，避免把凭据写入配置文件。",
+    "database.max_connections":
+      "- 类型：`integer`；必填：否；默认值：`8`\n- 作用：限制 PostgreSQL/MySQL 连接池大小。",
+    "database.connect_timeout_ms":
+      "- 类型：`integer`；必填：否；默认值：`5000`\n- 单位：毫秒\n- 作用：限制建立 PostgreSQL/MySQL 连接的等待时间。",
+    "database.acquire_timeout_ms":
+      "- 类型：`integer`；必填：否；默认值：`3000`\n- 单位：毫秒\n- 作用：限制等待数据库连接或 SQLite reader 的时间。",
+    "database.query_timeout_ms":
+      "- 类型：`integer`；必填：否；默认值：`20000`\n- 单位：毫秒\n- 作用：限制一次查询日志 API 数据库操作的时间；超时后返回明确错误并释放资源。",
     queue_size:
       "- 类型：`integer`；必填：否；默认值：`8192`\n- 作用：定义热路径到后台写线程的有界队列大小。",
     batch_size:
-      "- 类型：`integer`；必填：否；默认值：`256`\n- 作用：定义后台批量写入 SQLite 的单批记录数。",
+      "- 类型：`integer`；必填：否；默认值：`256`\n- 作用：定义后台批量写入查询日志数据库的单批记录数。",
     flush_interval_ms:
       "- 类型：`integer`；必填：否；默认值：`200`\n- 作用：定义后台写线程的批量 flush 间隔。",
     memory_tail:
@@ -265,7 +295,19 @@ export const zhCNDocs = {
     cleanup_interval_hours:
       "- 类型：`integer`；必填：否；默认值：`1`\n- 最小值：`1`\n- 作用：定义过期清理任务的执行周期。",
     reader_concurrency:
-      "- 类型：`integer`；必填：否；默认值：`2`\n- 最小值：`1`\n- 作用：限制 query_recorder API/统计读取侧同时运行的 SQLite reader 数量，避免 WebUI 或 API 突发请求占用过多阻塞线程和内存。",
+      "- 类型：`integer`；必填：否；默认值：`2`\n- 最小值：`1`\n- 作用：限制查询日志 API 与统计读取的并发数，避免突发请求耗尽数据库连接。",
+    api_cache:
+      "- 类型：`object`；必填：否\n- 作用：使用全局 `storage.redis` 缓存查询日志 API 响应。\n- 降级：Redis 不可用时自动读取数据库，不影响 DNS 查询和日志写入。",
+    "api_cache.enabled":
+      "- 类型：`boolean`；必填：否；默认值：`false`\n- 作用：启用查询日志 API Redis 缓存。",
+    "api_cache.records_ttl_ms":
+      "- 类型：`integer`；必填：否；默认值：`2000`\n- 单位：毫秒\n- 作用：设置记录列表与详情的缓存时间。",
+    "api_cache.stats_ttl_ms":
+      "- 类型：`integer`；必填：否；默认值：`5000`\n- 单位：毫秒\n- 作用：设置统计、排行与分布响应的缓存时间。",
+    "api_cache.command_timeout_ms":
+      "- 类型：`integer`；必填：否；默认值：`100`\n- 单位：毫秒\n- 作用：限制一次 Redis 读写的等待时间。",
+    "api_cache.max_value_bytes":
+      "- 类型：`integer`；必填：否；默认值：`1048576`\n- 单位：字节\n- 作用：超过该大小的 API 响应不会写入 Redis。",
   },
   metrics_collector: {
     name: '- 类型：`string`；必填：否；默认值：`"default"`\n- 作用：定义当前指标收集器的名称标签。',

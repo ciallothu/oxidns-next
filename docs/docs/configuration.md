@@ -5,7 +5,7 @@ sidebar_position: 2
 
 ## 写在最前
 
-OxiDNS Next 的配置文件是 YAML。日常修改配置时，可以先把它理解为六个顶层部分：
+OxiDNS Next 的配置文件是 YAML。日常修改配置时，可以先把它理解为七个顶层部分：
 
 ```yaml
 runtime:
@@ -17,6 +17,11 @@ api:
 log:
   level: info
   file: ./oxidns-next.log
+
+storage:
+  redis:
+    url: ${OXIDNS_NEXT_REDIS_URL}
+    key_prefix: oxidns-next
 
 network:
   outbound:
@@ -43,6 +48,8 @@ plugins:
   - 管理 API。
 - `log`
   - 日志输出。
+- `storage`
+  - 可选共享存储连接；当前用于给 DNS cache 和查询日志 API 提供 Redis 缓存。
 - `network`
   - 共享网络出站配置，例如 HTTP 下载、升级检查和 webhook 请求使用的解析器与代理。
 - `include`
@@ -164,7 +171,7 @@ log:
   - 日志文件内容为 UTF-8 纯文本格式，不写入终端 ANSI 颜色控制码。
 - `query_file`
   - 含义：可选的 DNS 查询事件日志文件；仅接收 `debug_print` 与 `query_summary` 等查询诊断事件。
-  - 不配置时不写入查询事件文本文件；结构化、可检索的查询历史仍由 `query_recorder` 独立保存在其 SQLite 数据库中。
+  - 不配置时不写入查询事件文本文件；结构化、可检索的查询历史仍由 `query_recorder` 独立保存在其配置的 SQLite、PostgreSQL 或 MySQL 数据库中。
   - 如需使用 `debug_print` 或 `query_summary` 的文本输出，应配置此字段；省略时这些查询诊断事件不会进入系统日志。可检索历史不受影响。
   - 查询事件可能包含客户端地址和域名，必须限制文件访问权限并按隐私策略设置保留期。
 - `rotation`
@@ -184,6 +191,34 @@ log:
 - `type: weekly`
   - 按周轮转。
   - 可选配置 `max_files`，表示最多保留多少个历史文件；`0` 表示不自动删除。
+
+### `storage`
+
+`storage` 定义可供多个插件复用的外部存储连接。当前支持可选 Redis：
+
+```yaml
+storage:
+  redis:
+    url: "${OXIDNS_NEXT_REDIS_URL}"
+    key_prefix: "oxidns-next"
+    connect_timeout_ms: 1000
+```
+
+字段说明：
+
+- `storage.redis.url`
+  - 类型：`string`；必填：是。
+  - 含义：Redis 连接 URL，例如 `redis://redis:6379/0`。含账号或密码时应通过环境变量提供，不要直接提交到配置文件。
+- `storage.redis.key_prefix`
+  - 类型：`string`；必填：否；默认：`oxidns-next`。
+  - 含义：所有 OxiDNS Next Redis key 的命名空间前缀。同一 Redis 部署运行多个实例时应使用不同前缀。
+- `storage.redis.connect_timeout_ms`
+  - 类型：`integer`；必填：否；默认：`1000`。
+  - 含义：建立 Redis 连接的超时毫秒数。
+
+只配置 `storage.redis` 不会自动启用缓存。DNS `cache` 需配置 `args.redis`，`query_recorder` 需配置 `args.api_cache`。Redis 只保存可丢弃的缓存数据：网络错误、认证失败、超时、队列满、熔断或缓存内容无效时，DNS 会回退到进程内缓存与上游，查询日志 API 会回退到 SQL 数据库。不要把 Redis 当作查询日志的持久化数据源。
+
+如果构建未包含 `storage-redis` feature，却在插件中启用了 Redis，配置校验会给出不支持该能力的错误。完整 PostgreSQL、MySQL 与 Redis Compose 示例见仓库 [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage)。
 
 ### `network`
 

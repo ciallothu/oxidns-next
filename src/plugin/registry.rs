@@ -290,7 +290,14 @@ impl PluginRegistry {
                 plugin_config.tag,
                 plugin_config.plugin_type
             );
-            debug!("Plugin config: {:?}", plugin_config);
+            // Plugin args may contain database URLs, Redis credentials, API
+            // tokens, or other secrets. Keep debug logs useful without
+            // serializing the raw YAML configuration.
+            debug!(
+                plugin_tag = %plugin_config.tag,
+                plugin_type = %plugin_config.plugin_type,
+                "Creating plugin from validated configuration"
+            );
 
             let factory = self
                 .factories

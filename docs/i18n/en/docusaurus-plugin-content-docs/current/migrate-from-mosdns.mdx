@@ -41,7 +41,7 @@ Once migration is complete, the following capabilities are available to enable o
 | [Log Rotation](#log-rotation) | Built-in daily/hourly splitting and cleanup, no logrotate needed |
 | [WebUI Console](#webui-console) | Browser-based config editing, query history, and live stream |
 | [HTTP Management API](#http-management-api) | REST API with hot reload, auth, and metrics scraping |
-| [`query_recorder`](#query_recorder-query-history-and-live-streaming) | Persist queries to SQLite + SSE live push |
+| [`query_recorder`](#query_recorder-query-history-and-live-streaming) | Persist queries to SQLite / PostgreSQL / MySQL + SSE live push |
 | [`ros_address_list`](#ros_address_list-routeros-route-sync) | Sync resolved IPs to RouterOS address-list |
 | [`reload_provider`](#reload_provider-targeted-reload) | Reload specific provider snapshots without a full restart |
 | [`download` + `cron`](#download--cron-subscription-auto-update) | Auto-download rule files and schedule background tasks |
@@ -71,16 +71,20 @@ api:
 
 ### `query_recorder`: Query History and Live Streaming
 
-Persists every request, response, and sequence execution path to SQLite. Provides a history query API and SSE live-push endpoint, powering the WebUI real-time query stream panel.
+Persists every request, response, and sequence execution path to SQLite, PostgreSQL, or MySQL. It provides a history query API and SSE live-push endpoint for the WebUI real-time query stream. A standalone migration can keep SQLite, while centralized deployments may choose an external database; Redis is only an optional API short cache.
 
 ```yaml
 - tag: recorder_main
   type: query_recorder
   args:
-    path: ./query-recorder.sqlite
+    database:
+      type: sqlite
+      path: ./query-recorder.sqlite
     memory_tail: 1024
     retention_days: 7
 ```
+
+The legacy `path` form remains supported. PostgreSQL/MySQL configuration and Compose examples are available under [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage).
 
 ---
 

@@ -469,7 +469,7 @@ API 路由分成三类：
 * `cursor`：分页游标。
 * `qname`：按缓存键中的查询域名做大小写不敏感的包含筛选。
 
-#### `GET /api/plugins/<cache_tag>/flush`
+#### `POST /api/plugins/<cache_tag>/flush`
 
 清空缓存。
 
@@ -526,9 +526,11 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
 
 ### query\_recorder
 
+以下端点对 SQLite、PostgreSQL 和 MySQL 使用同一请求与响应格式。配置 `query_recorder.args.api_cache` 后，成功的记录列表、详情与统计响应可短暂来自 Redis；Redis 不可用或缓存无效时会直接查询 SQL 数据库。
+
 #### `GET /api/plugins/<tag>/records`
 
-按 `created_at_ms` 倒序返回 recorder 主表中的记录列表，不包含 `steps`。
+按 `created_at_ms` 倒序返回轻量记录摘要，不包含 `steps` 或完整 DNS RR 数组。`answer_preview` 最多包含 4 条短应答，用于在列表中直接显示解析出的 IP、CNAME 等结果；完整响应请读取详情端点。
 
 查询参数：
 
@@ -572,37 +574,20 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
       "questions_json": [
         { "name": "www.example.com.", "qtype": "A", "qclass": "IN" }
       ],
-      "req_rd": true,
-      "req_cd": false,
-      "req_ad": false,
-      "req_opcode": "Query",
-      "req_edns_json": null,
       "error": null,
       "has_response": true,
       "rcode": "NoError",
-      "resp_aa": false,
-      "resp_tc": false,
-      "resp_ra": true,
-      "resp_ad": false,
-      "resp_cd": false,
       "answer_count": 1,
       "authority_count": 0,
       "additional_count": 0,
-      "answers_json": [
+      "answer_preview": [
         {
           "name": "www.example.com.",
-          "class": "IN",
-          "ttl": 300,
           "rr_type": "A",
-          "payload_kind": "A",
           "payload_text": "192.0.2.1",
-          "payload": { "ip": "192.0.2.1" }
+          "truncated": false
         }
-      ],
-      "authorities_json": [],
-      "additionals_json": [],
-      "signature_json": [],
-      "resp_edns_json": null
+      ]
     }
   ]
 }
@@ -610,18 +595,18 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
 
 #### `GET /api/plugins/<tag>/records/<id>`
 
-返回单条完整记录，并附带 `steps` 路径事件数组。
+返回单条完整记录，并附带 `steps` 路径事件数组。完整记录包含请求/响应标志、EDNS，以及 `answers_json`、`authorities_json`、`additionals_json` 和 `signature_json` RR 数组。
 
 返回：
 
 * `200 OK`
-  * JSON，包含 `record` 对象；其中 `record.record` 为主表字段，`record.steps` 为路径事件。
+  * JSON，包含 `record` 对象；完整记录字段直接位于该对象中，`record.steps` 为路径事件。
 * `404 Not Found`
   * 记录不存在。
 
 #### `DELETE /api/plugins/<tag>/records`
 
-清空当前 recorder 的所有历史查询记录和 `steps` 路径事件。清空操作会先 flush 后台写入队列，随后删除 SQLite 记录表中的所有行，并清空内存 tail。
+清空当前 recorder 的所有历史查询记录和 `steps` 路径事件。清空操作会先 flush 后台写入队列，随后删除所选 SQL 后端中该 recorder 的记录，并清空内存 tail 与对应 Redis API 缓存命名空间。
 
 返回：
 
@@ -663,7 +648,7 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
 查询参数：
 
 * `limit=<n>`
-  * 返回桶数，默认 `20`。后端不再强制 `200` 上限；过大的值会增加 SQLite 排序和响应体成本。
+  * 返回桶数，默认 `20`。后端不再强制 `200` 上限；过大的值会增加数据库排序和响应体成本。
 * 同 `/records` 支持 `since_ms`、`until_ms`、`qname`、`client_ip`、`qtype`、`rcode`、`status`、`matcher_tag` 过滤。
 
 返回字段：

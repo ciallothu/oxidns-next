@@ -599,6 +599,7 @@ export const WEBUI = {
     clientColumn: "webui.queryRecorder.clientColumn",
     timeColumn: "webui.queryRecorder.timeColumn",
     resultColumn: "webui.queryRecorder.resultColumn",
+    answerPreviewColumn: "webui.queryRecorder.answerPreviewColumn",
     elapsedColumn: "webui.queryRecorder.elapsedColumn",
     recordCountColumn: "webui.queryRecorder.recordCountColumn",
     recordCountAria: "webui.queryRecorder.recordCountAria",

@@ -1,0 +1,28 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  oxidns-next:
+    image: ghcr.io/ciallothu/oxidns-next:latest
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "127.0.0.1:9199:9199/tcp"
+    environment:
+      OXIDNS_NEXT_BOOTSTRAP_TOKEN: "${OXIDNS_NEXT_BOOTSTRAP_TOKEN:?copy redis.env.example to .env and replace its placeholder}"
+    volumes:
+      - ./redis.config.yaml:/etc/oxidns-next/config.yaml:ro
+      - oxidns_redis_app_data:/etc/oxidns-next/data
+
+volumes:
+  oxidns_redis_app_data:

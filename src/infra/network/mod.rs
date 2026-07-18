@@ -41,7 +41,11 @@ pub(crate) mod metrics;
 pub(crate) mod outbound;
 pub mod proxy;
 pub(crate) mod resolver;
-#[cfg(any(feature = "_tls-client", feature = "_tls-server"))]
+#[cfg(any(
+    feature = "_tls-client",
+    feature = "_tls-server",
+    feature = "storage-redis"
+))]
 pub mod tls_config;
 pub mod transport;
 pub mod upstream;

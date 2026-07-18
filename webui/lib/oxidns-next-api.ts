@@ -254,6 +254,13 @@ export interface QueryRecorderStep {
   outcome: string;
 }
 
+export interface QueryRecordAnswerPreview {
+  name: string;
+  rr_type: string;
+  payload_text: string;
+  truncated: boolean;
+}
+
 export interface QueryRecordRow {
   id: number;
   created_at_ms: number;
@@ -267,15 +274,27 @@ export interface QueryRecordRow {
   answer_count: number;
   authority_count: number;
   additional_count: number;
+  answer_preview: QueryRecordAnswerPreview[];
+}
+
+export interface QueryRecordDetail extends QueryRecordRow {
+  req_rd: boolean;
+  req_cd: boolean;
+  req_ad: boolean;
+  req_opcode: string;
+  req_edns_json?: unknown;
+  resp_aa?: boolean;
+  resp_tc?: boolean;
+  resp_ra?: boolean;
+  resp_ad?: boolean;
+  resp_cd?: boolean;
   answers_json: QueryRecordPayload[];
   authorities_json: QueryRecordPayload[];
   additionals_json: QueryRecordPayload[];
   signature_json: QueryRecordPayload[];
-  [key: string]: unknown;
-}
-
-export interface QueryRecordDetail extends QueryRecordRow {
+  resp_edns_json?: unknown;
   steps: QueryRecorderStep[];
+  [key: string]: unknown;
 }
 
 export interface QueryRecordsResponse {

@@ -13,7 +13,176 @@
 
 # OxiDNS Next
 
-**A high-performance DNS policy orchestration engine for complex networks.**
+**A self-hosted DNS service with searchable history and precise routing controls.**
+
+## Product Highlights
+
+- Serves UDP, TCP, DoT, DoQ, and DoH, with configurable handling for different domains, clients, and query results.
+- Includes a management API and WebUI for runtime status, query history, statistics, and plugin configuration.
+- Supports local accounts, OIDC, passkeys, and TOTP for home networks, routers, NAS devices, and homelabs.
+- Keeps query history separate from system logs. Lists show resolved answers directly, details show the complete response and execution flow, and persistence can use SQLite, PostgreSQL, or MySQL.
+- Can use Redis as a shared cache for DNS answers and query-log APIs. Redis is never the sole data store; DNS and query-log access continue through local cache, upstream DNS, and SQL when Redis is unavailable.
+- Ships release packages for Linux, macOS, Windows, Docker, and multiple router architectures.
+
+## Quick Start
+
+Linux or macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sudo sh
+```
+
+OpenWrt (portable install):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
+```
+
+Elevated Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.ps1 | iex
+```
+
+Docker:
+
+```bash
+git clone https://github.com/ciallothu/oxidns-next.git
+cd oxidns-next
+docker compose up -d
+```
+
+The default configuration listens for DNS on `:5335` and serves the console on `:9199`; the repository Compose file maps host `53/udp` and `53/tcp` to container port `5335`. Open `http://127.0.0.1:9199` after installation. For remote administrator bootstrap, configure `OXIDNS_NEXT_BOOTSTRAP_TOKEN` first. See [Quick Start](docs/i18n/en/docusaurus-plugin-content-docs/current/quickstart.mdx) for installation, service, and reverse-proxy details.
+
+## Configuration Basics
+
+Configuration is written in YAML. This minimal complete example enables the console, records queries in SQLite, and forwards DNS requests to `223.5.5.5`:
+
+```yaml
+log:
+  level: info
+
+api:
+  http:
+    listen: ":9199"
+    auth:
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      # bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+    webui:
+      root: "./webui"
+
+plugins:
+  - tag: query_log
+    type: query_recorder
+    args:
+      database:
+        type: sqlite
+        path: "./data/query-log.sqlite"
+      retention_days: 7
+
+  - tag: forward
+    type: forward
+    args:
+      upstreams:
+        - addr: "223.5.5.5"
+
+  - tag: main_sequence
+    type: sequence
+    args:
+      - exec: $query_log
+      - exec: $forward
+      - exec: accept
+
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: main_sequence
+      listen: ":5335"
+
+  - tag: tcp_server
+    type: tcp_server
+    args:
+      entry: main_sequence
+      listen: ":5335"
+```
+
+Top-level fields configure the application. Every item under `plugins` has a unique `tag` of at most 255 characters, a plugin `type`, and optional `args`. A `sequence` calls another plugin with `$tag`. Put `query_recorder` first in an entry sequence to capture the complete request and response. Relative paths use the directory selected by `-d/--working-dir`.
+
+## Query-History Storage
+
+SQLite is the zero-dependency default for a quick single-node start. PostgreSQL is the preferred production database, with MySQL fully supported as well:
+
+```yaml
+database:
+  type: sqlite
+  path: "./data/query-log.sqlite"
+```
+
+PostgreSQL and MySQL use connection URLs. Prefer PostgreSQL for production, and supply credentials through environment variables instead of writing them directly into the configuration file:
+
+```yaml
+# PostgreSQL
+database:
+  type: postgres
+  url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+  max_connections: 8
+  connect_timeout_ms: 5000
+  acquire_timeout_ms: 3000
+  query_timeout_ms: 20000
+```
+
+```yaml
+# MySQL
+database:
+  type: mysql
+  url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+  max_connections: 8
+  connect_timeout_ms: 5000
+  acquire_timeout_ms: 3000
+  query_timeout_ms: 20000
+```
+
+The legacy `query_recorder.args.path` field remains supported and is equivalent to `database.type: sqlite` plus `database.path`. New configurations should use the explicit `database` form.
+
+Redis is an optional cache layer. Define the shared connection once, then enable it for `cache` or `query_recorder` as needed:
+
+```yaml
+storage:
+  redis:
+    url: "${OXIDNS_NEXT_REDIS_URL}"
+    key_prefix: "oxidns-next"
+    connect_timeout_ms: 1000
+
+plugins:
+  - tag: dns_cache
+    type: cache
+    args:
+      redis:
+        enabled: true
+        command_timeout_ms: 20
+        max_inflight: 64
+        write_queue_size: 4096
+        failure_threshold: 3
+        retry_after_ms: 30000
+
+  - tag: query_log
+    type: query_recorder
+    args:
+      database:
+        type: sqlite
+        path: "./data/query-log.sqlite"
+      api_cache:
+        enabled: true
+        records_ttl_ms: 2000
+        stats_ttl_ms: 5000
+        command_timeout_ms: 100
+        max_value_bytes: 1048576
+```
+
+The SQL database always remains the durable source for `query_recorder`. If Redis is unavailable, times out, or contains an invalid cached value, query APIs fall back to SQL. Runnable external-database and Redis deployment examples are under [`examples/storage`](examples/storage).
+
+## Positioning and Design
 
 > OxiDNS Next is an independently maintained derivative of [upstream OxiDNS](https://github.com/svenshi/oxidns), maintained by `ciallothu`. It retains Sven Shi's upstream copyright and remains licensed under GPL-3.0-or-later. OxiDNS Next and upstream OxiDNS use separate release channels.
 

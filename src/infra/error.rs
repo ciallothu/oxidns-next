@@ -105,6 +105,11 @@ pub enum DnsError {
     #[error("rusqlite error: {0}")]
     Rusqlite(#[from] rusqlite::Error),
 
+    /// SQLx-backed PostgreSQL/MySQL query recorder error.
+    #[cfg(feature = "plugin-query-recorder")]
+    #[error("database error: {0}")]
+    Sqlx(#[from] sqlx::Error),
+
     /// serde json error
     #[error("serde json error: {0}")]
     SerdeJson(#[from] serde_json::Error),

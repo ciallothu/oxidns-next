@@ -429,6 +429,14 @@ Provides TTL-aware response caching with negative cache support and persistence.
     dump_file: "./dns_cache.dump"
     # Periodic dump interval in seconds
     dump_interval: 600
+    # Optional Redis L2; requires top-level storage.redis
+    redis:
+      enabled: true
+      command_timeout_ms: 20
+      max_inflight: 64
+      write_queue_size: 4096
+      failure_threshold: 3
+      retry_after_ms: 30000
 ```
 
 ### Configuration Details
@@ -497,6 +505,18 @@ Provides TTL-aware response caching with negative cache support and persistence.
 - Type: `boolean`; Required: no; Default: `false`
 - Purpose: Include ECS information in the cache key.
 
+#### `redis`
+
+- Type: `object`; Required: no; Default: disabled
+- Purpose: Enables a shared Redis L2 behind the in-process L1. Top-level [`storage.redis`](../configuration.md#storage) must be configured first.
+- `enabled`: Enables the integration; defaults to `true` when the object is present.
+- `command_timeout_ms`: Per-command timeout; default `20`.
+- `max_inflight`: Maximum concurrent Redis commands; default `64`.
+- `write_queue_size`: Asynchronous write queue capacity; default `4096`.
+- `failure_threshold`: Consecutive failures before opening the circuit breaker; default `3`.
+- `retry_after_ms`: Delay before probing Redis again; default `30000`.
+- An unavailable Redis service, timeout, full queue, or open circuit never fails the DNS query. The plugin continues through the in-process cache and upstream. Redis keys do not expose qnames or client IPs in plaintext.
+
 ### quick setup
 
 ```yaml
@@ -513,12 +533,13 @@ Provides TTL-aware response caching with negative cache support and persistence.
 - Reads from cache on the forward path and writes responses on the return path.
 - Respects DNS TTL semantics instead of using a fixed timeout.
 - Can persist cache contents through dump and load operations.
+- With Redis enabled, the in-process cache remains L1 and Redis is a disposable shared L2. DNS TTL, negative-cache, and lazy-cache rules remain unchanged.
 
 ### Plugin API
 
 - `GET /plugins/<cache_tag>/entries`
   - Reads cache entries with pagination. Supports `limit`, `cursor`, and `qname`; `qname` is a case-insensitive substring filter over the cache-key domain.
-- `GET /plugins/<cache_tag>/flush`
+- `POST /plugins/<cache_tag>/flush`
 - `GET /plugins/<cache_tag>/dump`
 - `POST /plugins/<cache_tag>/load_dump`
 
@@ -544,6 +565,7 @@ Exported through the global `GET /api/metrics` endpoint. The cache plugin does n
 <Admonition type="note" title="Notes">
 
 - Decide carefully whether ECS should be part of the cache key. It improves correctness for ECS-aware policies but reduces hit ratio.
+- `dump_file` is a local cache snapshot. Redis L2 and dump persistence do not replace each other, and Redis must not be the only durable copy.
 
 </Admonition>
 
@@ -1607,7 +1629,7 @@ Records concise query summaries.
 
 ### Purpose
 
-Persists the entry request, the post-`next` response, and `sequence` execution-path events into a recorder-owned SQLite database, then exposes history, aggregate stats, and an SSE stream.
+Persists the entry request, the post-`next` response, and `sequence` execution-path events into the configured SQLite, PostgreSQL, or MySQL database, then exposes history, aggregate stats, and an SSE stream. Optional Redis support caches short-lived API responses but never replaces SQL persistence.
 
 The repository's default `config.yaml` enables `query_log` as the first `main_sequence` step, allowing its `with_next` wrapper to observe the complete downstream request/response path. In custom chains, place the recorder before the execution scope you want to observe.
 
@@ -1617,11 +1639,14 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
 - tag: query_recorder_main
   type: query_recorder
   args:
-    # SQLite path for this recorder. Different recorders should use different paths.
-    path: "./data/query-recorder-main.sqlite"
+    database:
+      type: sqlite
+      path: "./data/query-recorder-main.sqlite"
+      acquire_timeout_ms: 3000
+      query_timeout_ms: 20000
     # Hot-path enqueue buffer size
     queue_size: 8192
-    # Batch size per SQLite flush
+    # Batch size per SQL flush
     batch_size: 256
     # Background flush interval in milliseconds
     flush_interval_ms: 200
@@ -1631,16 +1656,53 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
     retention_days: 7
     # Cleanup interval in hours; minimum 1
     cleanup_interval_hours: 1
-    # Maximum concurrent SQLite readers; minimum 1
+    # Maximum concurrent API readers; minimum 1
     reader_concurrency: 2
+    # Optional short Redis API cache; requires top-level storage.redis
+    api_cache:
+      enabled: true
+      records_ttl_ms: 2000
+      stats_ttl_ms: 5000
+      command_timeout_ms: 100
+      max_value_bytes: 1048576
 ```
 
 ### Configuration Details
 
-#### `path`
+#### `database`
 
-- Type: `string`; Required: yes
-- Purpose: SQLite path for this recorder.
+- Type: `object`; Required for new configurations: yes
+- Purpose: Selects the durable SQL backend for query records.
+- `type: sqlite`
+  - `path`: Required local database file path.
+  - `acquire_timeout_ms`: Optional; default `3000`; range `1..=300000`.
+  - `query_timeout_ms`: Optional; default `20000`; range `1..=300000`.
+- `type: postgres` or `type: mysql`
+  - `url`: Required. PostgreSQL accepts `postgres://` or `postgresql://`; MySQL uses `mysql://`. Prefer `${OXIDNS_NEXT_QUERY_DATABASE_URL}` so credentials come from the environment.
+  - `max_connections`: Optional; default `8`; range `2..=256`.
+  - `connect_timeout_ms`: Optional; default `5000`; range `1..=300000`.
+  - `acquire_timeout_ms`: Optional; default `3000`; range `1..=300000`.
+  - `query_timeout_ms`: Optional; default `20000`; range `1..=300000`.
+
+PostgreSQL example:
+
+```yaml
+database:
+  type: postgres
+  url: "${OXIDNS_NEXT_QUERY_DATABASE_URL}"
+  max_connections: 8
+  connect_timeout_ms: 5000
+  acquire_timeout_ms: 3000
+  query_timeout_ms: 20000
+```
+
+MySQL uses the same pool fields with `type: mysql` and a `mysql://` URL. The target database must already exist, and the connection account needs permission to create/migrate tables and to read, write, and clean up rows in that database. The plugin creates only its versioned tables, not the database itself. Complete Compose examples are available under [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage).
+
+#### `path` (legacy form)
+
+- Type: `string`; Required: no
+- Purpose: Backward-compatible SQLite shorthand equivalent to `database: { type: sqlite, path: ... }`.
+- Constraint: Must not be configured together with `database`. New configurations should use `database`.
 
 #### `queue_size`
 
@@ -1650,7 +1712,7 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
 #### `batch_size`
 
 - Type: `integer`; Required: no; Default: `256`
-- Purpose: Number of records flushed per SQLite batch.
+- Purpose: Number of records flushed per SQL batch.
 
 #### `flush_interval_ms`
 
@@ -1675,14 +1737,25 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
 #### `reader_concurrency`
 
 - Type: `integer`; Required: no; Default: `2`; Minimum: `1`
-- Purpose: Limits concurrent SQLite readers used by WebUI / API history and stats queries, so read bursts on large recorder databases do not occupy too many blocking threads or too much memory.
+- Purpose: Limits concurrent WebUI / API history and statistics reads. For PostgreSQL/MySQL it must be lower than `database.max_connections`, leaving pool capacity for writes and cleanup.
+
+#### `api_cache`
+
+- Type: `object`; Required: no; Default: disabled
+- Purpose: Uses top-level `storage.redis` to cache successful record-list, detail, and statistics API JSON responses. Redis stores neither query records nor the writer queue.
+- `enabled`: Enables this cache.
+- `records_ttl_ms`: Record-list cache lifetime; default `2000`.
+- `stats_ttl_ms`: Statistics cache lifetime; default `5000`.
+- `command_timeout_ms`: Per-command Redis timeout; default `100`.
+- `max_value_bytes`: Maximum value size; default `1048576`.
+- Redis connection failures, timeouts, circuit breaking, or invalid cached values fall through to the SQL database.
 
 ### Behavior
 
 - This is a pure executor observer and does not change server finalization logic.
 - It captures a structured snapshot of the entry request, enables `DnsContext.execution_path`, runs `next`, and commits immediately after `next` returns.
 - Successful runs store the current response. Failed runs store `error` and an empty response shape.
-- Request and response payloads are not stored as wire blobs. Question, RR, and EDNS fields are extracted into JSON text columns.
+- Request and response payloads are not stored as wire blobs. Question, RR, and EDNS fields are extracted into structured JSON columns.
 - The `client_ip` field comes from the transport source address seen by OxiDNS Next; if a local forwarding chain such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash sits in front, rows may show only `127.0.0.1`.
 - Each recorder uses versioned tables under the same prefix:
   - `qr_<safe_tag>_<fnv64hex>_v1_records`
@@ -1690,8 +1763,8 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
   - `qr_<safe_tag>_<fnv64hex>_v1_questions`
   - `qr_<safe_tag>_<fnv64hex>_v1_meta`
 - `records` contains only the fixed schema fields for structured snapshots. `steps` stores `sequence` path events for path analysis and hit-rate reporting. `questions` is a derived index table from `questions_json` for faster qname/qtype queries. `meta` records completed derived-table migrations.
-- Every recorder owns its own bounded queue, SQLite connection, writer thread, tail buffer, and SSE broadcaster.
-- v1 assumes different recorders use different `path` values. There is no cross-recorder writer sharing or path coordination.
+- Every recorder owns its own bounded queue, database backend, tail buffer, and SSE broadcaster.
+- Table prefixes contain a safe fragment and full hash of the plugin tag. Multiple recorders in one database use different tables and do not overwrite each other. SQLite recorders may still use separate files.
 
 ### Data Shape
 
@@ -1719,13 +1792,14 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
 ]
 ```
 
+- `answer_preview` is the bounded list projection: it keeps at most the first four Answer records, limits each `payload_text` to 160 Unicode characters, and marks truncation with `truncated`. The detail endpoint still returns the complete RR arrays above. Existing SQLite rows are not bulk-backfilled during startup, so old rows may have an empty preview while their full details remain available.
 - `req_edns_json` and `resp_edns_json` are EDNS objects or `NULL`.
-- The `v1` suffix in the table name is the schema version. Future upgrades add new versioned tables rather than altering the existing ones in place.
+- The `v1` suffix is the current logical schema version. SQLite-compatible additive columns are filled in automatically at startup, but query logs are not migrated between SQLite, PostgreSQL, and MySQL.
 
 ### API
 
 - `GET /plugins/<tag>/records`
-  - Returns record rows ordered by `created_at_ms` descending.
+  - Returns lightweight summaries and `answer_preview` ordered by `created_at_ms` descending without reading the complete RR arrays or `steps`.
   - Query parameters:
     - `cursor=<created_at_ms>:<id>`
     - `limit=<n>`, default `100`, max `500`
@@ -1771,7 +1845,8 @@ The repository's default `config.yaml` enables `query_log` as the first `main_se
 - Place the recorder close to the entry point when the full main-path trace is required.
 - If an earlier branch short-circuits before the recorder, that request will not be recorded.
 - If `next` fails and the server later emits a fallback response, the database still reflects the plugin's point of view: `error` plus an empty response.
-- If the management API is disabled, the recorder still writes SQLite data but does not expose query or SSE routes.
+- If the management API is disabled, the recorder still writes to its selected SQL database but does not expose query or SSE routes.
+- SQLite files are tightened to mode `0600` when created or opened on Unix. PostgreSQL/MySQL network access, TLS, account privileges, and backups are the database operator's responsibility.
 - To preserve real client IPs, point clients directly at OxiDNS Next or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
 
 </Admonition>

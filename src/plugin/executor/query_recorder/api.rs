@@ -9,18 +9,22 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::{Request, StatusCode};
 use hyper::body::Frame;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
+use super::api_cache::{ApiCache, CacheGeneration, CacheLifetime, CacheLookup};
 use super::backend::RecorderBackend;
 use super::model::{
-    DistributionQuery, LatencyQuery, ListCursor, ListQuery, PluginStatsKind, PluginStatsRow,
-    PluginsStatsQuery, QueryRecordFilter, QueryRecordStatus, RecordDetail, RecordRow,
-    TimeseriesBucket, TimeseriesQuery, TopQuery,
+    DistributionQuery, DistributionResponse, LatencyQuery, LatencySummary, ListCursor, ListQuery,
+    PluginStatsKind, PluginStatsRow, PluginsStatsQuery, QueryRecordFilter, QueryRecordStatus,
+    RecordDetail, RecordSummaryRow, TimeseriesBucket, TimeseriesQuery, TimeseriesResponse,
+    TopBucketsResponse, TopQuery,
 };
 use super::store::{
-    load_latency_summary, load_plugin_stats, load_qtype_distribution, load_rcode_distribution,
-    load_record_detail, load_timeseries, load_top_clients, load_top_qnames, query_records,
+    load_latency_summary_on_connection, load_plugin_stats_on_connection,
+    load_qtype_distribution_on_connection, load_rcode_distribution_on_connection,
+    load_record_detail_on_connection, load_timeseries_on_connection,
+    load_top_clients_on_connection, load_top_qnames_on_connection, query_records_on_connection,
 };
 use crate::api::query::{
     optional_text, optional_upper_text, parse_u64_param, parse_usize_param, visit_query_params,
@@ -36,15 +40,24 @@ const DEFAULT_SLOW_LIMIT: usize = 20;
 const DEFAULT_TIMESERIES_BUCKETS: usize = 60;
 const MAX_TIMESERIES_BUCKETS: usize = 720;
 const SSE_HEARTBEAT_SECS: u64 = 15;
+const CACHE_RECORDS_LIST: &str = "records-list";
+const CACHE_RECORD_DETAIL: &str = "record-detail";
+const CACHE_STATS_PLUGINS: &str = "stats-plugins";
+const CACHE_STATS_TOP_CLIENTS: &str = "stats-top-clients";
+const CACHE_STATS_TOP_QNAMES: &str = "stats-top-qnames";
+const CACHE_STATS_QTYPE: &str = "stats-qtype";
+const CACHE_STATS_RCODE: &str = "stats-rcode";
+const CACHE_STATS_LATENCY: &str = "stats-latency";
+const CACHE_STATS_TIMESERIES: &str = "stats-timeseries";
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct RecordListResponse {
     ok: bool,
     next_cursor: Option<String>,
-    records: Vec<RecordRow>,
+    records: Vec<RecordSummaryRow>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct RecordDetailResponse {
     ok: bool,
     record: RecordDetail,
@@ -56,7 +69,7 @@ struct RecordsClearResponse {
     cleared_records: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PluginStatsResponse {
     ok: bool,
     query_total: u64,
@@ -66,22 +79,26 @@ struct PluginStatsResponse {
 #[derive(Debug)]
 struct RecordsListHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct RecordDetailHandler {
     backend: Arc<RecorderBackend>,
     path_prefix: String,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct RecordsClearHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct StatsPluginsHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
@@ -92,78 +109,176 @@ struct StreamHandler {
 #[derive(Debug)]
 struct TopClientsHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct TopQnamesHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct QtypeDistributionHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct RcodeDistributionHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct LatencyHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
 #[derive(Debug)]
 struct TimeseriesHandler {
     backend: Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
 }
 
-async fn run_reader_query<T, F>(
+#[derive(Debug)]
+enum ReaderQueryError {
+    Busy,
+    TimedOut,
+    Failed(DnsError),
+}
+
+async fn run_reader_query<T, F, Fut>(
     backend: Arc<RecorderBackend>,
     op: F,
-) -> std::result::Result<T, DnsError>
+) -> std::result::Result<T, ReaderQueryError>
 where
     T: Send + 'static,
-    F: FnOnce(Arc<RecorderBackend>) -> std::result::Result<T, DnsError> + Send + 'static,
+    F: FnOnce(Arc<RecorderBackend>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = std::result::Result<T, DnsError>> + Send,
 {
-    let permit = backend
-        .reader_semaphore
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|err| DnsError::runtime(format!("query_recorder reader closed: {err}")))?;
-    tokio::task::spawn_blocking(move || {
-        let _permit = permit;
-        op(backend)
-    })
+    let permit = tokio::time::timeout(
+        backend.acquire_timeout,
+        backend.reader_semaphore.clone().acquire_owned(),
+    )
     .await
-    .map_err(|err| DnsError::runtime(format!("blocking task failed: {err}")))?
+    .map_err(|_| ReaderQueryError::Busy)?
+    .map_err(|_| ReaderQueryError::Busy)?;
+    let result = tokio::time::timeout(backend.query_timeout, op(backend))
+        .await
+        .map_err(|_| ReaderQueryError::TimedOut)?
+        .map_err(ReaderQueryError::Failed);
+    drop(permit);
+    result
+}
+
+fn reader_error_response(
+    error: ReaderQueryError,
+    failed_code: &'static str,
+) -> crate::api::ApiResponse {
+    match error {
+        ReaderQueryError::Busy => json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "query_recorder_reader_busy",
+            "query recorder reader capacity is busy; retry later",
+        ),
+        ReaderQueryError::TimedOut => json_error(
+            StatusCode::GATEWAY_TIMEOUT,
+            "query_recorder_query_timed_out",
+            "query recorder database query timed out",
+        ),
+        ReaderQueryError::Failed(error) => json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            failed_code,
+            error.to_string(),
+        ),
+    }
+}
+
+async fn lookup_cache<T>(
+    cache: &Option<Arc<ApiCache>>,
+    namespace: &str,
+    identity: &str,
+) -> CacheLookup<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+{
+    match cache {
+        Some(cache) => cache.lookup(namespace, identity).await,
+        None => CacheLookup::Bypass,
+    }
+}
+
+async fn store_cache<T>(
+    cache: &Option<Arc<ApiCache>>,
+    namespace: &str,
+    identity: &str,
+    lifetime: CacheLifetime,
+    generation: Option<CacheGeneration>,
+    value: &T,
+) where
+    T: Serialize + Sync,
+{
+    if let (Some(cache), Some(generation)) = (cache, generation) {
+        cache
+            .store(namespace, identity, lifetime, generation, value)
+            .await;
+    }
 }
 
 #[async_trait]
 impl ApiHandler for RecordsListHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<RecordListResponse>(
+            &self.api_cache,
+            CACHE_RECORDS_LIST,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_list_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
 
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| query_records(backend, query)).await {
-            Ok((records, next_cursor)) => json_ok(
-                StatusCode::OK,
-                &RecordListResponse {
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.query_records(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        query_records_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
+        })
+        .await
+        {
+            Ok((records, next_cursor)) => {
+                let response = RecordListResponse {
                     ok: true,
                     next_cursor,
                     records,
-                },
-            ),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_records_failed",
-                err.to_string(),
-            ),
+                };
+                store_cache(
+                    &self.api_cache,
+                    CACHE_RECORDS_LIST,
+                    cache_identity,
+                    CacheLifetime::Records,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_records_failed"),
         }
     }
 }
@@ -191,24 +306,51 @@ impl ApiHandler for RecordDetailHandler {
                 );
             }
         };
+        let cache_generation = match lookup_cache::<RecordDetailResponse>(
+            &self.api_cache,
+            CACHE_RECORD_DETAIL,
+            raw_id,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
 
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| {
-            load_record_detail(backend, record_id)
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_record_detail(&backend.tables, record_id).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_record_detail_on_connection(backend, conn, record_id)
+                    })
+                    .await
+            }
         })
         .await
         {
-            Ok(Some(record)) => json_ok(StatusCode::OK, &RecordDetailResponse { ok: true, record }),
+            Ok(Some(record)) => {
+                let response = RecordDetailResponse { ok: true, record };
+                store_cache(
+                    &self.api_cache,
+                    CACHE_RECORD_DETAIL,
+                    raw_id,
+                    CacheLifetime::Records,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
             Ok(None) => json_error(
                 StatusCode::NOT_FOUND,
                 "record_not_found",
                 format!("record {} does not exist", record_id),
             ),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_record_failed",
-                err.to_string(),
-            ),
+            Err(err) => reader_error_response(err, "query_recorder_record_failed"),
         }
     }
 }
@@ -218,13 +360,18 @@ impl ApiHandler for RecordsClearHandler {
     async fn handle(&self, _request: Request<Bytes>) -> crate::api::ApiResponse {
         let backend = self.backend.clone();
         match tokio::task::spawn_blocking(move || backend.clear_history()).await {
-            Ok(Ok(result)) => json_ok(
-                StatusCode::OK,
-                &RecordsClearResponse {
-                    ok: true,
-                    cleared_records: result.cleared_records,
-                },
-            ),
+            Ok(Ok(result)) => {
+                if let Some(api_cache) = &self.api_cache {
+                    api_cache.invalidate().await;
+                }
+                json_ok(
+                    StatusCode::OK,
+                    &RecordsClearResponse {
+                        ok: true,
+                        cleared_records: result.cleared_records,
+                    },
+                )
+            }
             Ok(Err(err)) => json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "query_recorder_clear_failed",
@@ -242,25 +389,54 @@ impl ApiHandler for RecordsClearHandler {
 #[async_trait]
 impl ApiHandler for StatsPluginsHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<PluginStatsResponse>(
+            &self.api_cache,
+            CACHE_STATS_PLUGINS,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_plugins_stats_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| load_plugin_stats(backend, query)).await {
-            Ok((query_total, stats)) => json_ok(
-                StatusCode::OK,
-                &PluginStatsResponse {
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_plugin_stats(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_plugin_stats_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
+        })
+        .await
+        {
+            Ok((query_total, stats)) => {
+                let response = PluginStatsResponse {
                     ok: true,
                     query_total,
                     stats,
-                },
-            ),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_stats_failed",
-                err.to_string(),
-            ),
+                };
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_PLUGINS,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_stats_failed"),
         }
     }
 }
@@ -349,18 +525,49 @@ struct SseState {
 #[async_trait]
 impl ApiHandler for TopClientsHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<TopBucketsResponse>(
+            &self.api_cache,
+            CACHE_STATS_TOP_CLIENTS,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_top_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| load_top_clients(backend, query)).await {
-            Ok(response) => json_ok(StatusCode::OK, &response),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_top_clients_failed",
-                err.to_string(),
-            ),
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_top_clients(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_top_clients_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
+        })
+        .await
+        {
+            Ok(response) => {
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_TOP_CLIENTS,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_top_clients_failed"),
         }
     }
 }
@@ -368,18 +575,49 @@ impl ApiHandler for TopClientsHandler {
 #[async_trait]
 impl ApiHandler for TopQnamesHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<TopBucketsResponse>(
+            &self.api_cache,
+            CACHE_STATS_TOP_QNAMES,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_top_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| load_top_qnames(backend, query)).await {
-            Ok(response) => json_ok(StatusCode::OK, &response),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_top_qnames_failed",
-                err.to_string(),
-            ),
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_top_qnames(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_top_qnames_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
+        })
+        .await
+        {
+            Ok(response) => {
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_TOP_QNAMES,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_top_qnames_failed"),
         }
     }
 }
@@ -387,22 +625,49 @@ impl ApiHandler for TopQnamesHandler {
 #[async_trait]
 impl ApiHandler for QtypeDistributionHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<DistributionResponse>(
+            &self.api_cache,
+            CACHE_STATS_QTYPE,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_distribution_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| {
-            load_qtype_distribution(backend, query)
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_qtype_distribution(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_qtype_distribution_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
         })
         .await
         {
-            Ok(response) => json_ok(StatusCode::OK, &response),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_qtype_failed",
-                err.to_string(),
-            ),
+            Ok(response) => {
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_QTYPE,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_qtype_failed"),
         }
     }
 }
@@ -410,22 +675,49 @@ impl ApiHandler for QtypeDistributionHandler {
 #[async_trait]
 impl ApiHandler for RcodeDistributionHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<DistributionResponse>(
+            &self.api_cache,
+            CACHE_STATS_RCODE,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_distribution_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| {
-            load_rcode_distribution(backend, query)
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_rcode_distribution(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_rcode_distribution_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
         })
         .await
         {
-            Ok(response) => json_ok(StatusCode::OK, &response),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_rcode_failed",
-                err.to_string(),
-            ),
+            Ok(response) => {
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_RCODE,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_rcode_failed"),
         }
     }
 }
@@ -433,18 +725,49 @@ impl ApiHandler for RcodeDistributionHandler {
 #[async_trait]
 impl ApiHandler for LatencyHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<LatencySummary>(
+            &self.api_cache,
+            CACHE_STATS_LATENCY,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_latency_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| load_latency_summary(backend, query)).await {
-            Ok(response) => json_ok(StatusCode::OK, &response),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_latency_failed",
-                err.to_string(),
-            ),
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_latency_summary(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_latency_summary_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
+        })
+        .await
+        {
+            Ok(response) => {
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_LATENCY,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_latency_failed"),
         }
     }
 }
@@ -452,18 +775,49 @@ impl ApiHandler for LatencyHandler {
 #[async_trait]
 impl ApiHandler for TimeseriesHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
+        let cache_identity = request.uri().query().unwrap_or("");
+        let cache_generation = match lookup_cache::<TimeseriesResponse>(
+            &self.api_cache,
+            CACHE_STATS_TIMESERIES,
+            cache_identity,
+        )
+        .await
+        {
+            CacheLookup::Hit(response) => return json_ok(StatusCode::OK, &response),
+            CacheLookup::Miss(generation) => Some(generation),
+            CacheLookup::Bypass => None,
+        };
         let query = match parse_timeseries_query(request.uri().query()) {
             Ok(query) => query,
             Err(err) => return json_error(StatusCode::BAD_REQUEST, "invalid_query", err),
         };
         let backend = self.backend.clone();
-        match run_reader_query(backend, move |backend| load_timeseries(backend, query)).await {
-            Ok(response) => json_ok(StatusCode::OK, &response),
-            Err(err) => json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "query_recorder_timeseries_failed",
-                err.to_string(),
-            ),
+        match run_reader_query(backend, move |backend| async move {
+            if let Some(remote) = backend.remote_pool().cloned() {
+                remote.load_timeseries(&backend.tables, query).await
+            } else {
+                backend
+                    .run_sqlite_reader(move |backend, conn| {
+                        load_timeseries_on_connection(backend, conn, query)
+                    })
+                    .await
+            }
+        })
+        .await
+        {
+            Ok(response) => {
+                store_cache(
+                    &self.api_cache,
+                    CACHE_STATS_TIMESERIES,
+                    cache_identity,
+                    CacheLifetime::Stats,
+                    cache_generation,
+                    &response,
+                )
+                .await;
+                json_ok(StatusCode::OK, &response)
+            }
+            Err(err) => reader_error_response(err, "query_recorder_timeseries_failed"),
         }
     }
 }
@@ -768,40 +1122,53 @@ fn sse_record_frame(record: &RecordDetail) -> Bytes {
     }
 }
 
-pub(super) fn register(backend: &Arc<RecorderBackend>) -> Result<()> {
+pub(super) fn register(
+    backend: &Arc<RecorderBackend>,
+    api_cache: Option<Arc<ApiCache>>,
+) -> Result<()> {
     register_plugin_api!(
         &backend.tag,
         |plugin_api|
         GET "/records" => RecordsListHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         DELETE "/records" => RecordsClearHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET_PREFIX "/records/" => RecordDetailHandler {
             backend: backend.clone(),
             path_prefix: plugin_api.path("/records/")?,
+            api_cache: api_cache.clone(),
         },
         GET "/stats/plugins" => StatsPluginsHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stats/top_clients" => TopClientsHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stats/top_qnames" => TopQnamesHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stats/qtype" => QtypeDistributionHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stats/rcode" => RcodeDistributionHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stats/latency" => LatencyHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stats/timeseries" => TimeseriesHandler {
             backend: backend.clone(),
+            api_cache: api_cache.clone(),
         },
         GET "/stream" => StreamHandler {
             backend: backend.clone(),

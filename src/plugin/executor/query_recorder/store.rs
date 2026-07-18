@@ -18,8 +18,8 @@ use super::model::{
     DistributionQuery, DistributionResponse, DistributionRow, LatencyHistogramBucket, LatencyQuery,
     LatencySlowRow, LatencySummary, ListCursor, ListQuery, PendingRecord, PluginStatsKind,
     PluginStatsRow, PluginsStatsQuery, QueryRecordFilter, QueryRecordStatus, RecordDetail,
-    RecordRow, StepJson, TableNames, TimeseriesPoint, TimeseriesQuery, TimeseriesResponse,
-    TopBucketRow, TopBucketsResponse, TopQuery,
+    RecordRow, RecordSummaryRow, StepJson, TableNames, TimeseriesPoint, TimeseriesQuery,
+    TimeseriesResponse, TopBucketRow, TopBucketsResponse, TopQuery,
 };
 use crate::infra::error::{DnsError, Result};
 
@@ -27,7 +27,8 @@ const SCHEMA_VERSION: &str = "v1";
 const QUESTIONS_BACKFILL_MARKER: &str = "questions_backfilled";
 const CLEANUP_BATCH_SIZE: usize = 1_000;
 const PLUGIN_STATS_SAMPLE_LIMIT: usize = 10_000;
-const RECORD_ROW_COLUMNS: [&str; 27] = [
+const MAX_TABLE_TAG_PREFIX_LEN: usize = 12;
+const RECORD_ROW_COLUMNS: [&str; 28] = [
     "id",
     "created_at_ms",
     "elapsed_ms",
@@ -50,11 +51,27 @@ const RECORD_ROW_COLUMNS: [&str; 27] = [
     "answer_count",
     "authority_count",
     "additional_count",
+    "answer_preview_json",
     "answers_json",
     "authorities_json",
     "additionals_json",
     "signature_json",
     "resp_edns_json",
+];
+const RECORD_SUMMARY_COLUMNS: [&str; 13] = [
+    "id",
+    "created_at_ms",
+    "elapsed_ms",
+    "request_id",
+    "client_ip",
+    "questions_json",
+    "error",
+    "has_response",
+    "rcode",
+    "answer_count",
+    "authority_count",
+    "additional_count",
+    "answer_preview_json",
 ];
 
 pub(super) fn open_writer_database(path: &Path) -> rusqlite::Result<Connection> {
@@ -80,13 +97,12 @@ pub(super) fn open_writer_database(path: &Path) -> rusqlite::Result<Connection> 
 
 pub(super) fn open_reader_database(path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
     // Reader connections back WebUI list/stat/detail endpoints. They should
     // not reserve a large per-connection cache or mmap window, because several
     // dashboard requests can run at once against a large recorder database.
     conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA foreign_keys=ON;
+        "PRAGMA foreign_keys=ON;
          PRAGMA query_only=ON;
          PRAGMA temp_store=FILE;
          PRAGMA cache_size=-4096;
@@ -97,6 +113,18 @@ pub(super) fn open_reader_database(path: &Path) -> rusqlite::Result<Connection> 
 
 pub(super) fn table_names(tag: &str) -> TableNames {
     let safe_tag = sanitize_tag(tag);
+    names_from_safe_tag(tag, safe_tag)
+}
+
+pub(super) fn portable_table_names(tag: &str) -> TableNames {
+    let safe_tag = sanitize_tag(tag)
+        .chars()
+        .take(MAX_TABLE_TAG_PREFIX_LEN)
+        .collect::<String>();
+    names_from_safe_tag(tag, safe_tag)
+}
+
+fn names_from_safe_tag(tag: &str, safe_tag: String) -> TableNames {
     let hash = fnv1a_hex(tag.as_bytes());
     let prefix = format!("qr_{}_{}_{}", safe_tag, hash, SCHEMA_VERSION);
     TableNames {
@@ -109,6 +137,17 @@ pub(super) fn table_names(tag: &str) -> TableNames {
 
 fn record_row_select_columns(alias: Option<&str>) -> String {
     RECORD_ROW_COLUMNS
+        .iter()
+        .map(|column| match alias {
+            Some(alias) => format!("{alias}.{column}"),
+            None => (*column).to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(",\n            ")
+}
+
+fn record_summary_select_columns(alias: Option<&str>) -> String {
+    RECORD_SUMMARY_COLUMNS
         .iter()
         .map(|column| match alias {
             Some(alias) => format!("{alias}.{column}"),
@@ -168,6 +207,7 @@ pub(crate) fn create_schema(conn: &mut Connection, tables: &TableNames) -> rusql
             answer_count INTEGER NOT NULL,
             authority_count INTEGER NOT NULL,
             additional_count INTEGER NOT NULL,
+            answer_preview_json TEXT NOT NULL DEFAULT '[]',
             answers_json TEXT NOT NULL,
             authorities_json TEXT NOT NULL,
             additionals_json TEXT NOT NULL,
@@ -199,6 +239,8 @@ pub(crate) fn create_schema(conn: &mut Connection, tables: &TableNames) -> rusql
             value TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS {records}_created_at_idx ON {records}(created_at_ms DESC);
+        CREATE INDEX IF NOT EXISTS {records}_created_at_id_idx
+            ON {records}(created_at_ms DESC, id DESC);
         CREATE INDEX IF NOT EXISTS {records}_request_id_idx ON {records}(request_id);
         CREATE INDEX IF NOT EXISTS {records}_client_ip_idx ON {records}(client_ip);
         CREATE INDEX IF NOT EXISTS {records}_rcode_idx ON {records}(rcode);
@@ -225,7 +267,28 @@ pub(crate) fn create_schema(conn: &mut Connection, tables: &TableNames) -> rusql
         meta = tables.meta,
         steps = tables.steps,
     ))?;
+    ensure_answer_preview_column(conn, tables)?;
     backfill_questions_once(conn, tables)
+}
+
+fn ensure_answer_preview_column(conn: &Connection, tables: &TableNames) -> rusqlite::Result<()> {
+    {
+        let mut statement = conn.prepare(&format!("PRAGMA table_info({})", tables.records))?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            if row.get::<_, String>(1)? == "answer_preview_json" {
+                return Ok(());
+            }
+        }
+    }
+    conn.execute(
+        &format!(
+            "ALTER TABLE {} ADD COLUMN answer_preview_json TEXT NOT NULL DEFAULT '[]'",
+            tables.records
+        ),
+        [],
+    )?;
+    Ok(())
 }
 
 fn backfill_questions_once(conn: &Connection, tables: &TableNames) -> rusqlite::Result<()> {
@@ -439,6 +502,7 @@ fn insert_record(
 ) -> Result<RecordDetail> {
     let questions_json = serde_json::to_string(&record.questions_json)?;
     let req_edns_json = serialize_optional_json(&record.req_edns_json)?;
+    let answer_preview_json = serde_json::to_string(&record.answer_preview)?;
     let answers_json = serde_json::to_string(&record.answers_json)?;
     let authorities_json = serde_json::to_string(&record.authorities_json)?;
     let additionals_json = serde_json::to_string(&record.additionals_json)?;
@@ -469,12 +533,13 @@ fn insert_record(
                 answer_count,
                 authority_count,
                 additional_count,
+                answer_preview_json,
                 answers_json,
                 authorities_json,
                 additionals_json,
                 signature_json,
                 resp_edns_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
             tables.records
         ),
         params![
@@ -499,6 +564,7 @@ fn insert_record(
             i64::from(record.answer_count),
             i64::from(record.authority_count),
             i64::from(record.additional_count),
+            answer_preview_json,
             answers_json,
             authorities_json,
             additionals_json,
@@ -618,11 +684,20 @@ fn run_clear_history(
     Ok(ClearHistoryResult { cleared_records })
 }
 
+#[cfg(test)]
 pub(super) fn query_records(
     backend: Arc<RecorderBackend>,
     query: ListQuery,
-) -> std::result::Result<(Vec<RecordRow>, Option<String>), DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+) -> std::result::Result<(Vec<RecordSummaryRow>, Option<String>), DnsError> {
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    query_records_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn query_records_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: ListQuery,
+) -> std::result::Result<(Vec<RecordSummaryRow>, Option<String>), DnsError> {
     let (mut clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -639,7 +714,7 @@ pub(super) fn query_records(
     let where_sql = join_clauses(&clauses);
     params.push(Value::Integer(query.limit.saturating_add(1) as i64));
 
-    let row_columns = record_row_select_columns(Some("r"));
+    let row_columns = record_summary_select_columns(Some("r"));
     let sql = format!(
         "SELECT
             {row_columns}
@@ -655,7 +730,7 @@ pub(super) fn query_records(
 
     let mut records = Vec::new();
     while let Some(row) = rows.next()? {
-        records.push(read_record_row(row)?);
+        records.push(read_record_summary_row(row)?);
     }
 
     let has_more = records.len() > query.limit;
@@ -675,11 +750,20 @@ pub(super) fn query_records(
     Ok((records, next_cursor))
 }
 
+#[cfg(test)]
 pub(super) fn load_record_detail(
     backend: Arc<RecorderBackend>,
     record_id: i64,
 ) -> std::result::Result<Option<RecordDetail>, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_record_detail_on_connection(&backend, &conn, record_id)
+}
+
+pub(super) fn load_record_detail_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    record_id: i64,
+) -> std::result::Result<Option<RecordDetail>, DnsError> {
     let row_columns = record_row_select_columns(None);
     let record_sql = format!(
         "SELECT
@@ -698,7 +782,7 @@ pub(super) fn load_record_detail(
         return Ok(None);
     };
 
-    let steps = load_steps(&conn, &backend.tables, record_id)?;
+    let steps = load_steps(conn, &backend.tables, record_id)?;
     Ok(Some(RecordDetail { record, steps }))
 }
 
@@ -736,11 +820,20 @@ fn load_steps(
     Ok(steps)
 }
 
+#[cfg(test)]
 pub(super) fn load_plugin_stats(
     backend: Arc<RecorderBackend>,
     query: PluginsStatsQuery,
 ) -> std::result::Result<(u64, Vec<PluginStatsRow>), DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_plugin_stats_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_plugin_stats_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: PluginsStatsQuery,
+) -> std::result::Result<(u64, Vec<PluginStatsRow>), DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -749,9 +842,8 @@ pub(super) fn load_plugin_stats(
         &query.filter,
     )?;
     let where_sql = join_clauses(&clauses);
-    // Applied in the step_agg WHERE clause so SQLite can use the
-    // (kind, tag, outcome, record_id) covering index with a leading
-    // kind= equality rather than a per-record nested lookup.
+    // Applied after the bounded sample so every stats request performs at
+    // most one `(record_id, kind)` lookup per sampled record.
     let kind_where_filter = if query.kind == PluginStatsKind::All {
         String::new()
     } else {
@@ -761,11 +853,8 @@ pub(super) fn load_plugin_stats(
     if query.kind != PluginStatsKind::All {
         params.push(Value::Text(query.kind.sql_value().to_string()));
     }
-    // Restructured from a cross-join (sample_count × sample_records × steps)
-    // to an IN-subquery so SQLite aggregates steps directly without producing
-    // a 10k-row intermediate for every API call.
     let sql = format!(
-        "WITH sample_records AS (
+        "WITH sample_records AS MATERIALIZED (
             SELECT r.id
             FROM {records} r
             WHERE {where_sql}
@@ -794,8 +883,9 @@ pub(super) fn load_plugin_stats(
                     ELSE 0
                 END) AS executed,
                 COUNT(DISTINCT s.record_id) AS query_hits
-            FROM {steps} s
-            WHERE s.record_id IN (SELECT id FROM sample_records)
+            FROM sample_records sr
+            CROSS JOIN {steps} AS s INDEXED BY {steps}_record_kind_idx
+            WHERE s.record_id = sr.id
             {kind_where_filter}
             GROUP BY s.kind, s.tag
          )
@@ -846,11 +936,20 @@ pub(super) fn load_plugin_stats(
     Ok((total_records, stats))
 }
 
+#[cfg(test)]
 pub(super) fn load_top_clients(
     backend: Arc<RecorderBackend>,
     query: TopQuery,
 ) -> std::result::Result<TopBucketsResponse, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_top_clients_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_top_clients_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: TopQuery,
+) -> std::result::Result<TopBucketsResponse, DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -863,7 +962,7 @@ pub(super) fn load_top_clients(
     params.push(Value::Integer(limit_to_i64(query.limit)?));
 
     let sql = format!(
-        "WITH sample_records AS (
+        "WITH sample_records AS MATERIALIZED (
             SELECT r.id, r.client_ip
             FROM {records} r
             WHERE {where_sql}
@@ -906,11 +1005,20 @@ pub(super) fn load_top_clients(
     })
 }
 
+#[cfg(test)]
 pub(super) fn load_top_qnames(
     backend: Arc<RecorderBackend>,
     query: TopQuery,
 ) -> std::result::Result<TopBucketsResponse, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_top_qnames_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_top_qnames_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: TopQuery,
+) -> std::result::Result<TopBucketsResponse, DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -923,7 +1031,7 @@ pub(super) fn load_top_qnames(
     params.push(Value::Integer(limit_to_i64(query.limit)?));
 
     let sql = format!(
-        "WITH sample_records AS (
+        "WITH sample_records AS MATERIALIZED (
             SELECT r.id
             FROM {records} r
             WHERE {where_sql}
@@ -971,11 +1079,20 @@ pub(super) fn load_top_qnames(
     })
 }
 
+#[cfg(test)]
 pub(super) fn load_qtype_distribution(
     backend: Arc<RecorderBackend>,
     query: DistributionQuery,
 ) -> std::result::Result<DistributionResponse, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_qtype_distribution_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_qtype_distribution_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: DistributionQuery,
+) -> std::result::Result<DistributionResponse, DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -987,7 +1104,7 @@ pub(super) fn load_qtype_distribution(
     params.push(Value::Integer(PLUGIN_STATS_SAMPLE_LIMIT as i64));
 
     let sql = format!(
-        "WITH sample_records AS (
+        "WITH sample_records AS MATERIALIZED (
             SELECT r.id
             FROM {records} r
             WHERE {where_sql}
@@ -1034,11 +1151,20 @@ pub(super) fn load_qtype_distribution(
     })
 }
 
+#[cfg(test)]
 pub(super) fn load_rcode_distribution(
     backend: Arc<RecorderBackend>,
     query: DistributionQuery,
 ) -> std::result::Result<DistributionResponse, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_rcode_distribution_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_rcode_distribution_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: DistributionQuery,
+) -> std::result::Result<DistributionResponse, DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -1050,7 +1176,7 @@ pub(super) fn load_rcode_distribution(
     params.push(Value::Integer(PLUGIN_STATS_SAMPLE_LIMIT as i64));
 
     let sql = format!(
-        "WITH sample_records AS (
+        "WITH sample_records AS MATERIALIZED (
             SELECT r.id, r.rcode, r.error, r.has_response
             FROM {records} r
             WHERE {where_sql}
@@ -1101,11 +1227,20 @@ pub(super) fn load_rcode_distribution(
     })
 }
 
+#[cfg(test)]
 pub(super) fn load_latency_summary(
     backend: Arc<RecorderBackend>,
     query: LatencyQuery,
 ) -> std::result::Result<LatencySummary, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_latency_summary_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_latency_summary_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: LatencyQuery,
+) -> std::result::Result<LatencySummary, DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -1150,7 +1285,7 @@ pub(super) fn load_latency_summary(
     slow_params.push(Value::Integer(PLUGIN_STATS_SAMPLE_LIMIT as i64));
     slow_params.push(Value::Integer(limit_to_i64(slow_limit)?));
     let slow_sql = format!(
-        "WITH sample_records AS (
+        "WITH sample_records AS MATERIALIZED (
             SELECT r.id, r.elapsed_ms
             FROM {records} r
             WHERE {where_sql}
@@ -1202,11 +1337,20 @@ pub(super) fn load_latency_summary(
     })
 }
 
+#[cfg(test)]
 pub(super) fn load_timeseries(
     backend: Arc<RecorderBackend>,
     query: TimeseriesQuery,
 ) -> std::result::Result<TimeseriesResponse, DnsError> {
-    let conn = open_reader_database(&backend.path)?;
+    let conn = open_reader_database(backend.sqlite_path()?)?;
+    load_timeseries_on_connection(&backend, &conn, query)
+}
+
+pub(super) fn load_timeseries_on_connection(
+    backend: &RecorderBackend,
+    conn: &Connection,
+    query: TimeseriesQuery,
+) -> std::result::Result<TimeseriesResponse, DnsError> {
     let (clauses, mut params) = record_filter_clauses(
         "r",
         &backend.tables,
@@ -1290,7 +1434,7 @@ pub(super) fn load_timeseries(
     })
 }
 
-fn bucket_share(count: u64, sample_size: u64) -> f64 {
+pub(super) fn bucket_share(count: u64, sample_size: u64) -> f64 {
     if sample_size == 0 {
         0.0
     } else {
@@ -1298,7 +1442,7 @@ fn bucket_share(count: u64, sample_size: u64) -> f64 {
     }
 }
 
-fn bucket_floor(created_at_ms: i64, bucket_ms: i64) -> i64 {
+pub(super) fn bucket_floor(created_at_ms: i64, bucket_ms: i64) -> i64 {
     if bucket_ms <= 0 {
         return created_at_ms;
     }
@@ -1306,7 +1450,7 @@ fn bucket_floor(created_at_ms: i64, bucket_ms: i64) -> i64 {
     created_at_ms - remainder
 }
 
-fn latency_percentiles(values: &mut [u64]) -> (f64, u64, u64, u64, u64) {
+pub(super) fn latency_percentiles(values: &mut [u64]) -> (f64, u64, u64, u64, u64) {
     if values.is_empty() {
         return (0.0, 0, 0, 0, 0);
     }
@@ -1319,7 +1463,7 @@ fn latency_percentiles(values: &mut [u64]) -> (f64, u64, u64, u64, u64) {
     (avg, p50, p95, p99, max)
 }
 
-fn percentile_value(values: &mut [u64], quantile: f64) -> u64 {
+pub(super) fn percentile_value(values: &mut [u64], quantile: f64) -> u64 {
     if values.is_empty() {
         return 0;
     }
@@ -1341,7 +1485,7 @@ fn percentile_of_sorted(sorted_values: &[u64], quantile: f64) -> u64 {
 
 const LATENCY_BUCKET_EDGES_MS: [u64; 6] = [10, 20, 50, 100, 300, 1000];
 
-fn latency_histogram(values: &[u64]) -> Vec<LatencyHistogramBucket> {
+pub(super) fn latency_histogram(values: &[u64]) -> Vec<LatencyHistogramBucket> {
     let mut counts = vec![0u64; LATENCY_BUCKET_EDGES_MS.len() + 1];
     for value in values {
         let mut placed = false;
@@ -1533,11 +1677,30 @@ fn read_record_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordRow> {
         answer_count: row.get::<_, i64>(19).and_then(non_negative_u32)?,
         authority_count: row.get::<_, i64>(20).and_then(non_negative_u32)?,
         additional_count: row.get::<_, i64>(21).and_then(non_negative_u32)?,
-        answers_json: parse_json_column(row.get(22)?)?,
-        authorities_json: parse_json_column(row.get(23)?)?,
-        additionals_json: parse_json_column(row.get(24)?)?,
-        signature_json: parse_json_column(row.get(25)?)?,
-        resp_edns_json: parse_optional_json_column(row.get(26)?)?,
+        answer_preview: parse_json_column(row.get(22)?)?,
+        answers_json: parse_json_column(row.get(23)?)?,
+        authorities_json: parse_json_column(row.get(24)?)?,
+        additionals_json: parse_json_column(row.get(25)?)?,
+        signature_json: parse_json_column(row.get(26)?)?,
+        resp_edns_json: parse_optional_json_column(row.get(27)?)?,
+    })
+}
+
+fn read_record_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RecordSummaryRow> {
+    Ok(RecordSummaryRow {
+        id: row.get(0)?,
+        created_at_ms: row.get(1)?,
+        elapsed_ms: row.get::<_, i64>(2).and_then(non_negative_u64)?,
+        request_id: row.get::<_, i64>(3).and_then(non_negative_u16)?,
+        client_ip: row.get(4)?,
+        questions_json: parse_json_column(row.get(5)?)?,
+        error: row.get(6)?,
+        has_response: read_bool(row, 7)?,
+        rcode: row.get(8)?,
+        answer_count: row.get::<_, i64>(9).and_then(non_negative_u32)?,
+        authority_count: row.get::<_, i64>(10).and_then(non_negative_u32)?,
+        additional_count: row.get::<_, i64>(11).and_then(non_negative_u32)?,
+        answer_preview: parse_json_column(row.get(12)?)?,
     })
 }
 
@@ -1598,7 +1761,9 @@ mod tests {
     use rusqlite::{Connection, params};
     use serde_json::json;
 
-    use super::super::model::{EdnsJson, EdnsOptionJson, QuestionJson, RecordJson};
+    use super::super::model::{
+        AnswerPreviewJson, EdnsJson, EdnsOptionJson, QuestionJson, RecordJson,
+    };
     use super::*;
 
     #[test]
@@ -1638,6 +1803,19 @@ mod tests {
             .query_row(&sql, params![detail.record.id], read_record_row)
             .unwrap();
 
+        let summary_columns = record_summary_select_columns(None);
+        let summary_sql = format!(
+            "SELECT
+                {summary_columns}
+             FROM {}
+             WHERE id = ?1",
+            tables.records
+        );
+        let summary = conn
+            .query_row(&summary_sql, params![detail.record.id], read_record_summary_row)
+            .unwrap();
+        assert_eq!(&summary.answer_preview, &expected.answer_preview);
+
         let expected = RecordRow {
             id: detail.record.id,
             ..expected
@@ -1676,6 +1854,38 @@ mod tests {
             )
             .unwrap();
         assert_eq!(question, ("example.com.".to_string(), "A".to_string()));
+    }
+
+    #[test]
+    fn test_create_schema_adds_answer_preview_column_to_existing_database() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let tables = TableNames {
+            records: "records".to_string(),
+            steps: "steps".to_string(),
+            questions: "questions".to_string(),
+            meta: "meta".to_string(),
+        };
+        create_schema(&mut conn, &tables).unwrap();
+        let tx = conn.transaction().unwrap();
+        let detail = insert_record(&tx, &tables, sample_record_row(), Vec::new()).unwrap();
+        tx.commit().unwrap();
+
+        conn.execute(
+            "ALTER TABLE records RENAME COLUMN answer_preview_json TO legacy_answer_preview_json",
+            [],
+        )
+        .unwrap();
+        create_schema(&mut conn, &tables).unwrap();
+
+        let (preview, answers): (String, String) = conn
+            .query_row(
+                "SELECT answer_preview_json, answers_json FROM records WHERE id = ?1",
+                params![detail.record.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(preview, "[]");
+        assert!(answers.contains("192.0.2.10"));
     }
 
     #[test]
@@ -1758,6 +1968,12 @@ mod tests {
             answer_count: 1,
             authority_count: 0,
             additional_count: 0,
+            answer_preview: vec![AnswerPreviewJson {
+                name: "example.com.".to_string(),
+                rr_type: "A".to_string(),
+                payload_text: "192.0.2.10".to_string(),
+                truncated: false,
+            }],
             answers_json: vec![answer],
             authorities_json: Vec::new(),
             additionals_json: Vec::new(),

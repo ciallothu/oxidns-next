@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: oxidns
+      POSTGRES_USER: oxidns
+      POSTGRES_PASSWORD: "${OXIDNS_NEXT_POSTGRES_PASSWORD:?copy postgres.env.example to .env and replace its placeholders}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oxidns -d oxidns"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - oxidns_postgres_data:/var/lib/postgresql/data
+
+  oxidns-next:
+    image: ghcr.io/ciallothu/oxidns-next:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "127.0.0.1:9199:9199/tcp"
+    environment:
+      OXIDNS_NEXT_BOOTSTRAP_TOKEN: "${OXIDNS_NEXT_BOOTSTRAP_TOKEN:?copy postgres.env.example to .env and replace its placeholders}"
+      OXIDNS_NEXT_QUERY_DATABASE_URL: "postgres://oxidns:${OXIDNS_NEXT_POSTGRES_PASSWORD}@postgres:5432/oxidns"
+    volumes:
+      - ./postgres.config.yaml:/etc/oxidns-next/config.yaml:ro
+      - oxidns_postgres_app_data:/etc/oxidns-next/data
+
+volumes:
+  oxidns_postgres_data:
+  oxidns_postgres_app_data:

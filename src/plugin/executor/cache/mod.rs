@@ -20,6 +20,8 @@ use tracing::{Level, debug, event_enabled, warn};
 
 use self::key::{CacheKey, build_cache_key as build_cache_key_internal};
 use self::persistence::{dump_cache_to_file, load_cache_from_file};
+#[cfg(feature = "storage-redis")]
+use self::redis::{RedisCachePolicy, RedisDnsCache};
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::cache::ttl::{TtlCache, TtlCacheLookup};
@@ -39,6 +41,8 @@ use crate::{continue_next, plugin_factory};
 mod api;
 mod key;
 mod persistence;
+#[cfg(feature = "storage-redis")]
+mod redis;
 
 // Default cache size.
 const DEFAULT_CACHE_SIZE: usize = 1024;
@@ -79,6 +83,16 @@ const EVICTION_SAMPLE_SIZE: usize = 4096;
 const FULL_TRIM_CACHE_SIZE_LIMIT: usize = 100_000;
 const LARGE_CACHE_EVICTION_MAX_BATCH: usize = 65_536;
 const DEFAULT_LAZY_REFRESH_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(feature = "storage-redis")]
+const DEFAULT_REDIS_COMMAND_TIMEOUT_MS: u64 = 20;
+#[cfg(feature = "storage-redis")]
+const DEFAULT_REDIS_MAX_INFLIGHT: usize = 64;
+#[cfg(feature = "storage-redis")]
+const DEFAULT_REDIS_WRITE_QUEUE_SIZE: usize = 4_096;
+#[cfg(feature = "storage-redis")]
+const DEFAULT_REDIS_FAILURE_THRESHOLD: usize = 3;
+#[cfg(feature = "storage-redis")]
+const DEFAULT_REDIS_RETRY_AFTER_MS: u64 = 30_000;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
@@ -121,6 +135,37 @@ pub struct CacheConfig {
     ///
     /// Default: false.
     ecs_in_key: Option<bool>,
+
+    /// Optional Redis L2 cache. L1 remains enabled and authoritative locally.
+    redis: Option<RedisCacheConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RedisCacheConfig {
+    /// Whether this Redis L2 block is active. Defaults to true when present.
+    enabled: Option<bool>,
+
+    /// Per-command latency budget before falling back to L1/upstream.
+    command_timeout_ms: Option<u64>,
+
+    /// Maximum concurrent Redis reads; saturation bypasses Redis immediately.
+    max_inflight: Option<usize>,
+
+    /// Capacity of the best-effort background write queue.
+    write_queue_size: Option<usize>,
+
+    /// Consecutive Redis failures required to open the circuit.
+    failure_threshold: Option<usize>,
+
+    /// Time to bypass Redis before one half-open retry.
+    retry_after_ms: Option<u64>,
+}
+
+impl RedisCacheConfig {
+    fn enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
 }
 
 type CacheMap = TtlCache<CacheKey, Arc<CacheItem>>;
@@ -154,6 +199,12 @@ enum CacheHitKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CacheMissKind {
+    Missing,
+    Expired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CacheSkipReason {
     NoTtl,
     LowPositiveTtl,
@@ -169,6 +220,7 @@ enum CacheTtlDecision {
 struct CacheLookup {
     key: CacheKey,
     hit_kind: Option<CacheHitKind>,
+    miss_kind: Option<CacheMissKind>,
     refresh_entry: Option<CacheEntryIdentity>,
 }
 
@@ -195,6 +247,20 @@ struct CacheMetrics {
     lazy_refresh_started_total: AtomicU64,
     lazy_refresh_success_total: AtomicU64,
     lazy_refresh_failed_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_lookup_hit_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_lookup_miss_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_lookup_error_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_lookup_bypass_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_write_success_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_write_error_total: AtomicU64,
+    #[cfg(feature = "storage-redis")]
+    l2_write_dropped_total: AtomicU64,
 }
 
 impl CacheMetrics {
@@ -214,6 +280,20 @@ impl CacheMetrics {
             lazy_refresh_started_total: AtomicU64::new(0),
             lazy_refresh_success_total: AtomicU64::new(0),
             lazy_refresh_failed_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_lookup_hit_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_lookup_miss_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_lookup_error_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_lookup_bypass_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_write_success_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_write_error_total: AtomicU64::new(0),
+            #[cfg(feature = "storage-redis")]
+            l2_write_dropped_total: AtomicU64::new(0),
         }
     }
 
@@ -231,6 +311,41 @@ impl CacheMetrics {
                     .fetch_add(1, Ordering::Relaxed);
             }
         }
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_lookup_hit(&self) {
+        self.l2_lookup_hit_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_lookup_miss(&self) {
+        self.l2_lookup_miss_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_lookup_error(&self) {
+        self.l2_lookup_error_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_lookup_bypass(&self) {
+        self.l2_lookup_bypass_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_write_success(&self) {
+        self.l2_write_success_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_write_error(&self) {
+        self.l2_write_error_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(feature = "storage-redis")]
+    fn record_l2_write_dropped(&self) {
+        self.l2_write_dropped_total.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -349,6 +464,8 @@ impl MetricSource for CacheMetrics {
             &lazy_failed,
             self.lazy_refresh_failed_total.load(Ordering::Relaxed),
         ));
+        #[cfg(feature = "storage-redis")]
+        self.collect_redis_metrics(sink);
         sink.emit(MetricSample::gauge(
             "cache_entry_count",
             "Current number of cache entries.",
@@ -358,6 +475,54 @@ impl MetricSource for CacheMetrics {
                 .map(|cache_map| cache_map.len() as u64)
                 .unwrap_or(0),
         ));
+    }
+}
+
+#[cfg(feature = "storage-redis")]
+impl CacheMetrics {
+    fn collect_redis_metrics(&self, sink: &mut dyn MetricSink) {
+        for (result, value) in [
+            ("hit", self.l2_lookup_hit_total.load(Ordering::Relaxed)),
+            ("miss", self.l2_lookup_miss_total.load(Ordering::Relaxed)),
+            ("error", self.l2_lookup_error_total.load(Ordering::Relaxed)),
+            (
+                "bypass",
+                self.l2_lookup_bypass_total.load(Ordering::Relaxed),
+            ),
+        ] {
+            let labels = [
+                MetricLabel::new("plugin_tag", self.tag.as_str()),
+                MetricLabel::new("result", result),
+            ];
+            sink.emit(MetricSample::counter(
+                "cache_l2_lookup_total",
+                "Total Redis L2 lookups by result.",
+                &labels,
+                value,
+            ));
+        }
+        for (result, value) in [
+            (
+                "success",
+                self.l2_write_success_total.load(Ordering::Relaxed),
+            ),
+            ("error", self.l2_write_error_total.load(Ordering::Relaxed)),
+            (
+                "dropped",
+                self.l2_write_dropped_total.load(Ordering::Relaxed),
+            ),
+        ] {
+            let labels = [
+                MetricLabel::new("plugin_tag", self.tag.as_str()),
+                MetricLabel::new("result", result),
+            ];
+            sink.emit(MetricSample::counter(
+                "cache_l2_write_total",
+                "Total Redis L2 writes by result.",
+                &labels,
+                value,
+            ));
+        }
     }
 }
 
@@ -398,6 +563,10 @@ pub struct Cache {
 
     /// Low-overhead cache metrics.
     metrics: Arc<CacheMetrics>,
+
+    /// Optional shared Redis L2 cache. Every operation is best-effort.
+    #[cfg(feature = "storage-redis")]
+    redis_cache: Option<Arc<RedisDnsCache>>,
 
     /// Periodic dump task id, if dump persistence is enabled.
     dump_task_id: Mutex<Option<u64>>,
@@ -808,9 +977,17 @@ impl Cache {
 
     #[inline]
     #[hotpath::measure]
-    fn try_cache_hit(&self, context: &mut DnsContext, cache_map: &CacheMap) -> Option<CacheLookup> {
+    fn try_cache_hit(
+        &self,
+        context: &mut DnsContext,
+        cache_map: &CacheMap,
+        count_lookup: bool,
+        finalize_miss: bool,
+    ) -> Option<CacheLookup> {
         let key = Self::build_cache_key(context, self.ecs_in_key)?;
-        self.metrics.lookup_total.fetch_add(1, Ordering::Relaxed);
+        if count_lookup {
+            self.metrics.lookup_total.fetch_add(1, Ordering::Relaxed);
+        }
 
         let now = AppClock::elapsed_millis();
         let touch_interval_ms = self.current_touch_interval_ms(cache_map, now);
@@ -843,6 +1020,7 @@ impl Cache {
                     return Some(CacheLookup {
                         key,
                         hit_kind: Some(CacheHitKind::Fresh),
+                        miss_kind: None,
                         refresh_entry: None,
                     });
                 }
@@ -873,59 +1051,73 @@ impl Cache {
                     return Some(CacheLookup {
                         key,
                         hit_kind: Some(CacheHitKind::Stale),
+                        miss_kind: None,
                         refresh_entry: Some(refresh_entry),
                     });
                 }
             }
             Some(TtlCacheLookup::Expired) => {
-                self.metrics.expired_total.fetch_add(1, Ordering::Relaxed);
-                debug!(
-                    "cache expired: domain={}, type={:?}, class={:?}, do={}, cd={}, ecs={}",
-                    key.domain,
-                    key.record_type,
-                    key.dns_class,
-                    key.do_bit,
-                    key.cd_bit,
-                    key.ecs_scope.is_some()
-                );
-                return Some(CacheLookup {
+                let lookup = CacheLookup {
                     key,
                     hit_kind: None,
+                    miss_kind: Some(CacheMissKind::Expired),
                     refresh_entry: None,
-                });
+                };
+                if finalize_miss {
+                    self.record_cache_miss(&lookup);
+                }
+                return Some(lookup);
             }
             None => {}
         }
 
-        if cache_map.remove_if_expired(&key, now) {
-            self.metrics.expired_total.fetch_add(1, Ordering::Relaxed);
-            debug!(
-                "cache expired: domain={}, type={:?}, class={:?}, do={}, cd={}, ecs={}",
-                key.domain,
-                key.record_type,
-                key.dns_class,
-                key.do_bit,
-                key.cd_bit,
-                key.ecs_scope.is_some()
-            );
+        let miss_kind = if cache_map.remove_if_expired(&key, now) {
+            CacheMissKind::Expired
         } else {
-            self.metrics.miss_total.fetch_add(1, Ordering::Relaxed);
-            debug!(
-                "cache miss: domain={}, type={:?}, class={:?}, do={}, cd={}, ecs={}",
-                key.domain,
-                key.record_type,
-                key.dns_class,
-                key.do_bit,
-                key.cd_bit,
-                key.ecs_scope.is_some()
-            );
-        }
+            CacheMissKind::Missing
+        };
 
-        Some(CacheLookup {
+        let lookup = CacheLookup {
             key,
             hit_kind: None,
+            miss_kind: Some(miss_kind),
             refresh_entry: None,
-        })
+        };
+        if finalize_miss {
+            self.record_cache_miss(&lookup);
+        }
+        Some(lookup)
+    }
+
+    #[inline]
+    fn record_cache_miss(&self, lookup: &CacheLookup) {
+        match lookup.miss_kind {
+            Some(CacheMissKind::Expired) => {
+                self.metrics.expired_total.fetch_add(1, Ordering::Relaxed);
+                debug!(
+                    "cache expired: domain={}, type={:?}, class={:?}, do={}, cd={}, ecs={}",
+                    lookup.key.domain,
+                    lookup.key.record_type,
+                    lookup.key.dns_class,
+                    lookup.key.do_bit,
+                    lookup.key.cd_bit,
+                    lookup.key.ecs_scope.is_some()
+                );
+            }
+            Some(CacheMissKind::Missing) => {
+                self.metrics.miss_total.fetch_add(1, Ordering::Relaxed);
+                debug!(
+                    "cache miss: domain={}, type={:?}, class={:?}, do={}, cd={}, ecs={}",
+                    lookup.key.domain,
+                    lookup.key.record_type,
+                    lookup.key.dns_class,
+                    lookup.key.do_bit,
+                    lookup.key.cd_bit,
+                    lookup.key.ecs_scope.is_some()
+                );
+            }
+            None => {}
+        }
     }
 
     #[inline]
@@ -1018,6 +1210,11 @@ impl Cache {
         let fresh_until_ms = Self::compute_fresh_until_ms(now, ttl);
         let expire_time =
             self.compute_expire_time(now, ttl, self.can_lazy_cache_response(&response));
+        #[cfg(feature = "storage-redis")]
+        let redis_entry = self
+            .redis_cache
+            .as_ref()
+            .map(|_| (key.clone(), response.clone()));
         let item = CacheItem::new(response, ttl, fresh_until_ms);
         debug!(
             "cached: domain={}, type={:?}, class={:?}, ttl={}",
@@ -1027,6 +1224,17 @@ impl Cache {
         self.updated_keys.fetch_add(1, Ordering::Relaxed);
         self.metrics.insert_total.fetch_add(1, Ordering::Relaxed);
         self.maybe_prune_after_insert(cache_map, now);
+        #[cfg(feature = "storage-redis")]
+        if let (Some(redis_cache), Some((key, response))) = (self.redis_cache.as_ref(), redis_entry)
+        {
+            redis_cache.enqueue_set(
+                key,
+                response,
+                ttl,
+                fresh_until_ms.saturating_sub(now),
+                expire_time.saturating_sub(now),
+            );
+        }
     }
 
     fn try_start_lazy_refresh(
@@ -1068,6 +1276,8 @@ impl Cache {
         let negative_ttl_without_soa = self.negative_ttl_without_soa;
         let updated_keys = self.updated_keys.clone();
         let metrics = self.metrics.clone();
+        #[cfg(feature = "storage-redis")]
+        let redis_cache = self.redis_cache.clone();
 
         tokio::spawn(async move {
             let refresh = tokio::time::timeout(DEFAULT_LAZY_REFRESH_TIMEOUT, async {
@@ -1107,6 +1317,8 @@ impl Cache {
                         } else {
                             fresh_until_ms
                         };
+                        #[cfg(feature = "storage-redis")]
+                        let redis_response = redis_cache.as_ref().map(|_| response.clone());
                         cache_map.insert_or_update(
                             key.clone(),
                             Arc::new(CacheItem::new(response, ttl, fresh_until_ms)),
@@ -1118,6 +1330,18 @@ impl Cache {
                         metrics
                             .lazy_refresh_success_total
                             .fetch_add(1, Ordering::Relaxed);
+                        #[cfg(feature = "storage-redis")]
+                        if let (Some(redis_cache), Some(response)) =
+                            (redis_cache.as_ref(), redis_response)
+                        {
+                            redis_cache.enqueue_set(
+                                key.clone(),
+                                response,
+                                ttl,
+                                fresh_until_ms.saturating_sub(now),
+                                expire_at_ms.saturating_sub(now),
+                            );
+                        }
                     } else {
                         if let CacheTtlDecision::Skip(reason) = ttl {
                             if reason == CacheSkipReason::LowPositiveTtl
@@ -1128,6 +1352,10 @@ impl Cache {
                                 })
                             {
                                 updated_keys.fetch_add(1, Ordering::Relaxed);
+                                #[cfg(feature = "storage-redis")]
+                                if let Some(redis_cache) = redis_cache.as_ref() {
+                                    redis_cache.enqueue_delete(key.clone());
+                                }
                                 debug!(
                                     "evicted stale lazy cache entry after low positive TTL refresh: domain={}, type={:?}, class={:?}",
                                     key.domain, key.record_type, key.dns_class
@@ -1179,7 +1407,15 @@ impl Plugin for Cache {
         let _ = self.cache_map.set(cache_map.clone());
         self.metrics.set_cache_map(cache_map.clone());
 
-        #[cfg(feature = "api")]
+        #[cfg(all(feature = "api", feature = "storage-redis"))]
+        api::register(
+            &self.tag,
+            cache_map.clone(),
+            self.ecs_in_key,
+            self.cache_size,
+            self.redis_cache.clone(),
+        )?;
+        #[cfg(all(feature = "api", not(feature = "storage-redis")))]
         api::register(
             &self.tag,
             cache_map.clone(),
@@ -1232,6 +1468,10 @@ impl Plugin for Cache {
         if let Some(task_id) = cleanup_task_id {
             task_center::stop_task(task_id).await;
         }
+        #[cfg(feature = "storage-redis")]
+        if let Some(redis_cache) = &self.redis_cache {
+            redis_cache.shutdown().await;
+        }
         if let Some(dump_file) = &self.config.dump_file
             && let Some(cache_map) = self.cache_map.get()
             && let Err(e) = dump_cache_to_file(cache_map, dump_file).await
@@ -1263,7 +1503,29 @@ impl Executor for Cache {
             return continue_next!(next, context);
         };
 
-        let cache_lookup = self.try_cache_hit(context, cache_map);
+        #[cfg(feature = "storage-redis")]
+        let finalize_l1_miss = self.redis_cache.is_none();
+        #[cfg(not(feature = "storage-redis"))]
+        let finalize_l1_miss = true;
+        let mut cache_lookup = self.try_cache_hit(context, cache_map, true, finalize_l1_miss);
+
+        #[cfg(feature = "storage-redis")]
+        if let Some(redis_cache) = self.redis_cache.as_ref()
+            && let Some(key) = cache_lookup
+                .as_ref()
+                .filter(|lookup| lookup.hit_kind.is_none())
+                .map(|lookup| lookup.key.clone())
+        {
+            if let Some(entry) = redis_cache.lookup(&key).await {
+                if redis_cache.populate_l1(cache_map, key, entry) {
+                    cache_lookup = self.try_cache_hit(context, cache_map, false, true);
+                } else if let Some(lookup) = cache_lookup.as_ref() {
+                    self.record_cache_miss(lookup);
+                }
+            } else if let Some(lookup) = cache_lookup.as_ref() {
+                self.record_cache_miss(lookup);
+            }
+        }
         let cache_hit = cache_lookup
             .as_ref()
             .and_then(|lookup| lookup.hit_kind)
@@ -1422,6 +1684,7 @@ fn parse_cache_config(args: Option<Value>) -> Result<CacheConfig> {
         max_positive_ttl: None,
         min_positive_ttl: None,
         ecs_in_key: None,
+        redis: None,
     })
 }
 
@@ -1481,6 +1744,40 @@ fn validate_cache_config(config: &CacheConfig) -> Result<()> {
         ));
     }
 
+    if let Some(redis) = config.redis.as_ref()
+        && redis.enabled()
+    {
+        if matches!(redis.command_timeout_ms, Some(0)) {
+            return Err(DnsError::plugin(
+                "cache redis command_timeout_ms must be greater than 0",
+            ));
+        }
+        if matches!(redis.max_inflight, Some(0)) {
+            return Err(DnsError::plugin(
+                "cache redis max_inflight must be greater than 0",
+            ));
+        }
+        if matches!(redis.write_queue_size, Some(0)) {
+            return Err(DnsError::plugin(
+                "cache redis write_queue_size must be greater than 0",
+            ));
+        }
+        if matches!(redis.failure_threshold, Some(0)) {
+            return Err(DnsError::plugin(
+                "cache redis failure_threshold must be greater than 0",
+            ));
+        }
+        if matches!(redis.retry_after_ms, Some(0)) {
+            return Err(DnsError::plugin(
+                "cache redis retry_after_ms must be greater than 0",
+            ));
+        }
+        #[cfg(not(feature = "storage-redis"))]
+        return Err(DnsError::plugin(
+            "cache redis requires a binary built with the 'storage-redis' feature",
+        ));
+    }
+
     Ok(())
 }
 
@@ -1510,22 +1807,51 @@ impl PluginFactory for CacheFactory {
 impl CacheFactory {
     fn build_cache(&self, tag: String, cache_config: CacheConfig) -> Result<UninitializedPlugin> {
         let metrics = Arc::new(CacheMetrics::new(tag.clone()));
+        let cache_negative = cache_config.cache_negative.unwrap_or(true);
+        let max_negative_ttl = cache_config
+            .max_negative_ttl
+            .unwrap_or(DEFAULT_MAX_NEGATIVE_TTL);
+        let negative_ttl_without_soa = cache_config
+            .negative_ttl_without_soa
+            .unwrap_or(DEFAULT_NEGATIVE_TTL_WITHOUT_SOA);
+        let ecs_in_key = cache_config.ecs_in_key.unwrap_or(false);
+        #[cfg(feature = "storage-redis")]
+        let redis_cache = cache_config
+            .redis
+            .as_ref()
+            .filter(|redis| redis.enabled())
+            .map(|redis| {
+                RedisDnsCache::new(
+                    &tag,
+                    redis,
+                    RedisCachePolicy {
+                        ecs_in_key,
+                        cache_negative,
+                        max_negative_ttl,
+                        negative_ttl_without_soa,
+                        max_positive_ttl: cache_config.max_positive_ttl,
+                        min_positive_ttl: cache_config.min_positive_ttl,
+                        lazy_cache_ttl: cache_config.lazy_cache_ttl,
+                    },
+                    metrics.clone(),
+                )
+                .map(Arc::new)
+            })
+            .transpose()?;
         Ok(UninitializedPlugin::Executor(Box::new(Cache {
             cache_map: OnceCell::new(),
             tag,
-            cache_negative: cache_config.cache_negative.unwrap_or(true),
-            max_negative_ttl: cache_config
-                .max_negative_ttl
-                .unwrap_or(DEFAULT_MAX_NEGATIVE_TTL),
-            negative_ttl_without_soa: cache_config
-                .negative_ttl_without_soa
-                .unwrap_or(DEFAULT_NEGATIVE_TTL_WITHOUT_SOA),
+            cache_negative,
+            max_negative_ttl,
+            negative_ttl_without_soa,
             short_circuit: cache_config.short_circuit.unwrap_or(false),
-            ecs_in_key: cache_config.ecs_in_key.unwrap_or(false),
+            ecs_in_key,
             cache_size: cache_config.size.unwrap_or(DEFAULT_CACHE_SIZE),
             config: cache_config,
             updated_keys: Arc::new(AtomicU64::new(0)),
             metrics,
+            #[cfg(feature = "storage-redis")]
+            redis_cache,
             dump_task_id: Mutex::new(None),
             cleanup_task_id: Mutex::new(None),
             lazy_refresh_inflight: Arc::new(Mutex::new(AHashSet::new())),
@@ -1564,6 +1890,7 @@ fn parse_cache_quick_setup(raw: &str) -> Result<CacheConfig> {
         max_positive_ttl: None,
         min_positive_ttl: None,
         ecs_in_key: None,
+        redis: None,
     };
 
     for token in raw.split_whitespace() {
@@ -1643,6 +1970,8 @@ mod tests {
             config,
             updated_keys: Arc::new(AtomicU64::new(0)),
             metrics: Arc::new(CacheMetrics::new("cache_test".to_string())),
+            #[cfg(feature = "storage-redis")]
+            redis_cache: None,
             cache_size,
             dump_task_id: Mutex::new(None),
             cleanup_task_id: Mutex::new(None),
@@ -1666,6 +1995,7 @@ mod tests {
             max_positive_ttl: None,
             min_positive_ttl: None,
             ecs_in_key: None,
+            redis: None,
         }
     }
 
@@ -2117,7 +2447,7 @@ mod tests {
         );
 
         let lookup = cache
-            .try_cache_hit(&mut context, cache.cache_map.get().unwrap())
+            .try_cache_hit(&mut context, cache.cache_map.get().unwrap(), true, true)
             .expect("cache lookup should exist");
         assert_eq!(lookup.hit_kind, Some(CacheHitKind::Fresh));
 
@@ -2309,7 +2639,7 @@ mod tests {
         cache.update_cache_entry(cache.cache_map.get().unwrap(), key, response, 120);
 
         let lookup = cache
-            .try_cache_hit(&mut context, cache.cache_map.get().unwrap())
+            .try_cache_hit(&mut context, cache.cache_map.get().unwrap(), true, true)
             .expect("cache lookup should exist");
         assert_eq!(lookup.hit_kind, Some(CacheHitKind::Fresh));
         assert!(context.response().is_some_and(|response| {
@@ -2366,7 +2696,7 @@ mod tests {
         );
 
         let lookup = cache
-            .try_cache_hit(&mut context, cache.cache_map.get().unwrap())
+            .try_cache_hit(&mut context, cache.cache_map.get().unwrap(), true, true)
             .expect("cache lookup should exist");
         assert_eq!(lookup.hit_kind, Some(CacheHitKind::Stale));
         let response = context
@@ -2389,7 +2719,7 @@ mod tests {
 
         let mut miss = make_context(make_request_with_query("missing.example.", false, false));
         let miss_lookup = cache
-            .try_cache_hit(&mut miss, cache.cache_map.get().unwrap())
+            .try_cache_hit(&mut miss, cache.cache_map.get().unwrap(), true, true)
             .expect("cache lookup should exist");
         assert_eq!(miss_lookup.hit_kind, None);
 
@@ -2411,7 +2741,7 @@ mod tests {
         );
 
         let expired_lookup = cache
-            .try_cache_hit(&mut expired, cache.cache_map.get().unwrap())
+            .try_cache_hit(&mut expired, cache.cache_map.get().unwrap(), true, true)
             .expect("cache lookup should exist");
         assert_eq!(expired_lookup.hit_kind, None);
 
@@ -2873,6 +3203,7 @@ mod tests {
             max_positive_ttl: None,
             min_positive_ttl: None,
             ecs_in_key: None,
+            redis: None,
         };
 
         assert!(validate_cache_config(&cfg).is_err());

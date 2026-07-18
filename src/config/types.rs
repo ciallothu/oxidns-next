@@ -16,11 +16,16 @@ use thiserror::Error;
 use crate::infra::network::proxy::validate_socks5_syntax;
 use crate::infra::system::parse_simple_duration;
 
+const MAX_PLUGIN_TAG_CHARS: usize = 255;
+
 /// Configuration validation errors
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("Plugin tag cannot be empty")]
     EmptyPluginTag,
+
+    #[error("Plugin tag '{tag}' exceeds the maximum length of {max} characters")]
+    PluginTagTooLong { tag: String, max: usize },
 
     #[error("Invalid log level: {0}")]
     InvalidLogLevel(String),
@@ -67,6 +72,20 @@ pub enum ConfigError {
     #[error("Invalid network outbound config: {0}")]
     InvalidNetworkOutbound(String),
 
+    #[error("storage.redis.url cannot be empty")]
+    EmptyRedisUrl,
+
+    #[error("storage.redis.key_prefix cannot be empty")]
+    EmptyRedisKeyPrefix,
+
+    #[error("storage.redis.connect_timeout_ms must be greater than 0")]
+    InvalidRedisConnectTimeout,
+
+    #[error(
+        "storage.redis is configured but this binary was built without the 'storage-redis' feature"
+    )]
+    RedisFeatureDisabled,
+
     #[error(
         "Duplicate plugin tag '{tag}' found at plugins[{first_index}] and plugins[{duplicate_index}]"
     )]
@@ -99,6 +118,10 @@ pub struct Config {
     /// Shared network policy configuration.
     #[serde(default)]
     pub network: NetworkConfig,
+
+    /// Optional shared storage services used by plugins.
+    #[serde(default)]
+    pub storage: StorageConfig,
 
     /// List of plugins to load and their configurations
     #[serde(default)]
@@ -175,6 +198,7 @@ impl Config {
         }
 
         self.network.validate()?;
+        self.storage.validate()?;
 
         // Validate plugins - basic structure checks
         let mut seen_tags = HashMap::new();
@@ -182,6 +206,12 @@ impl Config {
             // Check for empty tag
             if plugin.tag.is_empty() {
                 return Err(ConfigError::EmptyPluginTag);
+            }
+            if plugin.tag.chars().count() > MAX_PLUGIN_TAG_CHARS {
+                return Err(ConfigError::PluginTagTooLong {
+                    tag: plugin.tag.clone(),
+                    max: MAX_PLUGIN_TAG_CHARS,
+                });
             }
             if let Some(prev_idx) = seen_tags.insert(plugin.tag.as_str(), idx) {
                 return Err(ConfigError::DuplicatePluginTag {
@@ -199,6 +229,79 @@ impl Config {
 
         Ok(())
     }
+}
+
+/// Optional shared storage services.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StorageConfig {
+    /// Shared Redis connection used by explicitly enabled cache consumers.
+    pub redis: Option<RedisStorageConfig>,
+}
+
+impl StorageConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        if self.redis.is_none() {
+            return Ok(());
+        }
+
+        #[cfg(not(feature = "storage-redis"))]
+        return Err(ConfigError::RedisFeatureDisabled);
+
+        #[cfg(feature = "storage-redis")]
+        {
+            let redis = self
+                .redis
+                .as_ref()
+                .expect("redis presence checked before feature validation");
+            if redis.url.trim().is_empty() {
+                return Err(ConfigError::EmptyRedisUrl);
+            }
+            if redis.key_prefix.trim().trim_end_matches(':').is_empty() {
+                return Err(ConfigError::EmptyRedisKeyPrefix);
+            }
+            if redis.connect_timeout_ms == 0 {
+                return Err(ConfigError::InvalidRedisConnectTimeout);
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Process-wide Redis connection settings.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RedisStorageConfig {
+    /// Redis URL. Credentials should normally be supplied through env
+    /// expansion.
+    pub url: String,
+
+    /// Prefix applied to every OxiDNS Next key in this Redis database.
+    #[serde(default = "default_redis_key_prefix")]
+    pub key_prefix: String,
+
+    /// Maximum time spent establishing or servicing a Redis connection.
+    #[serde(default = "default_redis_connect_timeout_ms")]
+    pub connect_timeout_ms: u64,
+}
+
+impl std::fmt::Debug for RedisStorageConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RedisStorageConfig")
+            .field("url", &"<redacted>")
+            .field("key_prefix", &self.key_prefix)
+            .field("connect_timeout_ms", &self.connect_timeout_ms)
+            .finish()
+    }
+}
+
+fn default_redis_key_prefix() -> String {
+    "oxidns-next".to_string()
+}
+
+fn default_redis_connect_timeout_ms() -> u64 {
+    1_000
 }
 
 fn log_paths_equivalent(left: &str, right: &str) -> bool {
@@ -1267,6 +1370,59 @@ mod tests {
     }
 
     #[test]
+    fn redis_storage_debug_redacts_url_credentials() {
+        let config = RedisStorageConfig {
+            url: "redis://user:very-secret@redis.example.test:6379/0".to_string(),
+            key_prefix: "oxidns-next".to_string(),
+            connect_timeout_ms: 1_000,
+        };
+
+        let rendered = format!("{config:?}");
+        assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("very-secret"));
+        assert!(!rendered.contains("redis.example.test"));
+    }
+
+    #[cfg(not(feature = "storage-redis"))]
+    #[test]
+    fn redis_storage_config_requires_storage_redis_feature() {
+        let config: Config = serde_yaml_ng::from_str(
+            r#"
+storage:
+  redis:
+    url: redis://127.0.0.1:6379/0
+plugins: []
+"#,
+        )
+        .expect("redis config should deserialize independently of the feature");
+
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::RedisFeatureDisabled)
+        ));
+    }
+
+    #[cfg(feature = "storage-redis")]
+    #[test]
+    fn redis_storage_config_rejects_effectively_empty_key_prefix() {
+        let config: Config = serde_yaml_ng::from_str(
+            r#"
+storage:
+  redis:
+    url: redis://127.0.0.1:6379/0
+    key_prefix: ":"
+plugins: []
+"#,
+        )
+        .expect("redis config should deserialize");
+
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::EmptyRedisKeyPrefix)
+        ));
+    }
+
+    #[test]
     fn test_accounts_auth_deserializes_secure_defaults() {
         let wrapper: AuthConfigWrapper = serde_yaml_ng::from_str(
             r#"
@@ -1379,6 +1535,7 @@ auth:
             api: ApiConfig::default(),
             log: LogConfig::default(),
             network: NetworkConfig::default(),
+            storage: Default::default(),
             plugins: vec![plugin("dup", "debug_print"), plugin("dup", "ttl")],
         };
 
@@ -1389,6 +1546,24 @@ auth:
     }
 
     #[test]
+    fn test_validate_rejects_plugin_tags_too_long_for_portable_storage() {
+        let config = Config {
+            include: Vec::new(),
+            runtime: RuntimeConfig::default(),
+            api: ApiConfig::default(),
+            log: LogConfig::default(),
+            network: NetworkConfig::default(),
+            storage: Default::default(),
+            plugins: vec![plugin(&"x".repeat(MAX_PLUGIN_TAG_CHARS + 1), "debug_print")],
+        };
+
+        let err = config
+            .validate()
+            .expect_err("should reject plugin tags that remote query-log storage cannot persist");
+        assert!(matches!(err, ConfigError::PluginTagTooLong { .. }));
+    }
+
+    #[test]
     fn test_validate_rejects_empty_plugin_type() {
         let config = Config {
             include: Vec::new(),
@@ -1396,6 +1571,7 @@ auth:
             api: ApiConfig::default(),
             log: LogConfig::default(),
             network: NetworkConfig::default(),
+            storage: Default::default(),
             plugins: vec![plugin("test", "")],
         };
 
@@ -1413,6 +1589,7 @@ auth:
             api: ApiConfig::default(),
             log: LogConfig::default(),
             network: NetworkConfig::default(),
+            storage: Default::default(),
             plugins: vec![plugin("ok", "debug_print")],
         };
 
@@ -1429,6 +1606,7 @@ auth:
             api: ApiConfig::default(),
             log: LogConfig::default(),
             network: NetworkConfig::default(),
+            storage: Default::default(),
             plugins: vec![plugin("ok", "debug_print")],
         };
 
@@ -1460,6 +1638,7 @@ auth:
             },
             log: LogConfig::default(),
             network: NetworkConfig::default(),
+            storage: Default::default(),
             plugins: vec![plugin("ok", "debug_print")],
         };
 
@@ -1487,6 +1666,7 @@ auth:
             },
             log: LogConfig::default(),
             network: NetworkConfig::default(),
+            storage: Default::default(),
             plugins: vec![plugin("ok", "debug_print")],
         };
 

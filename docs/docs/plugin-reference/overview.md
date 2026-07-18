@@ -71,7 +71,7 @@ server -> sequence
 | 插件 | 作用 |
 | --- | --- |
 | [`query_summary`](executor.mdx#query_summary) | 在后续链路执行完后输出紧凑查询摘要。 |
-| [`query_recorder`](executor.mdx#query_recorder) | 把请求、响应、`sequence` 路径事件持久化到 SQLite，并暴露历史查询、统计和 SSE 实时推送。 |
+| [`query_recorder`](executor.mdx#query_recorder) | 把请求、响应、`sequence` 路径事件持久化到 SQLite、PostgreSQL 或 MySQL，并暴露历史查询、统计和 SSE 实时推送；可选 Redis API 短缓存。 |
 | [`metrics_collector`](executor.mdx#metrics_collector) | 收集轻量级请求计数与延时指标，并导出 Prometheus 格式。 |
 | [`debug_print`](executor.mdx#debug_print) | 打印请求与响应对象，便于调试。 |
 | [`sleep`](executor.mdx#sleep) | 异步延迟，用于测试和策略实验。 |

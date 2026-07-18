@@ -503,6 +503,7 @@ export const enUSWebui = {
     clientColumn: "Client",
     timeColumn: "Time",
     resultColumn: "Result",
+    answerPreviewColumn: "Resolved answer",
     elapsedColumn: "Elapsed",
     recordCountColumn: "Records",
     recordCountAria: "Records info",

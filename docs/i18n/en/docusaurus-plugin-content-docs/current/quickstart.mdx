@@ -453,11 +453,12 @@ export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
 docker run -d \
   --name oxidns-next \
   --restart unless-stopped \
-  -p 53:53/udp \
-  -p 53:53/tcp \
+  -p 53:5335/udp \
+  -p 53:5335/tcp \
   -p 9199:9199/tcp \
   -e OXIDNS_NEXT_BOOTSTRAP_TOKEN \
   -v "$(pwd)/config.yaml:/etc/oxidns-next/config.yaml:ro" \
+  -v "$(pwd)/data:/etc/oxidns-next/data" \
   ghcr.io/ciallothu/oxidns-next:latest
 ```
 
@@ -475,11 +476,13 @@ The image entrypoint effectively runs:
 oxidns-next start -c /etc/oxidns-next/config.yaml -d /etc/oxidns-next
 ```
 
-The container exposes:
+The image metadata declares:
 
 - `53/udp`
 - `53/tcp`
 - `9199/tcp`
+
+The repository-root `config.yaml` listens for DNS on `:5335` so it can also be run locally without root privileges. The `docker run` command above and Compose example below map host port `53` to container port `5335`. If you change the in-container listener to `:53`, change the mapping back to `53:53` too.
 
 ### Docker Compose Example
 
@@ -492,13 +495,14 @@ services:
     container_name: oxidns-next
     restart: unless-stopped
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "53:5335/udp"
+      - "53:5335/tcp"
       - "9199:9199/tcp"
     environment:
       - OXIDNS_NEXT_BOOTSTRAP_TOKEN
     volumes:
       - ./config.yaml:/etc/oxidns-next/config.yaml:ro
+      - ./data:/etc/oxidns-next/data
 ```
 
 Start it with:
@@ -522,6 +526,8 @@ Follow logs with:
 ```bash
 docker compose logs -f oxidns-next
 ```
+
+The default single-container deployment keeps query history in SQLite. For PostgreSQL, MySQL, or Redis-backed DNS/API caching alongside SQLite, use the Compose examples under [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage). They include health checks, environment placeholders, and persistent volumes. Redis is not durable query-history storage.
 
 ## 7. Selection Guide
 

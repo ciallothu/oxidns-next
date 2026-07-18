@@ -14,6 +14,8 @@ use tracing::{info, warn};
 
 use super::key::{CacheKey, EcsScopeDigest, normalize_domain_key};
 use super::persistence::{dump_cache_to_bytes, load_cache_from_bytes};
+#[cfg(feature = "storage-redis")]
+use super::redis::RedisDnsCache;
 use super::{Cache, CacheItem, CacheMap};
 use crate::api::query::{optional_text, parse_usize_param, visit_query_params};
 use crate::api::{ApiHandler, json_error, json_ok, simple_response};
@@ -23,6 +25,7 @@ use crate::plugin::executor::rdata_json::{RDataPayloadMode, rdata_payload};
 use crate::proto::{DNSClass, Record, RecordType};
 use crate::register_plugin_api;
 
+#[cfg(not(feature = "storage-redis"))]
 pub(super) fn register(
     tag: &str,
     cache_map: CacheMap,
@@ -55,9 +58,48 @@ pub(super) fn register(
     Ok(())
 }
 
+#[cfg(feature = "storage-redis")]
+pub(super) fn register(
+    tag: &str,
+    cache_map: CacheMap,
+    ecs_in_key: bool,
+    cache_size: usize,
+    redis_cache: Option<Arc<RedisDnsCache>>,
+) -> Result<()> {
+    register_plugin_api!(
+        tag,
+        |plugin_api|
+        GET "/entries" => CacheEntriesListHandler {
+            cache_map: cache_map.clone(),
+        },
+        DELETE_PREFIX "/entries/" => CacheEntryDeleteHandler {
+            cache_map: cache_map.clone(),
+            path_prefix: plugin_api.path("/entries/")?,
+            redis_cache: redis_cache.clone(),
+        },
+        POST "/flush" => CacheFlushHandler {
+            cache_map: cache_map.clone(),
+            redis_cache: redis_cache.clone(),
+        },
+        GET "/dump" => CacheDumpHandler {
+            cache_map: cache_map.clone(),
+            tag: tag.to_string(),
+        },
+        POST "/load_dump" => CacheLoadDumpHandler {
+            cache_map,
+            ecs_in_key,
+            cache_size,
+            redis_cache,
+        },
+    )?;
+    Ok(())
+}
+
 #[derive(Debug)]
 struct CacheFlushHandler {
     cache_map: CacheMap,
+    #[cfg(feature = "storage-redis")]
+    redis_cache: Option<Arc<RedisDnsCache>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,8 +111,17 @@ struct CacheFlushResponse {
 #[async_trait]
 impl ApiHandler for CacheFlushHandler {
     async fn handle(&self, _request: Request<Bytes>) -> crate::api::ApiResponse {
+        #[cfg(feature = "storage-redis")]
+        let invalidation = self
+            .redis_cache
+            .as_ref()
+            .map(|redis_cache| redis_cache.invalidate_local());
         let cleared_entries = self.cache_map.len();
         self.cache_map.clear();
+        #[cfg(feature = "storage-redis")]
+        if let (Some(redis_cache), Some(generation)) = (self.redis_cache.as_ref(), invalidation) {
+            redis_cache.propagate_invalidation(generation).await;
+        }
         info!("cache flushed, cleared entries {}", cleared_entries);
         json_ok(
             StatusCode::OK,
@@ -124,6 +175,8 @@ struct CacheLoadDumpHandler {
     cache_map: CacheMap,
     ecs_in_key: bool,
     cache_size: usize,
+    #[cfg(feature = "storage-redis")]
+    redis_cache: Option<Arc<RedisDnsCache>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,7 +188,14 @@ struct CacheLoadDumpResponse {
 #[async_trait]
 impl ApiHandler for CacheLoadDumpHandler {
     async fn handle(&self, request: Request<Bytes>) -> crate::api::ApiResponse {
-        match load_cache_from_bytes(&self.cache_map, request.body(), self.ecs_in_key, true) {
+        #[cfg(feature = "storage-redis")]
+        let invalidation = self
+            .redis_cache
+            .as_ref()
+            .map(|redis_cache| redis_cache.invalidate_local());
+        let load_result =
+            load_cache_from_bytes(&self.cache_map, request.body(), self.ecs_in_key, true);
+        match load_result {
             Ok(loaded_entries) => {
                 let stats = Cache::prune_cache_after_load(
                     &self.cache_map,
@@ -151,6 +211,12 @@ impl ApiHandler for CacheLoadDumpHandler {
                         "cache dump load pruned entries"
                     );
                 }
+                #[cfg(feature = "storage-redis")]
+                if let (Some(redis_cache), Some(generation)) =
+                    (self.redis_cache.as_ref(), invalidation)
+                {
+                    redis_cache.propagate_invalidation(generation).await;
+                }
                 json_ok(
                     StatusCode::OK,
                     &CacheLoadDumpResponse {
@@ -160,6 +226,12 @@ impl ApiHandler for CacheLoadDumpHandler {
                 )
             }
             Err(err) => {
+                #[cfg(feature = "storage-redis")]
+                if let (Some(redis_cache), Some(generation)) =
+                    (self.redis_cache.as_ref(), invalidation)
+                {
+                    redis_cache.propagate_invalidation(generation).await;
+                }
                 warn!("Failed to load cache dump via API: {}", err);
                 json_error(
                     StatusCode::BAD_REQUEST,
@@ -180,6 +252,8 @@ struct CacheEntriesListHandler {
 struct CacheEntryDeleteHandler {
     cache_map: CacheMap,
     path_prefix: String,
+    #[cfg(feature = "storage-redis")]
+    redis_cache: Option<Arc<RedisDnsCache>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,7 +408,17 @@ impl ApiHandler for CacheEntryDeleteHandler {
                 return json_error(StatusCode::BAD_REQUEST, "invalid_cache_entry_id", err);
             }
         };
-        if !self.cache_map.remove(&key) {
+        #[cfg(feature = "storage-redis")]
+        let invalidation = self
+            .redis_cache
+            .as_ref()
+            .map(|redis_cache| redis_cache.invalidate_local());
+        let deleted = self.cache_map.remove(&key);
+        #[cfg(feature = "storage-redis")]
+        if let (Some(redis_cache), Some(generation)) = (self.redis_cache.as_ref(), invalidation) {
+            redis_cache.propagate_invalidation(generation).await;
+        }
+        if !deleted {
             return json_error(
                 StatusCode::NOT_FOUND,
                 "cache_entry_not_found",

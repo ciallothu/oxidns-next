@@ -1,0 +1,37 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: oxidns
+      MYSQL_USER: oxidns
+      MYSQL_PASSWORD: "${OXIDNS_NEXT_MYSQL_PASSWORD:?copy mysql.env.example to .env and replace its placeholders}"
+      MYSQL_ROOT_PASSWORD: "${OXIDNS_NEXT_MYSQL_ROOT_PASSWORD:?copy mysql.env.example to .env and replace its placeholders}"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - oxidns_mysql_data:/var/lib/mysql
+
+  oxidns-next:
+    image: ghcr.io/ciallothu/oxidns-next:latest
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "127.0.0.1:9199:9199/tcp"
+    environment:
+      OXIDNS_NEXT_BOOTSTRAP_TOKEN: "${OXIDNS_NEXT_BOOTSTRAP_TOKEN:?copy mysql.env.example to .env and replace its placeholders}"
+      OXIDNS_NEXT_QUERY_DATABASE_URL: "mysql://oxidns:${OXIDNS_NEXT_MYSQL_PASSWORD}@mysql:3306/oxidns"
+    volumes:
+      - ./mysql.config.yaml:/etc/oxidns-next/config.yaml:ro
+      - oxidns_mysql_app_data:/etc/oxidns-next/data
+
+volumes:
+  oxidns_mysql_data:
+  oxidns_mysql_app_data:

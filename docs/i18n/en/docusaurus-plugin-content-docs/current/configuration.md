@@ -5,7 +5,7 @@ sidebar_position: 2
 
 ## Before Starting
 
-OxiDNS Next uses YAML configuration. For day-to-day editing, it is easiest to understand the file as six top-level parts:
+OxiDNS Next uses YAML configuration. For day-to-day editing, it is easiest to understand the file as seven top-level parts:
 
 ```yaml
 runtime:
@@ -17,6 +17,11 @@ api:
 log:
   level: info
   file: ./oxidns-next.log
+
+storage:
+  redis:
+    url: ${OXIDNS_NEXT_REDIS_URL}
+    key_prefix: oxidns-next
 
 network:
   outbound:
@@ -43,6 +48,8 @@ Where:
   - Management API settings.
 - `log`
   - Log output settings.
+- `storage`
+  - Optional shared storage connections, currently used for Redis caching by the DNS cache and query-history APIs.
 - `network`
   - Shared outbound networking settings, such as resolver and proxy choices for HTTP downloads, upgrade checks, and webhook requests.
 - `include`
@@ -164,7 +171,7 @@ Field notes:
   - Log files are written as UTF-8 plain text without terminal ANSI color escape codes.
 - `query_file`
   - Meaning: Optional DNS query-event log file used only by query diagnostics such as `debug_print` and `query_summary`.
-  - If omitted, no query-event text file is written. Structured searchable history remains independently available through the `query_recorder` SQLite database.
+  - If omitted, no query-event text file is written. Structured searchable history remains independently available through the SQLite, PostgreSQL, or MySQL database configured by `query_recorder`.
   - Configure this field when text output from `debug_print` or `query_summary` is wanted. Without it, those query diagnostics do not enter system logs; searchable history is unaffected.
   - Query events may contain client addresses and domain names; restrict file access and choose a retention period that matches your privacy policy.
 - `rotation`
@@ -183,6 +190,34 @@ Field notes:
 - `type: weekly`
   - Rotate every week.
   - Optional `max_files` controls how many rotated files are retained; `0` disables automatic cleanup.
+
+### `storage`
+
+`storage` defines external connections that multiple plugins can share. Optional Redis is currently supported:
+
+```yaml
+storage:
+  redis:
+    url: "${OXIDNS_NEXT_REDIS_URL}"
+    key_prefix: "oxidns-next"
+    connect_timeout_ms: 1000
+```
+
+Field notes:
+
+- `storage.redis.url`
+  - Type: `string`; Required: yes.
+  - Meaning: Redis connection URL, for example `redis://redis:6379/0`. Supply credentials through an environment variable instead of committing them to the configuration file.
+- `storage.redis.key_prefix`
+  - Type: `string`; Required: no; Default: `oxidns-next`.
+  - Meaning: Namespace prefix for every OxiDNS Next Redis key. Use a different prefix for each instance sharing one Redis deployment.
+- `storage.redis.connect_timeout_ms`
+  - Type: `integer`; Required: no; Default: `1000`.
+  - Meaning: Timeout in milliseconds for establishing a Redis connection.
+
+Defining `storage.redis` alone does not enable caching. The DNS `cache` plugin opts in through `args.redis`, while `query_recorder` uses `args.api_cache`. Redis contains only disposable cache data: network or authentication errors, timeouts, a full queue, circuit breaking, or invalid values make DNS fall back to the in-process cache and upstream, while query-history APIs fall back to SQL. Do not treat Redis as durable query-history storage.
+
+If a build does not include the `storage-redis` feature but a plugin enables Redis, configuration validation reports that the capability is unsupported. Complete PostgreSQL, MySQL, and Redis Compose examples are available under [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage).
 
 ### `network`
 

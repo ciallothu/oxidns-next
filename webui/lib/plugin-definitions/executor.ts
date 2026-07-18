@@ -304,6 +304,8 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         cache_insert_total: "写入",
         cache_skip_total: "跳过",
         cache_lazy_refresh_total: "懒刷新",
+        cache_l2_lookup_total: "Redis L2 查询",
+        cache_l2_write_total: "Redis L2 写入",
         cache_entry_count: "条目数",
       },
       metricHelp: {
@@ -317,6 +319,10 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
           "因写入策略（截断响应、无 TTL、正响应 TTL 过低）而跳过缓存的响应总数。",
         cache_lazy_refresh_total:
           "Lazy Cache 后台刷新尝试总数（按结果：started / success / failed）。",
+        cache_l2_lookup_total:
+          "Redis 二级缓存查询总数（按结果：hit / miss / error / bypass）。",
+        cache_l2_write_total:
+          "Redis 二级缓存后台写入总数（按结果：success / error / dropped）。",
         cache_entry_count: "当前缓存中的条目数量。",
       },
       cardPriority: [
@@ -406,6 +412,58 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         label: "ECS 参与缓存键",
         type: "switch",
         default: false,
+      },
+      {
+        key: "redis",
+        description:
+          "使用全局 storage.redis 作为可选二级缓存；故障时自动使用进程内缓存和上游。",
+        label: "Redis 二级缓存",
+        type: "object",
+        summaryFields: ["enabled", "command_timeout_ms", "max_inflight"],
+        fields: [
+          {
+            key: "enabled",
+            description: "启用当前 DNS cache 的 Redis 二级缓存。",
+            label: "启用 Redis",
+            type: "switch",
+            default: true,
+          },
+          {
+            key: "command_timeout_ms",
+            description: "单次 Redis 读写的最长等待时间。",
+            label: "Redis 超时(ms)",
+            type: "number",
+            default: 20,
+          },
+          {
+            key: "max_inflight",
+            description: "允许同时执行的 Redis 读取数；饱和时立即绕过。",
+            label: "最大并发读取",
+            type: "number",
+            default: 64,
+          },
+          {
+            key: "write_queue_size",
+            description: "Redis 后台写入队列容量。",
+            label: "写入队列容量",
+            type: "number",
+            default: 4096,
+          },
+          {
+            key: "failure_threshold",
+            description: "连续失败多少次后暂时绕过 Redis。",
+            label: "熔断失败阈值",
+            type: "number",
+            default: 3,
+          },
+          {
+            key: "retry_after_ms",
+            description: "熔断后等待多久再进行一次恢复探测。",
+            label: "熔断重试间隔(ms)",
+            type: "number",
+            default: 30000,
+          },
+        ],
       },
     ],
     quickSetup: {
@@ -1106,16 +1164,84 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
     kind: "query_recorder",
     type: "executor",
     name: "Query Recorder",
-    description: "将请求、响应和 sequence 路径事件持久化到 SQLite",
+    description:
+      "将请求、响应和 sequence 路径事件持久化到 SQLite、PostgreSQL 或 MySQL",
     icon: "Database",
     configSchema: [
       {
         key: "path",
-        description: "指定当前 recorder 的 SQLite 文件路径。",
-        label: "SQLite 文件",
+        description:
+          "兼容旧配置的 SQLite 文件路径；不能与 database 同时配置。",
+        label: "兼容 SQLite 文件",
         type: "text",
-        required: true,
         placeholder: "./data/query-recorder-main.sqlite",
+      },
+      {
+        key: "database",
+        description:
+          "选择查询日志数据库。生产环境首选 PostgreSQL，也支持 MySQL；SQLite 适合单机使用。",
+        label: "查询日志数据库",
+        type: "object",
+        summaryFields: ["type", "path", "url"],
+        fields: [
+          {
+            key: "type",
+            description: "选择 SQLite、PostgreSQL 或 MySQL。",
+            label: "数据库类型",
+            type: "select",
+            required: true,
+            options: [
+              { label: "SQLite", value: "sqlite" },
+              { label: "PostgreSQL（推荐）", value: "postgres" },
+              { label: "MySQL", value: "mysql" },
+            ],
+          },
+          {
+            key: "path",
+            description: "database.type 为 sqlite 时使用的文件路径。",
+            label: "SQLite 文件",
+            type: "text",
+            placeholder: "./data/query-log.sqlite",
+            fullWidth: true,
+          },
+          {
+            key: "url",
+            description:
+              "database.type 为 postgres 或 mysql 时使用的连接 URL；建议通过环境变量提供凭据。",
+            label: "数据库 URL",
+            type: "text",
+            placeholder: "${OXIDNS_NEXT_QUERY_DATABASE_URL}",
+            fullWidth: true,
+          },
+          {
+            key: "max_connections",
+            description: "PostgreSQL/MySQL 连接池最大连接数。",
+            label: "最大连接数",
+            type: "number",
+            default: 8,
+          },
+          {
+            key: "connect_timeout_ms",
+            description: "建立 PostgreSQL/MySQL 连接的超时时间。",
+            label: "连接超时(ms)",
+            type: "number",
+            default: 5000,
+          },
+          {
+            key: "acquire_timeout_ms",
+            description: "等待可用数据库连接或 SQLite reader 的最长时间。",
+            label: "获取连接超时(ms)",
+            type: "number",
+            default: 3000,
+          },
+          {
+            key: "query_timeout_ms",
+            description: "单次查询日志 API 数据库操作的最长时间。",
+            label: "查询超时(ms)",
+            type: "number",
+            default: 20000,
+          },
+        ],
       },
       {
         key: "queue_size",
@@ -1126,7 +1252,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       },
       {
         key: "batch_size",
-        description: "定义后台批量写入 SQLite 的单批记录数。",
+        description: "定义后台批量写入查询日志数据库的单批记录数。",
         label: "批量写入条数",
         type: "number",
         default: 256,
@@ -1162,10 +1288,54 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       {
         key: "reader_concurrency",
         description:
-          "限制 query_recorder API/统计读取侧同时运行的 SQLite reader 数量，避免 WebUI 或 API 突发请求占用过多阻塞线程和内存。",
+          "限制查询日志 API/统计读取的并发数，避免突发请求耗尽数据库连接。",
         label: "读取并发数",
         type: "number",
         default: 2,
+      },
+      {
+        key: "api_cache",
+        description:
+          "使用 storage.redis 缓存查询日志列表、详情和统计接口；Redis 不可用时自动回源数据库。",
+        label: "查询日志 API 缓存",
+        type: "object",
+        summaryFields: ["enabled", "records_ttl_ms", "stats_ttl_ms"],
+        fields: [
+          {
+            key: "enabled",
+            description: "启用查询日志 API Redis 缓存。",
+            label: "启用缓存",
+            type: "switch",
+          },
+          {
+            key: "records_ttl_ms",
+            description: "记录列表与详情的缓存时间。",
+            label: "记录缓存 TTL(ms)",
+            type: "number",
+            default: 2000,
+          },
+          {
+            key: "stats_ttl_ms",
+            description: "统计、排行与分布接口的缓存时间。",
+            label: "统计缓存 TTL(ms)",
+            type: "number",
+            default: 5000,
+          },
+          {
+            key: "command_timeout_ms",
+            description: "单次 Redis 读写的最长等待时间。",
+            label: "Redis 超时(ms)",
+            type: "number",
+            default: 100,
+          },
+          {
+            key: "max_value_bytes",
+            description: "允许写入 Redis 的单个响应最大字节数。",
+            label: "最大缓存值(bytes)",
+            type: "number",
+            default: 1048576,
+          },
+        ],
       },
     ],
   },

@@ -48,7 +48,7 @@ the **official preset** contents.
 
 Only the DNS forwarding path is compiled. HTTP, encrypted protocols, and all
 optional plugins are dropped. The dependency closure excludes hyper / rustls
-/ quinn / h2 / h3 / sqlite / zoneparser, producing the smallest binary.
+/ quinn / h2 / h3 / sqlite / sqlx / redis / zoneparser, producing the smallest binary.
 
 **Includes**
 
@@ -79,6 +79,7 @@ of `minimal`.
 - Providers: `geoip`, `geosite`, `v2ray_dat`, `adguard_rule`
 - Executors: `arbitrary`, `cron`, `download`, `http_request`,
   `reverse_lookup`, `query_recorder`, `script`
+- Query history supports SQLite, PostgreSQL, and MySQL, with the shared Redis connection used by `cache` and `query_recorder`
 - `upgrade` CLI subcommand and `upgrade` executor
 
 ### `full` (default) — everything
@@ -150,7 +151,8 @@ path.
 | Feature | Plugin | Main dependency |
 |---|---|---|
 | `plugin-mikrotik` | `ros_address_list` | `mikrotik-rs` |
-| `plugin-query-recorder` | `query_recorder` | `rusqlite` (bundled SQLite) |
+| `plugin-query-recorder` | `query_recorder` with SQLite / PostgreSQL / MySQL | `rusqlite` + `sqlx` |
+| `storage-redis` | Shared Redis connection for the `cache` L2 and `query_recorder` API short cache | `redis` |
 | `plugin-ipset` | `ipset` + `nftset` | `ripset` (Linux only) |
 | `plugin-cron` | `cron` | `cronexpr` |
 | `plugin-script` | `script` | — |
@@ -161,6 +163,8 @@ path.
 | `plugin-upgrade` | `upgrade` CLI subcommand + `upgrade` executor | `flate2` / `tar` / `zip` (Windows) / `semver` |
 | `provider-protobuf` | `geoip` + `geosite` + `v2ray_dat` (shared `prost`) | `prost` |
 | `provider-adguard-rule` | `adguard_rule` | — |
+
+`plugin-query-recorder` includes all three SQL drivers so a given `standard`/`full` release never rejects a recorder configuration because of a build-time backend choice. `storage-redis` adds only optional caching; SQLite/PostgreSQL/MySQL persistence does not depend on Redis. A custom slim build must enable `storage-redis` when its configuration contains `storage.redis` plus plugin Redis settings.
 
 ---
 

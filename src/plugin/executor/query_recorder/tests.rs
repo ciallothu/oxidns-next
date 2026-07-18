@@ -8,8 +8,8 @@ use tempfile::NamedTempFile;
 
 use super::model::{
     DistributionQuery, LatencyQuery, ListQuery, PendingRecord, PluginStatsKind, PluginsStatsQuery,
-    QueryRecordFilter, QueryRecordStatus, QueryRecorderConfig, TimeseriesBucket, TimeseriesQuery,
-    TopQuery,
+    QueryRecordFilter, QueryRecordStatus, QueryRecorderConfig, RecorderDatabaseConfig,
+    TimeseriesBucket, TimeseriesQuery, TopQuery,
 };
 use super::store::{
     create_schema, load_latency_summary, load_plugin_stats, load_qtype_distribution,
@@ -28,7 +28,9 @@ use crate::proto::{DNSClass, Message, Name, Question, RData, Rcode, Record, Reco
 
 fn recorder_config(path: &str) -> serde_yaml_ng::Value {
     serde_yaml_ng::to_value(QueryRecorderConfig {
-        path: path.to_string(),
+        path: Some(path.to_string()),
+        database: None,
+        api_cache: None,
         queue_size: Some(32),
         batch_size: Some(1),
         flush_interval_ms: Some(10),
@@ -234,6 +236,11 @@ fn test_record_capture_with_structured_response() {
         60,
         RData::CNAME(CNAME(Name::from_ascii("alias.example.com.").unwrap())),
     ));
+    response.add_additional(Record::from_rdata(
+        Name::from_ascii("resolver.example.com.").unwrap(),
+        60,
+        RData::A(A(Ipv4Addr::new(192, 0, 2, 53))),
+    ));
     ctx.set_response(response);
     ctx.enable_execution_path();
 
@@ -252,8 +259,75 @@ fn test_record_capture_with_structured_response() {
     assert!(record.has_response);
     assert_eq!(record.answer_count, 1);
     assert_eq!(record.authority_count, 1);
+    assert_eq!(record.additional_count, 1);
+    assert_eq!(record.answer_preview.len(), 1);
+    assert_eq!(record.answer_preview[0].name, "example.com.");
+    assert_eq!(record.answer_preview[0].rr_type, "A");
+    assert_eq!(record.answer_preview[0].payload_text, "1.1.1.1");
+    assert!(!record.answer_preview[0].truncated);
     assert_eq!(record.answers_json[0].payload_kind, "A");
+    assert_eq!(record.answers_json[0].payload_text, "1.1.1.1");
+    assert_eq!(record.answers_json[0].payload["ip"], "1.1.1.1");
     assert_eq!(record.authorities_json[0].payload_kind, "CNAME");
+    assert_eq!(
+        record.authorities_json[0].payload_text,
+        "alias.example.com."
+    );
+    assert_eq!(
+        record.authorities_json[0].payload["target"],
+        "alias.example.com."
+    );
+    assert_eq!(record.additionals_json[0].payload_kind, "A");
+    assert_eq!(record.additionals_json[0].payload_text, "192.0.2.53");
+    assert_eq!(record.additionals_json[0].payload["ip"], "192.0.2.53");
+}
+
+#[test]
+fn test_record_capture_bounds_answer_preview() {
+    let mut request = Message::new();
+    request.add_question(Question::new(
+        Name::from_ascii("preview.example.").unwrap(),
+        RecordType::A,
+        DNSClass::IN,
+    ));
+    let mut response = request.response(Rcode::NoError);
+    let long_target = format!(
+        "{}.{}.{}.",
+        "a".repeat(60),
+        "b".repeat(60),
+        "c".repeat(60),
+    );
+    response.add_answer(Record::from_rdata(
+        Name::from_ascii("preview.example.").unwrap(),
+        300,
+        RData::CNAME(CNAME(Name::from_ascii(long_target.as_str()).unwrap())),
+    ));
+    for octet in 1..=4 {
+        response.add_answer(Record::from_rdata(
+            Name::from_ascii("preview.example.").unwrap(),
+            300,
+            RData::A(A(Ipv4Addr::new(192, 0, 2, octet))),
+        ));
+    }
+    let ctx = test_context();
+    let pending = PendingRecord::new(
+        request,
+        Some(response),
+        100,
+        12,
+        ctx.execution_path.clone(),
+        0,
+        ctx.peer_addr(),
+        None,
+    );
+
+    let (record, _) = pending.take_to_record();
+    assert_eq!(record.answer_count, 5);
+    assert_eq!(record.answers_json.len(), 5);
+    assert_eq!(record.answer_preview.len(), 4);
+    assert_eq!(record.answer_preview[0].rr_type, "CNAME");
+    assert_eq!(record.answer_preview[0].payload_text.chars().count(), 160);
+    assert!(record.answer_preview[0].truncated);
 }
 
 #[tokio::test]
@@ -263,7 +337,9 @@ async fn test_query_recorder_execute_enqueues_record() {
     let temp = NamedTempFile::new().unwrap();
     let config = resolve_config(Some(
         serde_yaml_ng::to_value(QueryRecorderConfig {
-            path: temp.path().display().to_string(),
+            path: Some(temp.path().display().to_string()),
+            database: None,
+            api_cache: None,
             queue_size: Some(16),
             batch_size: Some(1),
             flush_interval_ms: Some(10),
@@ -316,7 +392,9 @@ async fn test_query_recorder_list_cursor_only_when_more_records_exist() {
     let temp = NamedTempFile::new().unwrap();
     let config = resolve_config(Some(
         serde_yaml_ng::to_value(QueryRecorderConfig {
-            path: temp.path().display().to_string(),
+            path: Some(temp.path().display().to_string()),
+            database: None,
+            api_cache: None,
             queue_size: Some(16),
             batch_size: Some(1),
             flush_interval_ms: Some(10),
@@ -897,7 +975,9 @@ async fn test_load_top_clients_allows_limit_above_200() {
     let temp = NamedTempFile::new().unwrap();
     let config = resolve_config(Some(
         serde_yaml_ng::to_value(QueryRecorderConfig {
-            path: temp.path().display().to_string(),
+            path: Some(temp.path().display().to_string()),
+            database: None,
+            api_cache: None,
             queue_size: Some(512),
             batch_size: Some(64),
             flush_interval_ms: Some(10),
@@ -1164,7 +1244,9 @@ fn test_factory_rejects_quick_setup() {
 #[test]
 fn test_resolve_config_rejects_zero_limits() {
     let config = serde_yaml_ng::to_value(QueryRecorderConfig {
-        path: "test.db".to_string(),
+        path: Some("test.db".to_string()),
+        database: None,
+        api_cache: None,
         queue_size: Some(0),
         batch_size: Some(1),
         flush_interval_ms: Some(1),
@@ -1175,4 +1257,274 @@ fn test_resolve_config_rejects_zero_limits() {
     })
     .unwrap();
     assert!(resolve_config(Some(config)).is_err());
+}
+
+#[tokio::test]
+async fn test_query_recorder_postgres_backend() {
+    let Ok(url) = std::env::var("OXIDNS_NEXT_TEST_POSTGRES_URL") else {
+        return;
+    };
+    exercise_remote_backend(
+        "ci_postgres",
+        RecorderDatabaseConfig::Postgres {
+            url,
+            max_connections: Some(4),
+            connect_timeout_ms: Some(10_000),
+            acquire_timeout_ms: Some(5_000),
+            query_timeout_ms: Some(20_000),
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_query_recorder_mysql_backend() {
+    let Ok(url) = std::env::var("OXIDNS_NEXT_TEST_MYSQL_URL") else {
+        return;
+    };
+    exercise_remote_backend(
+        "ci_mysql",
+        RecorderDatabaseConfig::Mysql {
+            url,
+            max_connections: Some(4),
+            connect_timeout_ms: Some(10_000),
+            acquire_timeout_ms: Some(5_000),
+            query_timeout_ms: Some(20_000),
+        },
+    )
+    .await;
+}
+
+async fn exercise_remote_backend(tag: &str, database: RecorderDatabaseConfig) {
+    AppClock::start();
+    let config = resolve_config(Some(
+        serde_yaml_ng::to_value(QueryRecorderConfig {
+            path: None,
+            database: Some(database),
+            api_cache: None,
+            queue_size: Some(32),
+            batch_size: Some(2),
+            flush_interval_ms: Some(10),
+            memory_tail: Some(16),
+            retention_days: Some(7),
+            cleanup_interval_hours: Some(1),
+            reader_concurrency: Some(2),
+        })
+        .unwrap(),
+    ))
+    .unwrap();
+    let mut plugin = QueryRecorder::new(tag.to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    let clear_backend = backend.clone();
+    tokio::task::spawn_blocking(move || clear_backend.clear_history())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let mut first_record = pending_record(
+        1_000,
+        101,
+        "one.example.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 10),
+        Some(Rcode::NoError),
+        None,
+        &[("allow", "matched")],
+    );
+    let first_response = first_record
+        .response
+        .as_mut()
+        .expect("response was requested for the first record");
+    first_response.add_answer(Record::from_rdata(
+        Name::from_ascii("one.example.").unwrap(),
+        300,
+        RData::A(A(Ipv4Addr::new(203, 0, 113, 10))),
+    ));
+    first_response.add_authority(Record::from_rdata(
+        Name::from_ascii("one.example.").unwrap(),
+        60,
+        RData::CNAME(CNAME(Name::from_ascii("canonical.example.").unwrap())),
+    ));
+    first_response.add_additional(Record::from_rdata(
+        Name::from_ascii("canonical.example.").unwrap(),
+        60,
+        RData::A(A(Ipv4Addr::new(203, 0, 113, 11))),
+    ));
+    backend.enqueue(first_record);
+    backend.enqueue(pending_record(
+        2_000,
+        102,
+        "two.example.",
+        RecordType::AAAA,
+        Ipv4Addr::new(192, 0, 2, 11),
+        Some(Rcode::NXDomain),
+        None,
+        &[("allow", "not_matched")],
+    ));
+    flush_backend(&backend).await;
+
+    let remote = backend.remote_pool().unwrap();
+    let (records, next_cursor) = remote
+        .query_records(&backend.tables, list_query(QueryRecordFilter::default()))
+        .await
+        .unwrap();
+    assert_eq!(records.len(), 2);
+    assert!(next_cursor.is_none());
+    let (filtered, _) = remote
+        .query_records(
+            &backend.tables,
+            list_query(QueryRecordFilter {
+                search: Some("one.example".to_string()),
+                qtype: Some("A".to_string()),
+                status: QueryRecordStatus::HasResponse,
+                matcher_tag: Some("allow".to_string()),
+                ..QueryRecordFilter::default()
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].request_id, 101);
+    let first_summary = records
+        .iter()
+        .find(|record| record.request_id == 101)
+        .expect("first record summary must exist");
+    assert_eq!(first_summary.answer_count, 1);
+    assert_eq!(first_summary.authority_count, 1);
+    assert_eq!(first_summary.additional_count, 1);
+    assert_eq!(first_summary.answer_preview.len(), 1);
+    assert_eq!(first_summary.answer_preview[0].rr_type, "A");
+    assert_eq!(first_summary.answer_preview[0].payload_text, "203.0.113.10");
+    let detail = remote
+        .load_record_detail(&backend.tables, first_summary.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!detail.steps.is_empty());
+    assert_eq!(&detail.record.answer_preview, &first_summary.answer_preview);
+    assert_eq!(detail.record.answers_json[0].rr_type, "A");
+    assert_eq!(detail.record.answers_json[0].payload_text, "203.0.113.10");
+    assert_eq!(detail.record.answers_json[0].payload["ip"], "203.0.113.10");
+    assert_eq!(detail.record.authorities_json[0].rr_type, "CNAME");
+    assert_eq!(
+        detail.record.authorities_json[0].payload["target"],
+        "canonical.example."
+    );
+    assert_eq!(detail.record.additionals_json[0].rr_type, "A");
+    assert_eq!(
+        detail.record.additionals_json[0].payload["ip"],
+        "203.0.113.11"
+    );
+
+    let (query_total, stats) = remote
+        .load_plugin_stats(
+            &backend.tables,
+            PluginsStatsQuery {
+                since_ms: None,
+                until_ms: None,
+                kind: PluginStatsKind::Matcher,
+                filter: QueryRecordFilter::default(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(query_total, 2);
+    assert_eq!(stats.len(), 1);
+
+    let top_clients = remote
+        .load_top_clients(
+            &backend.tables,
+            TopQuery {
+                since_ms: None,
+                until_ms: None,
+                filter: QueryRecordFilter::default(),
+                limit: 10,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(top_clients.sample_size, 2);
+    assert_eq!(top_clients.rows.len(), 2);
+
+    let top_qnames = remote
+        .load_top_qnames(
+            &backend.tables,
+            TopQuery {
+                since_ms: None,
+                until_ms: None,
+                filter: QueryRecordFilter::default(),
+                limit: 10,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(top_qnames.sample_size, 2);
+    assert_eq!(top_qnames.rows.len(), 2);
+
+    let distribution_query = DistributionQuery {
+        since_ms: None,
+        until_ms: None,
+        filter: QueryRecordFilter::default(),
+    };
+    let qtype = remote
+        .load_qtype_distribution(&backend.tables, distribution_query.clone())
+        .await
+        .unwrap();
+    assert_eq!(qtype.sample_size, 2);
+    assert_eq!(qtype.rows.len(), 2);
+    let rcode = remote
+        .load_rcode_distribution(&backend.tables, distribution_query)
+        .await
+        .unwrap();
+    assert_eq!(rcode.sample_size, 2);
+    assert_eq!(rcode.rows.len(), 2);
+
+    let latency = remote
+        .load_latency_summary(
+            &backend.tables,
+            LatencyQuery {
+                since_ms: None,
+                until_ms: None,
+                filter: QueryRecordFilter::default(),
+                slow_limit: 10,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(latency.sample_size, 2);
+    assert_eq!(latency.slow_top.len(), 2);
+
+    let timeseries = remote
+        .load_timeseries(
+            &backend.tables,
+            TimeseriesQuery {
+                since_ms: None,
+                until_ms: None,
+                filter: QueryRecordFilter::default(),
+                bucket: TimeseriesBucket::Minute,
+                max_buckets: 10,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(timeseries.sample_size, 2);
+    assert_eq!(timeseries.points.len(), 1);
+    assert_eq!(backend.tail.lock().unwrap().len(), 2);
+
+    remote.cleanup(&backend.tables, 1_500).await.unwrap();
+    let (records, _) = remote
+        .query_records(&backend.tables, list_query(QueryRecordFilter::default()))
+        .await
+        .unwrap();
+    assert_eq!(records.len(), 1);
+
+    let clear_backend = backend.clone();
+    let cleared = tokio::task::spawn_blocking(move || clear_backend.clear_history())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cleared.cleared_records, 1);
+    plugin.destroy().await.unwrap();
 }

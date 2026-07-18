@@ -488,6 +488,7 @@ export const zhCNWebui = {
     clientColumn: "客户端",
     timeColumn: "时间",
     resultColumn: "结果",
+    answerPreviewColumn: "解析结果",
     elapsedColumn: "耗时",
     recordCountColumn: "记录数",
     recordCountAria: "记录数说明",

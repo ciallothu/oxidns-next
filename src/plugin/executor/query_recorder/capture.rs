@@ -9,12 +9,16 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 
 use super::model::{
-    EdnsJson, EdnsOptionJson, PendingRecord, QuestionJson, RecordJson, RecordRow, StepJson,
+    AnswerPreviewJson, EdnsJson, EdnsOptionJson, PendingRecord, QuestionJson, RecordJson, RecordRow,
+    StepJson,
 };
 use crate::core::context::{ExecutionPath, ExecutionPathEvent};
 use crate::plugin::executor::rdata_json::{RDataPayloadMode, rdata_payload};
 use crate::proto::rdata::{ClientSubnet, Edns, EdnsCode, EdnsExtendedDnsError, EdnsOption};
 use crate::proto::{DNSClass, Message, Opcode, Question, Rcode, Record, RecordType};
+
+const ANSWER_PREVIEW_LIMIT: usize = 4;
+const ANSWER_PREVIEW_TEXT_LIMIT: usize = 160;
 
 impl PendingRecord {
     #[allow(clippy::too_many_arguments)]
@@ -90,6 +94,7 @@ impl PendingRecord {
             answer_count: 0,
             authority_count: 0,
             additional_count: 0,
+            answer_preview: Vec::new(),
             answers_json: Vec::new(),
             authorities_json: Vec::new(),
             additionals_json: Vec::new(),
@@ -113,6 +118,12 @@ impl PendingRecord {
                 .iter()
                 .map(record_json)
                 .collect::<Vec<_>>();
+            record.answer_preview = record
+                .answers_json
+                .iter()
+                .take(ANSWER_PREVIEW_LIMIT)
+                .map(answer_preview_json)
+                .collect();
             record.authorities_json = response
                 .authorities()
                 .iter()
@@ -165,6 +176,20 @@ fn record_json(record: &Record) -> RecordJson {
         payload_kind,
         payload_text,
         payload,
+    }
+}
+
+fn answer_preview_json(record: &RecordJson) -> AnswerPreviewJson {
+    let mut chars = record.payload_text.chars();
+    let payload_text = chars
+        .by_ref()
+        .take(ANSWER_PREVIEW_TEXT_LIMIT)
+        .collect::<String>();
+    AnswerPreviewJson {
+        name: record.name.clone(),
+        rr_type: record.rr_type.clone(),
+        payload_text,
+        truncated: chars.next().is_some(),
     }
 }
 

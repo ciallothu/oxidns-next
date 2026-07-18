@@ -1,0 +1,124 @@
+name: Query Recorder Storage CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - "release/*"
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "tests/**"
+      - ".github/workflows/storage-ci.yml"
+  pull_request:
+    branches:
+      - main
+      - "release/*"
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - "tests/**"
+      - ".github/workflows/storage-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  OXIDNS_NEXT_TEST_POSTGRES_URL: postgres://oxidns:oxidns@127.0.0.1:5432/oxidns_test
+  OXIDNS_NEXT_TEST_MYSQL_URL: mysql://oxidns:oxidns@127.0.0.1:3306/oxidns_test
+  OXIDNS_NEXT_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+
+jobs:
+  storage:
+    name: SQLite / PostgreSQL / MySQL / Redis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: oxidns
+          POSTGRES_PASSWORD: oxidns
+          POSTGRES_DB: oxidns_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oxidns -d oxidns_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: oxidns_test
+          MYSQL_USER: oxidns
+          MYSQL_PASSWORD: oxidns
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uoxidns -poxidns --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ipset nftables
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo +nightly fmt --all -- --check
+
+      - name: Check query recorder without Redis
+        run: >-
+          cargo +nightly check --locked --no-default-features
+          --features plugin-query-recorder --all-targets
+
+      - name: Lint query recorder with Redis
+        run: >-
+          cargo +nightly clippy --locked --no-default-features
+          --features "plugin-query-recorder,storage-redis"
+          --all-targets -- -D warnings
+
+      - name: Test query recorder backends and API cache
+        run: >-
+          cargo +nightly test --locked --all-features --lib
+          plugin::executor::query_recorder::
+          -- --nocapture --test-threads=1
+
+      - name: Test Redis DNS cache
+        run: >-
+          cargo +nightly test --locked --all-features --lib
+          test_redis_dns_cache_integration
+          -- --nocapture --test-threads=1

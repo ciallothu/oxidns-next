@@ -12,14 +12,28 @@ This page lists OxiDNS Next releases first. The remaining entries are retained a
 ## 2026-07
 
 <div className="release-stack">
-  <ReleaseCard version="v0.1.0" badge="First OxiDNS Next Release" date="2026-07-18" defaultOpen>
-      **What's new**
+  <ReleaseCard version="v0.1.0" badge="First OxiDNS Next Release" date="2026-07-19" defaultOpen>
+      **Release Scope**
 
-      - The first public OxiDNS Next release establishes its independent identity and release channel.
-      - Local login, OIDC, passkeys, and TOTP add flexible account security choices.
-      - Query logs now have a dedicated view with keyword and date search.
-      - The dashboard and plugin center are combined so status and every plugin are available in one place.
-      - Feature implementation was audited and the user-facing documentation was refreshed.
+      - The first public OxiDNS Next release establishes the independent product, release channel, and management console. This rebuilt `v0.1.0` focuses on fixing query-log WebUI stalls and HTTP 504 responses on large databases, while adding PostgreSQL, MySQL, and Redis support.
+
+      **Changes**
+
+      - `feat(query_recorder)`: Query-log persistence now supports SQLite, PostgreSQL, and MySQL. SQLite remains the zero-dependency default; PostgreSQL is the preferred production backend, and MySQL is fully supported as well.
+      - `fix(query_recorder)`: Fix contention between record and statistics requests, cancelled SQLite reads continuing to occupy reader capacity, and list requests loading unnecessary full records. Lists now return lightweight summaries, reads have timeout and cancellation boundaries, and the WebUI no longer starts competing first-load requests in parallel.
+      - `feat(query_recorder)`: Show actual IP, CNAME, and similar answer values directly in query-history lists while retaining the complete DNS response in details. The execution path is now a compact static flow that follows natural page scrolling instead of intercepting wheel or touch gestures for canvas zoom.
+      - `feat(cache)`: Add optional shared Redis caching. The DNS `cache` executor can use Redis as an L2 cache, while `query_recorder` can cache record-list, detail, and statistics API responses.
+      - `fix(cache)`: Redis is fail-open. When it is not configured, times out, has a full queue, or is temporarily unavailable, DNS falls back to the in-process cache and upstreams, while query-log APIs fall back to the SQL database. Redis never holds the only copy of query-log data.
+      - `feat(auth)` / `feat(webui)`: Add local login, OIDC, passkeys, and TOTP account-security options; give query logs a dedicated view; and combine the dashboard with the plugin center.
+      - `ci`: Add dedicated remote storage validation with PostgreSQL 17, MySQL 8.4, and Redis 7.4 service containers.
+
+      **Compatibility and Upgrade Notes**
+
+      - The root crate remains at version `0.1.0`, and the rebuilt release tag is `v0.1.0`.
+      - Select `sqlite`, `postgres`, or `mysql` with `query_recorder.args.database.type`. PostgreSQL / MySQL use `url`, `max_connections`, `connect_timeout_ms`, `acquire_timeout_ms`, and `query_timeout_ms`; provide credentials through `${VAR}` environment placeholders.
+      - Configure the Redis URL and key prefix under top-level `storage.redis`, then opt in under DNS `cache.args.redis` or `query_recorder.args.api_cache`. Redis is disposable cache storage, not a persistent query-log source.
+      - This release replaces the original `v0.1.0`. Existing users should download the rebuilt binaries or pull the `v0.1.0` / `latest` container image again.
+      - Existing SQLite configurations continue to work, including the legacy `query_recorder.args.path` form. No SQLite-to-PostgreSQL/MySQL query-log migration tool is provided; confirm that old logs are no longer needed, then start with the new database.
   </ReleaseCard>
 </div>
 

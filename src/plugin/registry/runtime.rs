@@ -13,8 +13,12 @@ use super::{
     PluginRegistry, PluginRuntime, lock_mutex, read_rwlock, try_global_catalog, write_rwlock,
 };
 use crate::config::types::Config;
+#[cfg(feature = "storage-redis")]
+use crate::infra::cache::redis as redis_cache;
 use crate::infra::control::{AppController, ControlRequestError};
-use crate::infra::error::{DnsError, Result};
+#[cfg(not(feature = "storage-redis"))]
+use crate::infra::error::DnsError;
+use crate::infra::error::Result;
 use crate::infra::network::outbound;
 
 #[cfg(debug_assertions)]
@@ -73,6 +77,21 @@ impl PluginRuntimeManager {
         let previous_outbound = outbound::global();
         outbound::install_global(&config.network.outbound)?;
 
+        #[cfg(feature = "storage-redis")]
+        let previous_redis = redis_cache::global();
+        #[cfg(feature = "storage-redis")]
+        if let Err(err) = redis_cache::install_global(config.storage.redis.as_ref()) {
+            outbound::restore_global(previous_outbound);
+            return Err(err);
+        }
+        #[cfg(not(feature = "storage-redis"))]
+        if config.storage.redis.is_some() {
+            outbound::restore_global(previous_outbound);
+            return Err(DnsError::config(
+                "storage.redis requires a binary built with the 'storage-redis' feature",
+            ));
+        }
+
         let mut candidate = PluginRegistry::new();
         #[cfg(debug_assertions)]
         candidate.set_test_runtime_guard(test_guard);
@@ -81,6 +100,8 @@ impl PluginRuntimeManager {
         if let Err(err) = candidate.clone().init_plugins(config.plugins).await {
             candidate.destroy().await;
             outbound::restore_global(previous_outbound);
+            #[cfg(feature = "storage-redis")]
+            redis_cache::restore_global(previous_redis);
             return Err(err);
         }
 
@@ -101,6 +122,8 @@ impl PluginRuntimeManager {
             previous.destroy().await;
         }
         outbound::clear_global();
+        #[cfg(feature = "storage-redis")]
+        redis_cache::clear_global();
     }
 
     /// The manager is the single authoritative owner of the application

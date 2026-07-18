@@ -71,7 +71,7 @@ See [Executor Plugins](executor.mdx) for full field reference. Grouped as: polic
 | Plugin | Purpose |
 | --- | --- |
 | [`query_summary`](executor.mdx#query_summary) | Emits a concise query summary after downstream execution. |
-| [`query_recorder`](executor.mdx#query_recorder) | Persists requests, responses, and `sequence` path events to SQLite, with history, stats, and SSE stream APIs. |
+| [`query_recorder`](executor.mdx#query_recorder) | Persists requests, responses, and `sequence` path events to SQLite, PostgreSQL, or MySQL, with history, stats, and SSE stream APIs plus an optional Redis API short cache. |
 | [`metrics_collector`](executor.mdx#metrics_collector) | Collects lightweight request count and latency metrics and exports them in Prometheus format. |
 | [`debug_print`](executor.mdx#debug_print) | Prints request and response objects for debugging. |
 | [`sleep`](executor.mdx#sleep) | Async delay for testing and policy experiments. |
