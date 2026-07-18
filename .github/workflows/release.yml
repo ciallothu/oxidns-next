@@ -181,6 +181,8 @@ jobs:
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Download WebUI artifact
         uses: actions/download-artifact@v8
@@ -337,6 +339,8 @@ jobs:
 
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-${{ matrix.bundle }}
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross

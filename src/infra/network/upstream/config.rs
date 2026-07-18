@@ -576,40 +576,29 @@ fn detect_connection_type(
     let url =
         Url::parse(addr).map_err(|e| DnsError::plugin(format!("invalid upstream URL: {}", e)))?;
     let mut helper_flags = HelperFlags::default();
-    let connection_type;
 
     let host = url
         .host_str()
         .map(|host| host.to_owned())
         .ok_or_else(|| DnsError::plugin("invalid upstream URL: no host specified"))?;
 
-    match url.scheme() {
-        "udp" => {
-            connection_type = ConnectionType::UDP;
-        }
-        "tcp" => {
-            connection_type = ConnectionType::TCP;
-        }
+    let connection_type = match url.scheme() {
+        "udp" => ConnectionType::UDP,
+        "tcp" => ConnectionType::TCP,
         "tcp+pipeline" => {
             helper_flags.force_pipeline = true;
-            connection_type = ConnectionType::TCP;
+            ConnectionType::TCP
         }
-        "tls" => {
-            connection_type = ConnectionType::DoT;
-        }
+        "tls" => ConnectionType::DoT,
         "tls+pipeline" => {
             helper_flags.force_pipeline = true;
-            connection_type = ConnectionType::DoT;
+            ConnectionType::DoT
         }
-        "quic" | "doq" => {
-            connection_type = ConnectionType::DoQ;
-        }
-        "https" | "doh" => {
-            connection_type = ConnectionType::DoH;
-        }
+        "quic" | "doq" => ConnectionType::DoQ,
+        "https" | "doh" => ConnectionType::DoH,
         "h3" => {
             helper_flags.force_http3 = true;
-            connection_type = ConnectionType::DoH;
+            ConnectionType::DoH
         }
         other => {
             return Err(DnsError::plugin(format!(

@@ -738,7 +738,7 @@ pub enum ApiAuthConfig {
         cookie_same_site: ApiCookieSameSite,
         /// Browser-visible base URL, used to derive WebAuthn settings.
         public_url: Option<String>,
-        oidc: Option<ApiOidcConfig>,
+        oidc: Option<Box<ApiOidcConfig>>,
         passkey: Option<ApiPasskeyConfig>,
     },
 }
@@ -854,6 +854,7 @@ impl ApiAuthConfig {
         Ok(())
     }
 
+    #[cfg(feature = "api")]
     pub(crate) fn database_path(&self) -> &str {
         match self {
             Self::Basic { .. } => "./data/oxidns-next-auth.db",
@@ -861,6 +862,7 @@ impl ApiAuthConfig {
         }
     }
 
+    #[cfg(feature = "api")]
     pub(crate) fn session_ttl_seconds(&self) -> u64 {
         match self {
             Self::Basic { .. } => default_auth_session_ttl_seconds(),

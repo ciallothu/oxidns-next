@@ -30,6 +30,16 @@ pub(crate) struct SessionRecord {
     pub auth_method: String,
 }
 
+pub(crate) struct NewSession<'a> {
+    pub(crate) id: &'a str,
+    pub(crate) token_hash: &'a [u8],
+    pub(crate) user_id: &'a str,
+    pub(crate) csrf_token: &'a str,
+    pub(crate) auth_method: &'a str,
+    pub(crate) now: i64,
+    pub(crate) expires_at: i64,
+}
+
 #[derive(Clone)]
 pub(crate) struct PasskeyRecord {
     pub id: String,
@@ -271,23 +281,22 @@ impl AuthStore {
         Ok(true)
     }
 
-    pub(crate) fn create_session(
-        &self,
-        id: &str,
-        token_hash: &[u8],
-        user_id: &str,
-        csrf_token: &str,
-        auth_method: &str,
-        now: i64,
-        expires_at: i64,
-    ) -> Result<()> {
+    pub(crate) fn create_session(&self, session: NewSession<'_>) -> Result<()> {
         self.connection.execute(
             "INSERT INTO auth_sessions (id, token_hash, user_id, csrf_token, auth_method, created_at, last_seen_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)",
-            params![id, token_hash, user_id, csrf_token, auth_method, now, expires_at],
+            params![
+                session.id,
+                session.token_hash,
+                session.user_id,
+                session.csrf_token,
+                session.auth_method,
+                session.now,
+                session.expires_at
+            ],
         )?;
         self.connection.execute(
             "UPDATE auth_users SET last_login_at = ?2 WHERE id = ?1",
-            params![user_id, now],
+            params![session.user_id, session.now],
         )?;
         Ok(())
     }

@@ -35,7 +35,9 @@ use webauthn_rs::prelude::{
     RegisterPublicKeyCredential, Webauthn, WebauthnBuilder,
 };
 
-use crate::api::auth_store::{AuthStore, OidcIdentityRecord, PasskeyRecord, UserRecord};
+use crate::api::auth_store::{
+    AuthStore, NewSession, OidcIdentityRecord, PasskeyRecord, UserRecord,
+};
 use crate::api::{ApiHandler, ApiRegister, ApiResponse, json_error, json_ok, simple_response};
 use crate::config::types::{ApiAuthConfig, ApiCookieSameSite, ApiOidcConfig};
 use crate::infra::error::{DnsError, Result};
@@ -264,7 +266,7 @@ impl AuthService {
                 *cookie_secure,
                 *cookie_same_site,
                 public_url.clone(),
-                oidc.clone().filter(|config| config.enabled),
+                oidc.as_deref().cloned().filter(|config| config.enabled),
                 passkey.clone().filter(|config| config.enabled),
             ),
         };
@@ -723,15 +725,15 @@ impl AuthService {
         let insert_method = auth_method.to_string();
         self.run_store(move |store| {
             store.purge_expired_sessions(now)?;
-            store.create_session(
-                &insert_id,
-                &token_hash,
-                &insert_user,
-                &insert_csrf,
-                &insert_method,
+            store.create_session(NewSession {
+                id: &insert_id,
+                token_hash: &token_hash,
+                user_id: &insert_user,
+                csrf_token: &insert_csrf,
+                auth_method: &insert_method,
                 now,
                 expires_at,
-            )
+            })
         })
         .await?;
         let user_id = user_id.to_string();
