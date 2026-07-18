@@ -3,7 +3,7 @@ title: 插件总览
 sidebar_position: 1
 ---
 
-OxiDNS 的所有能力都来自插件，按职责分为四层：
+OxiDNS Next 的所有能力都来自插件，按职责分为四层：
 
 - `server`：网络入口，负责监听与接入协议。
 - `executor`：执行动作，负责转发、缓存、重写、观测和系统联动。
@@ -91,7 +91,7 @@ server -> sequence
 
 | 插件 | 作用 |
 | --- | --- |
-| [`upgrade`](executor.mdx#upgrade) | 在执行器链路中触发 OxiDNS 升级流程。 |
+| [`upgrade`](executor.mdx#upgrade) | 在执行器链路中触发 OxiDNS Next 升级流程。 |
 | [`download`](executor.mdx#download) | 下载一个或多个 `http/https` 文件到本地，并在写入完成后原子覆盖。 |
 | [`reload_provider`](executor.mdx#reload_provider) | 按 tag 定向重建 provider 内部快照，不触发整体配置 reload。 |
 | [`reload`](executor.mdx#reload) | 触发与 `POST /reload` 相同的应用级全量 reload。 |

@@ -11,15 +11,15 @@ import {
   useState,
 } from "react";
 import type { ConfigField } from "@/lib/plugin-definitions";
-import { ConfigValidationError, validateConfigText } from "@/lib/oxidns-api";
+import { ConfigValidationError, validateConfigText } from "@/lib/oxidns-next-api";
 import {
-  clearOxiDnsYamlModelContext,
-  registerOxiDnsYamlLanguage,
-  setOxiDnsYamlModelContext,
-  updateOxiDnsYamlMarkers,
-  type OxiDnsYamlDiagnostic,
-  type OxiDnsYamlEditorVariant,
-} from "@/lib/oxidns-yaml-monaco";
+  clearOxiDnsNextYamlModelContext,
+  registerOxiDnsNextYamlLanguage,
+  setOxiDnsNextYamlModelContext,
+  updateOxiDnsNextYamlMarkers,
+  type OxiDnsNextYamlDiagnostic,
+  type OxiDnsNextYamlEditorVariant,
+} from "@/lib/oxidns-next-yaml-monaco";
 import type { PluginInstance } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { WEBUI } from "@/lib/i18n";
@@ -39,7 +39,7 @@ interface YamlEditorProps {
   readOnly?: boolean;
   className?: string;
   lineNumbers?: boolean;
-  variant?: OxiDnsYamlEditorVariant;
+  variant?: OxiDnsNextYamlEditorVariant;
   plugins?: PluginInstance[];
   pluginKind?: string;
   fields?: ConfigField[];
@@ -93,7 +93,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
     );
 
     const [backendDiagnostics, setBackendDiagnostics] = useState<
-      OxiDnsYamlDiagnostic[]
+      OxiDnsNextYamlDiagnostic[]
     >([]);
     const context = useMemo(
       () => ({
@@ -107,13 +107,13 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
       [variant, locale, plugins, pluginKind, fields, currentPluginName],
     );
     const theme =
-      resolvedTheme === "light" ? "oxidns-yaml-light" : "oxidns-yaml-dark";
+      resolvedTheme === "light" ? "oxidns-next-yaml-light" : "oxidns-next-yaml-dark";
 
     // beforeMount runs synchronously before monaco.editor.create(), ensuring
     // custom themes are defined before the editor tries to apply them via the
     // theme prop. Without this, the editor briefly renders with vs-dark / vs.
     const handleBeforeMount = (monaco: MonacoApi) => {
-      registerOxiDnsYamlLanguage(monaco);
+      registerOxiDnsNextYamlLanguage(monaco);
     };
 
     const handleMount: OnMount = (editor, monaco) => {
@@ -122,7 +122,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
       const model = editor.getModel();
       modelRef.current = model;
 
-      registerOxiDnsYamlLanguage(monaco);
+      registerOxiDnsNextYamlLanguage(monaco);
       // KeyMod.CtrlCmd maps to ⌘ on macOS and Ctrl on Windows/Linux
       // automatically, so the save shortcut is OS-correct by construction and
       // the browser "save page" dialog is suppressed while the editor is focused.
@@ -130,22 +130,22 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
         onSaveRef.current?.();
       });
       if (model) {
-        setOxiDnsYamlModelContext(model, context);
-        updateOxiDnsYamlMarkers(monaco, model, context, backendDiagnostics);
+        setOxiDnsNextYamlModelContext(model, context);
+        updateOxiDnsNextYamlMarkers(monaco, model, context, backendDiagnostics);
       }
     };
 
     useEffect(() => {
       const model = modelRef.current;
       if (!model) return;
-      setOxiDnsYamlModelContext(model, context);
+      setOxiDnsNextYamlModelContext(model, context);
     }, [context]);
 
     useEffect(() => {
       const monaco = monacoRef.current;
       const model = modelRef.current;
       if (!monaco || !model) return;
-      updateOxiDnsYamlMarkers(
+      updateOxiDnsNextYamlMarkers(
         monaco,
         model,
         context,
@@ -201,7 +201,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
     useEffect(() => {
       const model = modelRef.current;
       return () => {
-        if (model) clearOxiDnsYamlModelContext(model);
+        if (model) clearOxiDnsNextYamlModelContext(model);
       };
     }, []);
 

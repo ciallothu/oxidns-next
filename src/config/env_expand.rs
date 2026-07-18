@@ -414,7 +414,7 @@ mod tests {
             "NUM_WITH_COMMENT" => Some(OsString::from("30 #abc")),
             "BOOL_WITH_TRAILING_TEXT" => Some(OsString::from("true keep")),
             "JUST_HASH" => Some(OsString::from("#hash")),
-            "PATHY" => Some(OsString::from("/etc/oxidns")),
+            "PATHY" => Some(OsString::from("/etc/oxidns-next")),
             "SECTION" => Some(OsString::from("settings")),
             _ => None,
         }
@@ -718,7 +718,7 @@ mod tests {
     fn include_paths_expand_through_string_substitution() {
         let v = run("include:\n  - ${PATHY}/extra.yaml\n").expect("expand");
         let seq = v.get("include").and_then(|x| x.as_sequence()).unwrap();
-        assert_eq!(seq[0].as_str(), Some("/etc/oxidns/extra.yaml"));
+        assert_eq!(seq[0].as_str(), Some("/etc/oxidns-next/extra.yaml"));
     }
 
     #[test]

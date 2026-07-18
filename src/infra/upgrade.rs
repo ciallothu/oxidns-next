@@ -22,13 +22,13 @@ use crate::infra::network::http_client::{
     DownloadProgress, HttpClient, HttpClientOptions, HttpRequestOptions,
 };
 
-const DEFAULT_REPOSITORY: &str = "svenshi/oxidns";
+const DEFAULT_REPOSITORY: &str = "ciallothu/oxidns-next";
 const DEFAULT_TARGET: &str = "latest";
 const DEFAULT_CACHE_DIR: &str = "./upgrade-cache";
 const DEFAULT_BACKUP_DIR: &str = "./upgrade-backups";
 const DEFAULT_WEBUI_DIR: &str = "./webui";
 
-const GITHUB_USER_AGENT: &str = "OxiDNS";
+const GITHUB_USER_AGENT: &str = "OxiDNS Next";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -330,11 +330,13 @@ pub(crate) async fn apply_unchecked(
         .unwrap_or_default()
         .as_secs();
     #[cfg(not(windows))]
-    let backup_path = config.backup_dir.join(format!("oxidns-{}-{}", VERSION, ts));
+    let backup_path = config
+        .backup_dir
+        .join(format!("oxidns-next-{}-{}", VERSION, ts));
     #[cfg(windows)]
     let backup_path = config
         .backup_dir
-        .join(format!("oxidns-{}-{}.exe", VERSION, ts));
+        .join(format!("oxidns-next-{}-{}.exe", VERSION, ts));
 
     print_cli_apply_step(
         context,
@@ -597,12 +599,12 @@ fn unpack_zip(archive: &std::path::Path, out_dir: &std::path::Path) -> Result<()
 
 #[cfg(windows)]
 fn find_extracted_binary_windows(unpack_dir: &std::path::Path) -> Result<PathBuf> {
-    let candidate = unpack_dir.join("oxidns.exe");
+    let candidate = unpack_dir.join("oxidns-next.exe");
     if candidate.is_file() {
         return Ok(candidate);
     }
     Err(DnsError::runtime(format!(
-        "archive did not contain oxidns.exe at '{}'",
+        "archive did not contain oxidns-next.exe at '{}'",
         candidate.display()
     )))
 }
@@ -753,9 +755,9 @@ fn resolve_requested_bundle(
 
 fn archive_name_for_bundle(bundle: UpgradeBundle, target: &str, ext: &str) -> Result<String> {
     match bundle {
-        UpgradeBundle::Full => Ok(format!("oxidns-{target}.{ext}")),
+        UpgradeBundle::Full => Ok(format!("oxidns-next-{target}.{ext}")),
         UpgradeBundle::Minimal | UpgradeBundle::Standard => {
-            Ok(format!("oxidns-{}-{target}.{ext}", bundle.as_str()))
+            Ok(format!("oxidns-next-{}-{target}.{ext}", bundle.as_str()))
         }
         UpgradeBundle::Auto => Err(DnsError::runtime(
             "upgrade bundle auto must be resolved before archive naming",
@@ -871,19 +873,19 @@ fn unpack_tar_gz(archive: &Path, out_dir: &Path) -> Result<()> {
 
 #[cfg(not(windows))]
 fn find_extracted_binary(unpack_dir: &Path) -> Result<PathBuf> {
-    let candidate = unpack_dir.join("oxidns");
+    let candidate = unpack_dir.join("oxidns-next");
     if candidate.is_file() {
         return Ok(candidate);
     }
     Err(DnsError::runtime(format!(
-        "archive did not contain oxidns binary at '{}'",
+        "archive did not contain oxidns-next binary at '{}'",
         candidate.display()
     )))
 }
 
 #[cfg(not(windows))]
 fn replace_binary(source: &Path, target: &Path) -> Result<()> {
-    let tmp = target.with_extension("oxidns-upgrade-new");
+    let tmp = target.with_extension("oxidns-next-upgrade-new");
     fs::copy(source, &tmp).map_err(|err| {
         DnsError::runtime(format!(
             "failed to stage upgraded binary '{}': {}",
@@ -1079,8 +1081,8 @@ mod tests {
     #[test]
     fn parses_asset_sha256_digest() {
         let asset = ReleaseAsset {
-            name: "oxidns.tar.gz".to_string(),
-            browser_download_url: "https://example.com/oxidns.tar.gz".to_string(),
+            name: "oxidns-next.tar.gz".to_string(),
+            browser_download_url: "https://example.com/oxidns-next.tar.gz".to_string(),
             digest: Some(
                 "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     .to_string(),
@@ -1119,7 +1121,7 @@ mod tests {
             archive_name_for_bundle(UpgradeBundle::Full, "x86_64-unknown-linux-musl", "tar.gz")
                 .unwrap();
 
-        assert_eq!(name, "oxidns-x86_64-unknown-linux-musl.tar.gz");
+        assert_eq!(name, "oxidns-next-x86_64-unknown-linux-musl.tar.gz");
     }
 
     #[test]
@@ -1137,10 +1139,13 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(minimal, "oxidns-minimal-x86_64-unknown-linux-musl.tar.gz");
+        assert_eq!(
+            minimal,
+            "oxidns-next-minimal-x86_64-unknown-linux-musl.tar.gz"
+        );
         assert_eq!(
             standard,
-            "oxidns-standard-aarch64-unknown-linux-musl.tar.gz"
+            "oxidns-next-standard-aarch64-unknown-linux-musl.tar.gz"
         );
     }
 
@@ -1176,7 +1181,7 @@ mod tests {
             html_url: None,
             assets: vec![
                 ReleaseAsset {
-                    name: "oxidns-standard-x86_64-unknown-linux-musl.tar.gz".to_string(),
+                    name: "oxidns-next-standard-x86_64-unknown-linux-musl.tar.gz".to_string(),
                     browser_download_url: "https://example.com/standard.tar.gz".to_string(),
                     digest: None,
                 },
@@ -1286,9 +1291,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let unpacked = tmp.path().join(".unpack/webui");
         write_file(&unpacked.join("index.html"), b"new-content");
-        let real_target = tmp.path().join("usr/share/oxidns/webui");
+        let real_target = tmp.path().join("usr/share/oxidns-next/webui");
         write_file(&real_target.join("marker.txt"), b"old-marker");
-        let link_parent = tmp.path().join("var/lib/oxidns");
+        let link_parent = tmp.path().join("var/lib/oxidns-next");
         fs::create_dir_all(&link_parent).unwrap();
         let link_target = link_parent.join("webui");
         std::os::unix::fs::symlink(&real_target, &link_target).unwrap();

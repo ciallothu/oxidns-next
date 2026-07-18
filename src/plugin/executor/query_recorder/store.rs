@@ -1063,6 +1063,7 @@ pub(super) fn load_rcode_distribution(
          SELECT
             totals.sample_size,
             CASE
+                WHEN sample_records.id IS NULL THEN NULL
                 WHEN sample_records.rcode IS NOT NULL THEN sample_records.rcode
                 WHEN sample_records.error IS NOT NULL THEN '_ERROR'
                 WHEN sample_records.has_response = 0 THEN '_NO_RESPONSE'
@@ -1408,12 +1409,30 @@ fn record_filter_clauses(
         ));
         params.push(Value::Text(matcher_tag.to_string()));
     }
+    if let Some(search) = filter.search.as_deref() {
+        let pattern = like_pattern(search);
+        clauses.push(format!(
+            "(
+                EXISTS (
+                    SELECT 1
+                    FROM {questions} q
+                    WHERE q.record_id = {alias}.id
+                      AND q.name_lc LIKE ? ESCAPE '\\'
+                )
+                OR LOWER({alias}.client_ip) LIKE LOWER(?) ESCAPE '\\'
+            )",
+            questions = tables.questions,
+        ));
+        params.push(Value::Text(pattern.to_ascii_lowercase()));
+        params.push(Value::Text(pattern));
+    }
     if let Some(qname) = filter.qname.as_deref() {
         clauses.push(format!(
-            "{alias}.id IN (
-                SELECT q.record_id
+            "EXISTS (
+                SELECT 1
                 FROM {questions} q
-                WHERE q.name_lc LIKE ? ESCAPE '\\'
+                WHERE q.record_id = {alias}.id
+                  AND q.name_lc LIKE ? ESCAPE '\\'
             )",
             questions = tables.questions,
         ));

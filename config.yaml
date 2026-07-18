@@ -1,26 +1,57 @@
-# OxiDNS default configuration file
+# OxiDNS Next default configuration file
 #
 # See full documentation at:
-# https://oxidns.org
+# https://github.com/ciallothu/oxidns-next#readme
 
 log:
   level: info
+  # Optional plain-text sink for debug_print/query_summary query events. The
+  # searchable query history below is stored independently in SQLite.
+  # query_file: "./data/query-events.log"
 
 # Management API (optional)
 api:
   http:
     listen: ":9199"
-    # auth:
-    #   type: basic
-    #   username: admin
-    #   password: secret
+    # Persistent administrator accounts. The first account can be created by a
+    # direct loopback request. Reverse-proxy and remote bootstrap requests must
+    # provide a configured bootstrap_token or bootstrap_token_env.
+    auth:
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      # bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
+      # For a genuinely cross-site WebUI use cookie_same_site: none together
+      # with HTTPS (or cookie_secure: true) and an exact CORS allowed_origins.
+      cookie_same_site: lax
+      # public_url: "https://dns.example.com"
+      # passkey:
+      #   rp_id: "dns.example.com"
+      #   origins: ["https://dns.example.com"]
+      # oidc:
+      #   issuer_url: "https://id.example.com"
+      #   client_id: "oxidns-next"
+      #   client_secret_env: OXIDNS_NEXT_OIDC_CLIENT_SECRET
+      #   redirect_url: "https://dns.example.com/api/auth/oidc/callback"
+      #   allowed_users:
+      #     - claim: "admin@example.com"
+      #       username: "admin"
     # Optional static WebUI directory. Relative paths resolve from -d/--working-dir.
-    # Debian packages use -d /var/lib/oxidns, so ./webui means /var/lib/oxidns/webui.
+    # Debian packages use -d /var/lib/oxidns-next, so ./webui means /var/lib/oxidns-next/webui.
     # API routes are served under /api/*.
     webui:
       root: "./webui"
 
 plugins:
+  # Persist structured DNS query history separately from system logs.
+  # query_log must be the first main_sequence step so it can observe the
+  # complete downstream request/response path through the with_next chain.
+  - tag: query_log
+    type: query_recorder
+    args:
+      path: "./data/query-log.sqlite"
+      retention_days: 7
+
   # Forward to upstream DNS servers
   - tag: forward
     type: forward
@@ -31,6 +62,7 @@ plugins:
   - tag: main_sequence
     type: sequence
     args:
+      - exec: $query_log
       - exec: $forward
       - exec: accept
 

@@ -76,12 +76,12 @@ export const zhCNPluginDefined = {
         cert: {
           label: "TLS 证书",
           description: "指定 TLS 证书文件路径。",
-          placeholder: "/etc/oxidns/server.crt",
+          placeholder: "/etc/oxidns-next/server.crt",
         },
         key: {
           label: "TLS 私钥",
           description: "指定 TLS 私钥文件路径。",
-          placeholder: "/etc/oxidns/server.key",
+          placeholder: "/etc/oxidns-next/server.key",
         },
         idle_timeout: {
           label: "空闲超时(秒)",
@@ -154,12 +154,12 @@ export const zhCNPluginDefined = {
         cert: {
           label: "HTTPS 证书",
           description: "指定 HTTPS 证书文件路径。",
-          placeholder: "/etc/oxidns/server.crt",
+          placeholder: "/etc/oxidns-next/server.crt",
         },
         key: {
           label: "HTTPS 私钥",
           description: "指定 HTTPS 私钥文件路径。",
-          placeholder: "/etc/oxidns/server.key",
+          placeholder: "/etc/oxidns-next/server.key",
         },
         idle_timeout: {
           label: "空闲超时(秒)",
@@ -212,12 +212,12 @@ export const zhCNPluginDefined = {
         cert: {
           label: "TLS 证书",
           description: "指定 DoQ 所需 TLS 证书文件。",
-          placeholder: "/etc/oxidns/server.crt",
+          placeholder: "/etc/oxidns-next/server.crt",
         },
         key: {
           label: "TLS 私钥",
           description: "指定 DoQ 所需 TLS 私钥文件。",
-          placeholder: "/etc/oxidns/server.key",
+          placeholder: "/etc/oxidns-next/server.key",
         },
         idle_timeout: {
           label: "空闲超时(秒)",
@@ -581,11 +581,11 @@ export const zhCNPluginDefined = {
         files: {
           label: "hosts 文件",
           description: "指定外部 hosts 规则文件列表。",
-          placeholder: "/etc/oxidns/hosts.txt",
+          placeholder: "/etc/oxidns-next/hosts.txt",
         },
         "files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/hosts.txt",
+          placeholder: "/etc/oxidns-next/hosts.txt",
         },
         short_circuit: {
           label: "命中后停止后续执行",
@@ -624,11 +624,11 @@ export const zhCNPluginDefined = {
         files: {
           label: "记录文件",
           description: "指定静态记录文件列表。",
-          placeholder: "/etc/oxidns/zone.txt",
+          placeholder: "/etc/oxidns-next/zone.txt",
         },
         "files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/zone.txt",
+          placeholder: "/etc/oxidns-next/zone.txt",
         },
         short_circuit: {
           label: "命中后停止后续执行",
@@ -653,11 +653,11 @@ export const zhCNPluginDefined = {
         files: {
           label: "规则文件",
           description: "指定外部重定向规则文件列表。",
-          placeholder: "/etc/oxidns/redirect.txt",
+          placeholder: "/etc/oxidns-next/redirect.txt",
         },
         "files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/redirect.txt",
+          placeholder: "/etc/oxidns-next/redirect.txt",
         },
       },
     },
@@ -1259,11 +1259,11 @@ export const zhCNPluginDefined = {
         args: {
           label: "命令参数",
           description: "传给命令的参数数组。",
-          placeholder: "/etc/oxidns/notify.sh\n${qname}",
+          placeholder: "/etc/oxidns-next/notify.sh\n${qname}",
         },
         "args[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/notify.sh",
+          placeholder: "/etc/oxidns-next/notify.sh",
         },
         env: {
           label: "环境变量",
@@ -1274,7 +1274,7 @@ export const zhCNPluginDefined = {
         cwd: {
           label: "工作目录",
           description: "指定脚本运行时的工作目录。",
-          placeholder: "/etc/oxidns",
+          placeholder: "/etc/oxidns-next",
         },
         timeout: {
           label: "超时",
@@ -1333,7 +1333,7 @@ export const zhCNPluginDefined = {
         },
       },
       quickSetup: {
-        paramPlaceholder: "oxidns_v4,inet,24 oxidns_v6,inet6,64",
+        paramPlaceholder: "oxidns_next_v4,inet,24 oxidns_next_v6,inet6,64",
       },
       metrics: {
         labels: {
@@ -1506,11 +1506,11 @@ export const zhCNPluginDefined = {
         "persistent.files": {
           label: "文件",
           description: "从外部文件加载常驻地址集合。",
-          placeholder: "/etc/oxidns/persistent_ips.txt",
+          placeholder: "/etc/oxidns-next/persistent_ips.txt",
         },
         "persistent.files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/persistent_ips.txt",
+          placeholder: "/etc/oxidns-next/persistent_ips.txt",
         },
         min_ttl: {
           label: "动态项最小 TTL",
@@ -1550,7 +1550,7 @@ export const zhCNPluginDefined = {
     },
     upgrade: {
       name: "Upgrade",
-      description: "执行 OxiDNS 升级流程",
+      description: "执行 OxiDNS Next 升级流程",
       fields: {
         force: {
           label: "强制升级",
@@ -1642,7 +1642,7 @@ export const zhCNPluginDefined = {
           description:
             "下载一个或多个 http/https 文件到本地目录，并在新内容完整写入后覆盖目标文件。",
           placeholder:
-            '[{"url":"https://example.com/geosite.dat","dir":"/etc/oxidns","filename":"geosite.dat"}]',
+            '[{"url":"https://example.com/geosite.dat","dir":"/etc/oxidns-next","filename":"geosite.dat"}]',
         },
         "downloads[]": {
           label: "下载项",
@@ -1655,7 +1655,7 @@ export const zhCNPluginDefined = {
         "downloads[].dir": {
           label: "目录",
           description: "下载项的目标目录。",
-          placeholder: "/etc/oxidns",
+          placeholder: "/etc/oxidns-next",
         },
         "downloads[].filename": {
           label: "文件名",
@@ -1684,7 +1684,7 @@ export const zhCNPluginDefined = {
         },
       },
       quickSetup: {
-        paramPlaceholder: "https://example.com/rules.txt /etc/oxidns",
+        paramPlaceholder: "https://example.com/rules.txt /etc/oxidns-next",
       },
       metrics: {
         labels: {
@@ -1830,7 +1830,7 @@ export const zhCNPluginDefined = {
           label: "域名规则",
           description: "定义域名匹配规则来源。",
           placeholder:
-            "full:login.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^api[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns/domains.txt",
+            "full:login.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^api[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns-next/domains.txt",
         },
         "args.$provider_ref": {
           label: "引用 provider",
@@ -1976,7 +1976,7 @@ export const zhCNPluginDefined = {
           label: "CNAME 规则",
           description: "定义响应 CNAME 目标域名匹配规则来源。",
           placeholder:
-            "full:alias.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^edge[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns/cnames.txt",
+            "full:alias.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^edge[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns-next/cnames.txt",
         },
         "args.$provider_ref": {
           label: "引用 provider",
@@ -2154,11 +2154,11 @@ export const zhCNPluginDefined = {
         files: {
           label: "域名规则文件",
           description: "指定外部规则文件路径列表。",
-          placeholder: "/etc/oxidns/domains.txt",
+          placeholder: "/etc/oxidns-next/domains.txt",
         },
         "files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/domains.txt",
+          placeholder: "/etc/oxidns-next/domains.txt",
         },
         sets: {
           label: "下游 Provider",
@@ -2178,7 +2178,7 @@ export const zhCNPluginDefined = {
         path: {
           label: "规则文件",
           description: "指定该动态 provider 管理的本地规则文件路径。",
-          placeholder: "/etc/oxidns/learned-allow.txt",
+          placeholder: "/etc/oxidns-next/learned-allow.txt",
         },
         bootstrap_rules: {
           label: "初始规则",
@@ -2210,7 +2210,7 @@ export const zhCNPluginDefined = {
         file: {
           label: "geosite.dat",
           description: "指定 geosite.dat 文件路径。",
-          placeholder: "/etc/oxidns/geosite.dat",
+          placeholder: "/etc/oxidns-next/geosite.dat",
         },
         selectors: {
           label: "Selector",
@@ -2240,11 +2240,11 @@ export const zhCNPluginDefined = {
         files: {
           label: "规则文件",
           description: "从外部规则文件加载。",
-          placeholder: "/etc/oxidns/adguard.txt",
+          placeholder: "/etc/oxidns-next/adguard.txt",
         },
         "files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/adguard.txt",
+          placeholder: "/etc/oxidns-next/adguard.txt",
         },
       },
     },
@@ -2264,11 +2264,11 @@ export const zhCNPluginDefined = {
         files: {
           label: "IP 规则文件",
           description: "指定外部 IP 规则文件路径列表。",
-          placeholder: "/etc/oxidns/ips.txt",
+          placeholder: "/etc/oxidns-next/ips.txt",
         },
         "files[]": {
           label: "输入值",
-          placeholder: "/etc/oxidns/ips.txt",
+          placeholder: "/etc/oxidns-next/ips.txt",
         },
         sets: {
           label: "下游 Provider",
@@ -2288,7 +2288,7 @@ export const zhCNPluginDefined = {
         file: {
           label: "geoip.dat",
           description: "指定 geoip.dat 文件路径。",
-          placeholder: "/etc/oxidns/geoip.dat",
+          placeholder: "/etc/oxidns-next/geoip.dat",
         },
         selectors: {
           label: "Selector",

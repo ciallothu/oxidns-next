@@ -5,7 +5,7 @@ sidebar_position: 3
 
 import Admonition from "@theme/Admonition";
 
-Executors are the core action layer in OxiDNS. They can read or write requests, set responses, query upstreams, cache results, perform fallback logic, emit logs, or trigger system integrations.
+Executors are the core action layer in OxiDNS Next. They can read or write requests, set responses, query upstreams, cache results, perform fallback logic, emit logs, or trigger system integrations.
 
 When reading this chapter, keep two questions in mind:
 
@@ -275,7 +275,7 @@ Sends DNS queries to upstreams.
 
 - Type: `string`; Required: no
 - Purpose: Bootstrap resolver for domain-based upstreams.
-- Notes: Must use an `IP:port` address. With bootstrap enabled, OxiDNS resolves the upstream hostname through that resolver and caches it according to DNS TTL. Ignored when `dial_addr` is also configured.
+- Notes: Must use an `IP:port` address. With bootstrap enabled, OxiDNS Next resolves the upstream hostname through that resolver and caches it according to DNS TTL. Ignored when `dial_addr` is also configured.
 
 #### `upstreams[].bootstrap_version`
 
@@ -326,7 +326,7 @@ Sends DNS queries to upstreams.
 - Type: `boolean`; Required: no; Default: `false`
 - Purpose: Enable pipelining for TCP or DoT.
 - Notes: `tcp+pipeline://` and `tls+pipeline://` force this on.
-- Recommendation: Before enabling it, run `oxidns probe upstream <addr>` against the target upstream. For TCP/DoT, the probe forces concurrent queries through one connection so you can decide whether that upstream is safe for pipeline mode and catch timeouts, connection closes, response ID confusion, or crossed questions first.
+- Recommendation: Before enabling it, run `oxidns-next probe upstream <addr>` against the target upstream. For TCP/DoT, the probe forces concurrent queries through one connection so you can decide whether that upstream is safe for pipeline mode and catch timeouts, connection closes, response ID confusion, or crossed questions first.
 - Verdict: If the probe reports `supported`, enabling pipeline is reasonable. If it reports `unsupported`, `unstable`, or `inconclusive`, keep pipeline disabled or retest with lower concurrency / a longer timeout.
 
 #### `upstreams[].enable_http3`
@@ -651,7 +651,7 @@ Returns local static answers using host-style entries.
       - "regexp:^api[0-9]+\\.corp\\.local$ 10.10.0.5"
     files:
       # Merge more hosts rules from files
-      - "/etc/oxidns/hosts.txt"
+      - "/etc/oxidns-next/hosts.txt"
     short_circuit: true
 ```
 
@@ -730,7 +730,7 @@ Injects arbitrary DNS records from zone-style rule strings.
       - "10.2.0.192.in-addr.arpa. 300 IN PTR host.example.com."
     files:
       # Load more static records from files
-      - "/etc/oxidns/zone.txt"
+      - "/etc/oxidns-next/zone.txt"
     short_circuit: false
 ```
 
@@ -809,7 +809,7 @@ Rewrites matching names toward different target names or answer destinations.
       - "old-static.example.com static.example.net"
     files:
       # Merge more redirect rules from files
-      - "/etc/oxidns/redirect.txt"
+      - "/etc/oxidns-next/redirect.txt"
 ```
 
 ### Configuration Details
@@ -1066,9 +1066,9 @@ Full object form:
 
 ## `ip_selector`
 
-<Admonition type="warning" title="Experimental Plugin (Introduced in v1.2.0)">
+<Admonition type="warning" title="Experimental Plugin (Inherited from upstream OxiDNS v1.2.0)">
 
-`ip_selector` was first introduced in `v1.2.0` and is currently in an **experimental** stage. Configuration fields, default values, probing strategies, and cache semantics may be adjusted in future releases based on real-world usage feedback. It is recommended to validate the plugin in non-critical environments first and monitor the release notes for related changes.
+`ip_selector` first shipped in upstream OxiDNS `v1.2.0`. OxiDNS Next inherits it as an **experimental feature**. Configuration fields, defaults, probing strategies, and cache semantics may change based on real-world feedback. Validate it in a non-critical environment first and monitor the release notes.
 
 </Admonition>
 
@@ -1193,7 +1193,7 @@ This lets `cache` store the original upstream response while `ip_selector` appli
 - exec: "ip_selector best_within_budget tcp:443,tcp:80,ping"
 ```
 
-`ip_selector` accepts only the OxiDNS-native names listed above and does not provide compatibility aliases.
+`ip_selector` accepts only the OxiDNS Next-native names listed above and does not provide compatibility aliases.
 
 ### Metrics
 
@@ -1456,9 +1456,9 @@ Maintains a reverse IP-to-name cache and optionally handles PTR requests.
 
 ## `learn_domain`
 
-<Admonition type="warning" title="Experimental Plugin (Introduced in v1.2.0)">
+<Admonition type="warning" title="Experimental Plugin (Inherited from upstream OxiDNS v1.2.0)">
 
-`learn_domain` was first introduced in `v1.2.0` and is currently in an **experimental** stage. Filtering rules, write trigger timing, and the integration interface with `dynamic_domain_set` may change in future releases. Before deploying in production, please evaluate the impact of learning rates and disk writes on the persistence layer.
+`learn_domain` first shipped in upstream OxiDNS `v1.2.0`. OxiDNS Next inherits it as an **experimental feature**. Filtering rules, write timing, and the `dynamic_domain_set` interface may change. Evaluate learning rates and persistence-layer disk writes before production use.
 
 </Admonition>
 
@@ -1472,7 +1472,7 @@ Observes qnames in the DNS pipeline and writes matching request names into a tar
 - tag: learned_allow
   type: dynamic_domain_set
   args:
-    path: "/etc/oxidns/learned-allow.txt"
+    path: "/etc/oxidns-next/learned-allow.txt"
 
 - tag: learn_allow
   type: learn_domain
@@ -1609,6 +1609,8 @@ Records concise query summaries.
 
 Persists the entry request, the post-`next` response, and `sequence` execution-path events into a recorder-owned SQLite database, then exposes history, aggregate stats, and an SSE stream.
 
+The repository's default `config.yaml` enables `query_log` as the first `main_sequence` step, allowing its `with_next` wrapper to observe the complete downstream request/response path. In custom chains, place the recorder before the execution scope you want to observe.
+
 ### Example Configuration
 
 ```yaml
@@ -1681,7 +1683,7 @@ Persists the entry request, the post-`next` response, and `sequence` execution-p
 - It captures a structured snapshot of the entry request, enables `DnsContext.execution_path`, runs `next`, and commits immediately after `next` returns.
 - Successful runs store the current response. Failed runs store `error` and an empty response shape.
 - Request and response payloads are not stored as wire blobs. Question, RR, and EDNS fields are extracted into JSON text columns.
-- The `client_ip` field comes from the transport source address seen by OxiDNS; if a local forwarding chain such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash sits in front, rows may show only `127.0.0.1`.
+- The `client_ip` field comes from the transport source address seen by OxiDNS Next; if a local forwarding chain such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash sits in front, rows may show only `127.0.0.1`.
 - Each recorder uses versioned tables under the same prefix:
   - `qr_<safe_tag>_<fnv64hex>_v1_records`
   - `qr_<safe_tag>_<fnv64hex>_v1_steps`
@@ -1770,7 +1772,7 @@ Persists the entry request, the post-`next` response, and `sequence` execution-p
 - If an earlier branch short-circuits before the recorder, that request will not be recorded.
 - If `next` fails and the server later emits a fallback response, the database still reflects the plugin's point of view: `error` plus an empty response.
 - If the management API is disabled, the recorder still writes SQLite data but does not expose query or SSE routes.
-- To preserve real client IPs, point clients directly at OxiDNS or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
+- To preserve real client IPs, point clients directly at OxiDNS Next or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
 
 </Admonition>
 
@@ -1914,7 +1916,7 @@ Sends callback requests to external `http/https` services. It can trigger before
       X-Client-IP: "${client_ip}"
       X-Qname: "${qname}"
     query_params:
-      source: "oxidns"
+      source: "oxidns-next"
       qname: "${qname}"
     json:
       qname: "${qname}"
@@ -2067,7 +2069,7 @@ Runs an explicitly configured external command and injects a stable subset of th
   args:
     command: "bash"
     args:
-      - "/etc/oxidns/notify.sh"
+      - "/etc/oxidns-next/notify.sh"
       - "${qname}"
       - "${client_ip}"
     env:
@@ -2162,9 +2164,9 @@ Writes response IPs into Linux `ipset` through the embedded Rust netlink backend
   type: ipset
   args:
     # ipset used for A answers
-    set_name4: "oxidns_v4"
+    set_name4: "oxidns-next_v4"
     # ipset used for AAAA answers
-    set_name6: "oxidns_v6"
+    set_name6: "oxidns-next_v6"
     # Aggregate IPv4 writes to /24 prefixes
     mask4: 24
     # Aggregate IPv6 writes to /64 prefixes
@@ -2196,7 +2198,7 @@ Writes response IPs into Linux `ipset` through the embedded Rust netlink backend
 ### quick setup
 
 ```yaml
-- exec: "ipset oxidns_v4,inet,24 oxidns_v6,inet6,64"
+- exec: "ipset oxidns-next_v4,inet,24 oxidns-next_v6,inet6,64"
 ```
 
 Format:
@@ -2371,11 +2373,11 @@ Writes response IPs into MikroTik RouterOS address lists, with dynamic entries, 
     # Use asynchronous writes to avoid blocking the DNS hot path
     async: true
     # Address list used for A records
-    address_list4: "oxidns_ipv4"
+    address_list4: "oxidns-next_ipv4"
     # Address list used for AAAA records
-    address_list6: "oxidns_ipv6"
-    # Prefix for comments on OxiDNS-managed entries
-    comment_prefix: "oxidns"
+    address_list6: "oxidns-next_ipv6"
+    # Prefix for comments on OxiDNS Next-managed entries
+    comment_prefix: "oxidns-next"
     # Lower bound for dynamic-entry TTL
     min_ttl: 60
     # Upper bound for dynamic-entry TTL
@@ -2394,7 +2396,7 @@ Writes response IPs into MikroTik RouterOS address lists, with dynamic entries, 
         - "2001:db8::/64"
       files:
         # Load more persistent items from files
-        - "/etc/oxidns/persistent_ips.txt"
+        - "/etc/oxidns-next/persistent_ips.txt"
 ```
 
 ### Configuration Details
@@ -2430,7 +2432,7 @@ Writes response IPs into MikroTik RouterOS address lists, with dynamic entries, 
 
 - Type: `u64`; Required: no; Default: `5`
 - Purpose: Maximum wait time, in seconds, for the next chunk of RouterOS API response data.
-- Tuning: Prefer a dedicated, size-controlled `address-list` for OxiDNS. Avoid connecting the plugin to an existing large shared list. Increase this value, for example to `30` or `60`, only when slow legacy list queries or a slow RouterOS management plane cannot be avoided.
+- Tuning: Prefer a dedicated, size-controlled `address-list` for OxiDNS Next. Avoid connecting the plugin to an existing large shared list. Increase this value, for example to `30` or `60`, only when slow legacy list queries or a slow RouterOS management plane cannot be avoided.
 
 #### `async`
 
@@ -2511,7 +2513,7 @@ Writes response IPs into MikroTik RouterOS address lists, with dynamic entries, 
 <Admonition type="note" title="Notes">
 
 - At least one of `address_list4` or `address_list6` is required.
-- Prefer dedicated OxiDNS `address-list` targets and avoid large shared lists to reduce RouterOS management-plane scan cost.
+- Prefer dedicated OxiDNS Next `address-list` targets and avoid large shared lists to reduce RouterOS management-plane scan cost.
 - `comment_prefix` and the plugin `tag` must not contain `;` or `=`.
 - Synchronous mode does not change the DNS response itself. Even if the RouterOS write fails, the DNS result is still preserved.
 
@@ -2521,7 +2523,7 @@ Writes response IPs into MikroTik RouterOS address lists, with dynamic entries, 
 
 ### Purpose
 
-Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for maintenance tasks triggered by `cron`, `sequence`, or another executor.
+Runs the OxiDNS Next upgrade flow from the executor pipeline. It is suitable for maintenance tasks triggered by `cron`, `sequence`, or another executor.
 
 ### Example Configuration
 
@@ -2529,7 +2531,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
 - tag: upgrade_auto
   type: upgrade
   args:
-      repository: svenshi/oxidns
+      repository: ciallothu/oxidns-next
       asset: auto
       bundle: auto
       github_token: ghp_xxx
@@ -2555,7 +2557,7 @@ Runs the OxiDNS upgrade flow from the executor pipeline. It is suitable for main
     - Boolean. Default: `true`.
     - Cleans `cache_dir` and `backup_dir` after a successful upgrade.
 - `repository`
-    - GitHub repository. Default: `svenshi/oxidns`.
+    - GitHub repository. Default: `ciallothu/oxidns-next`.
 - `asset`
     - Release asset name. `auto` selects the archive for the current platform and build bundle.
     - An explicit asset has the highest priority and skips `bundle` inference.
@@ -2624,16 +2626,16 @@ Downloads one or more `http/https` files into a local directory and overwrites t
     socks5: "127.0.0.1:1080"
     downloads:
       - url: "https://example.com/geosite.dat"
-        dir: "/etc/oxidns"
+        dir: "/etc/oxidns-next"
       - url: "https://example.com/geoip.dat"
-        dir: "/etc/oxidns"
+        dir: "/etc/oxidns-next"
         filename: "geoip.dat"
 ```
 
 ### Quick Setup
 
 ```yaml
-- exec: "download https://example.com/rules.txt /etc/oxidns"
+- exec: "download https://example.com/rules.txt /etc/oxidns-next"
 ```
 
 ### Behavior
@@ -2644,7 +2646,7 @@ Downloads one or more `http/https` files into a local directory and overwrites t
 - Files are written to a temporary path first and then moved into place.
 - When `outbound` is set, downloads use the resolver and proxy defined by the referenced `network.outbound.profiles` entry.
 - When `socks5` is set, all download connections are routed through that SOCKS5 proxy using the same format as `upstream[].socks5`.
-- By default, OxiDNS checks target files during startup and downloads any missing ones before other plugins initialize. A bootstrap failure aborts startup.
+- By default, OxiDNS Next checks target files during startup and downloads any missing ones before other plugins initialize. A bootstrap failure aborts startup.
 - Set `startup_if_missing: false` to disable that bootstrap behavior.
 
 <Admonition type="note" title="Notes">
@@ -2672,12 +2674,12 @@ Downloads one or more `http/https` files into a local directory and overwrites t
   args:
     downloads:
       - url: "https://example.com/geosite.dat"
-        dir: "/etc/oxidns"
+        dir: "/etc/oxidns-next"
 
 - tag: provider_geosite
   type: geosite
   args:
-    file: "/etc/oxidns/geosite.dat"
+    file: "/etc/oxidns-next/geosite.dat"
 
 - tag: reload_rules
   type: reload_provider
@@ -2717,10 +2719,10 @@ plugins:
       startup_if_missing: true
       downloads:
         - url: "https://example.com/geosite.dat"
-          dir: "/etc/oxidns/rules"
+          dir: "/etc/oxidns-next/rules"
           filename: "geosite.dat"
         - url: "https://example.com/geoip.dat"
-          dir: "/etc/oxidns/rules"
+          dir: "/etc/oxidns-next/rules"
           filename: "geoip.dat"
 
   # 4. Reload only the affected providers after download completes
@@ -2734,12 +2736,12 @@ plugins:
   - tag: provider_geosite
     type: geosite
     args:
-      file: "/etc/oxidns/rules/geosite.dat"
+      file: "/etc/oxidns-next/rules/geosite.dat"
 
   - tag: provider_geoip
     type: geoip
     args:
-      file: "/etc/oxidns/rules/geoip.dat"
+      file: "/etc/oxidns-next/rules/geoip.dat"
 ```
 
 <Admonition type="note" title="Notes">
@@ -2845,7 +2847,7 @@ Triggers the same application-level full reload as the management API `POST /rel
 
 <Admonition type="note" title="Notes">
 
-- It must run inside a normal OxiDNS process with application control context attached.
+- It must run inside a normal OxiDNS Next process with application control context attached.
 - Execution fails when another reload is already `pending` or `in_progress`.
 - Using it in a live request `sequence` triggers a full application reload and is usually not appropriate for latency-sensitive request paths.
 
@@ -2897,7 +2899,7 @@ Schedules a list of executors in the background. It does not participate in the 
 - Purpose: Overrides the time zone used by all `schedule` jobs in this `cron` plugin.
 - Notes:
   - Only affects `schedule`.
-  - When omitted, OxiDNS uses the system local time zone and falls back to `UTC` if unavailable.
+  - When omitted, OxiDNS Next uses the system local time zone and falls back to `UTC` if unavailable.
   - Use IANA names such as `Asia/Shanghai`, `UTC`, or `America/Los_Angeles`.
 
 #### `args.jobs[].name`

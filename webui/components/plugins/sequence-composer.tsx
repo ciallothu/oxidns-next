@@ -62,6 +62,10 @@ import {
 import { cn } from "@/lib/utils";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
+import {
+  removeLegacyStorageKey,
+  useAuthenticatedStorageScope,
+} from "@/lib/storage-scope";
 
 type ConditionMode = "reference" | "quick_setup" | "text";
 type ActionMode = "reference" | "quick_setup" | "control" | "text";
@@ -197,7 +201,9 @@ export function SequenceComposer({
   const [yamlError, setYamlError] = useState<string | null>(null);
   const rules = useMemo(() => parseSequenceRules(value.args), [value.args]);
 
-  const positionStorageKey = `oxidns_seq_positions_${currentSequenceName ?? "_default"}`;
+  const storageScope = useAuthenticatedStorageScope();
+  const legacyPositionStorageKey = `oxidns-next_seq_positions_${currentSequenceName ?? "_default"}`;
+  const positionStorageKey = `${legacyPositionStorageKey}:${storageScope}`;
   const [savedPositions, setSavedPositions] = useState<NodePositions>(() => {
     try {
       return (
@@ -210,20 +216,40 @@ export function SequenceComposer({
     }
   });
 
+  useEffect(() => {
+    removeLegacyStorageKey(legacyPositionStorageKey);
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(positionStorageKey) ?? "null",
+      ) as NodePositions | null;
+      setSavedPositions(
+        stored && typeof stored === "object" && !Array.isArray(stored)
+          ? stored
+          : {},
+      );
+    } catch {
+      setSavedPositions({});
+    }
+  }, [legacyPositionStorageKey, positionStorageKey]);
+
   const handlePositionChange = (
     nodeId: string,
     pos: { x: number; y: number },
   ) => {
     setSavedPositions((prev) => {
       const next = { ...prev, [nodeId]: pos };
-      localStorage.setItem(positionStorageKey, JSON.stringify(next));
+      try {
+        localStorage.setItem(positionStorageKey, JSON.stringify(next));
+      } catch {
+        // Keep the position for this session when browser storage is disabled.
+      }
       return next;
     });
   };
 
   const resetPositions = () => {
     setSavedPositions({});
-    localStorage.removeItem(positionStorageKey);
+    removeLegacyStorageKey(positionStorageKey);
   };
 
   const sequenceTags = useMemo(() => {

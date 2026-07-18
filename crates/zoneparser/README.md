@@ -1,22 +1,22 @@
-# oxidns-zoneparser
+# oxidns-next-zoneparser
 
-This crate is a vendored and locally maintained zone file parser for OxiDNS.
+This crate is a vendored and locally maintained zone file parser for OxiDNS Next.
 
-The crates.io package name is `oxidns-zoneparser` to avoid name conflicts,
-while the library crate name remains `zoneparser`.
+The workspace package is named `oxidns-next-zoneparser`, and its Rust library
+identifier is `oxidns_next_zoneparser`.
 
 It started from the upstream `zoneparser` project, but the public API and the
-parsing pipeline are now adapted for OxiDNS:
+parsing pipeline are now adapted for OxiDNS Next:
 
 - input is parsed from `&str` or file paths
-- output is `oxidns_proto::Record`
+- output is `oxidns_next_proto::Record`
 - `ParseOptions` exposes parser defaults such as `initial_origin`,
   `default_ttl`, `base_dir`, and `max_include_depth`
-- the parser supports a zonefile superset intended for OxiDNS `arbitrary`
+- the parser supports a zonefile superset intended for OxiDNS Next `arbitrary`
 
-## Role in OxiDNS
+## Role in OxiDNS Next
 
-OxiDNS uses this crate to load static DNS records into plugins that synthesize
+OxiDNS Next uses this crate to load static DNS records into plugins that synthesize
 answers, especially the `arbitrary` executor. Keeping the parser outside the
 main server crate lets zonefile syntax support evolve without coupling it to
 listeners, upstream transports, cache state, or runtime configuration.
@@ -24,17 +24,17 @@ listeners, upstream transports, cache state, or runtime configuration.
 ## Public API
 
 ```rust
-use zoneparser::{ParseOptions, parse_file, parse_str};
+use oxidns_next_zoneparser::{ParseOptions, parse_file, parse_str};
 
 let options = ParseOptions::default();
 let inline_records = parse_str("$ORIGIN example.com.\nwww 60 IN A 192.0.2.1\n", &options)?;
-let file_records = parse_file("/etc/oxidns/zone.txt", &options)?;
-# Ok::<(), zoneparser::ZoneParseError>(())
+let file_records = parse_file("/etc/oxidns-next/zone.txt", &options)?;
+# Ok::<(), oxidns_next_zoneparser::ZoneParseError>(())
 ```
 
 ```toml
 [dependencies]
-zoneparser = { package = "oxidns-zoneparser", version = "0.1" }
+oxidns_next_zoneparser = { package = "oxidns-next-zoneparser", git = "https://github.com/ciallothu/oxidns-next" }
 ```
 
 ## Syntax Coverage
@@ -52,7 +52,7 @@ zoneparser = { package = "oxidns-zoneparser", version = "0.1" }
 
 Common RR presentation formats are parsed directly. For types without a
 dedicated text parser, RFC3597 generic syntax can still be used as long as the
-wire format is supported by `oxidns-proto`.
+wire format is supported by `oxidns-next-proto`.
 
 ## Options
 
@@ -76,8 +76,8 @@ environment or configuration issues.
 ## Notes
 
 - This crate is not trying to preserve the original upstream iterator API.
-- The parser is broader than what OxiDNS `arbitrary` currently needs, but it
-  is still focused on loading static zonefile content into OxiDNS records.
-- Parser output is already normalized to `oxidns_proto::Record`, so callers do
-  not need a second conversion step before inserting records into OxiDNS
+- The parser is broader than what OxiDNS Next `arbitrary` currently needs, but it
+  is still focused on loading static zonefile content into OxiDNS Next records.
+- Parser output is already normalized to `oxidns_next_proto::Record`, so callers do
+  not need a second conversion step before inserting records into OxiDNS Next
   response logic.

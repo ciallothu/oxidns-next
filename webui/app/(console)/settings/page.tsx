@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/shell/app-header";
+import { SecuritySettings } from "@/components/auth/security-settings";
 import { useAppStore } from "@/lib/store";
 import { useAuthStore } from "@/lib/auth-store";
 import {
@@ -10,7 +11,7 @@ import {
   type UpgradeApplyPhase,
   type UpgradeBundle,
 } from "@/lib/update-store";
-import { stringifyOxiDnsConfig, type OxiDnsConfig } from "@/lib/oxidns-config";
+import { stringifyOxiDnsNextConfig, type OxiDnsNextConfig } from "@/lib/oxidns-next-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,7 +48,6 @@ import {
   RefreshCw,
   ScrollText,
   Server,
-  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { WEBUI } from "@/lib/i18n";
@@ -338,6 +338,7 @@ export default function SettingsPage() {
   const isConnected = useAuthStore((s) => s.isConnected);
   const isConnecting = useAuthStore((s) => s.isConnecting);
   const connectionError = useAuthStore((s) => s.connectionError);
+  const authSessionGeneration = useAuthStore((s) => s.sessionGeneration);
 
   const upgradeConfig = useUpdateStore((s) => s.upgradeConfig);
   const setUpgradeConfig = useUpdateStore((s) => s.setUpgradeConfig);
@@ -352,8 +353,6 @@ export default function SettingsPage() {
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   const triggerUpgrade = useUpdateStore((s) => s.triggerUpgrade);
   const [copiedCmd, setCopiedCmd] = useState(false);
-  const [tokenPersistenceHelpOpen, setTokenPersistenceHelpOpen] =
-    useState(false);
 
   const configModel = useAppStore((s) => s.configModel);
   const configPath = useAppStore((s) => s.configPath);
@@ -380,16 +379,6 @@ export default function SettingsPage() {
   const [apiSslKey, setApiSslKey] = useState("");
   const [apiSslClientCa, setApiSslClientCa] = useState("");
   const [apiSslRequireClientCert, setApiSslRequireClientCert] = useState(false);
-  const [apiAuthEnabled, setApiAuthEnabled] = useState(false);
-  const [apiAuthUsername, setApiAuthUsername] = useState("");
-  const [apiAuthPassword, setApiAuthPassword] = useState("");
-  // Account & Security card local form state
-  const [authEditMode, setAuthEditMode] = useState<
-    null | "enable" | "change" | "disable"
-  >(null);
-  const [newAuthUsername, setNewAuthUsername] = useState("");
-  const [newAuthPassword, setNewAuthPassword] = useState("");
-  const [confirmAuthPassword, setConfirmAuthPassword] = useState("");
   const [apiCorsOrigins, setApiCorsOrigins] = useState("");
   const [apiWebuiEnabled, setApiWebuiEnabled] = useState(false);
   const [apiWebuiRoot, setApiWebuiRoot] = useState("");
@@ -403,6 +392,9 @@ export default function SettingsPage() {
     OutboundProfileForm[]
   >([]);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsFormGeneration, setSettingsFormGeneration] = useState(
+    authSessionGeneration,
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -412,7 +404,6 @@ export default function SettingsPage() {
       const httpObj =
         typeof http === "string" ? { listen: http } : asRecord(http);
       const ssl = asRecord(httpObj.ssl);
-      const auth = asRecord(httpObj.auth);
       const cors = asRecord(httpObj.cors);
       const webui = asRecord(httpObj.webui);
       const log = asRecord(configModel.log);
@@ -427,9 +418,6 @@ export default function SettingsPage() {
       setApiSslKey(String(ssl.key ?? ""));
       setApiSslClientCa(String(ssl.client_ca ?? ""));
       setApiSslRequireClientCert(Boolean(ssl.require_client_cert ?? false));
-      setApiAuthEnabled(auth.type === "basic");
-      setApiAuthUsername(String(auth.username ?? ""));
-      setApiAuthPassword(String(auth.password ?? ""));
       const origins = Array.isArray(cors.allowed_origins)
         ? (cors.allowed_origins as string[])
         : [];
@@ -444,9 +432,10 @@ export default function SettingsPage() {
       setOutboundDefault(String(outbound.default ?? ""));
       setOutboundProfiles(parseOutboundProfiles(outbound));
       setSettingsError(null);
+      setSettingsFormGeneration(authSessionGeneration);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [configModel]);
+  }, [authSessionGeneration, configModel]);
 
   const canConnect = backendUrl.trim().length > 0;
   const outboundProfileNames = outboundProfiles
@@ -485,7 +474,7 @@ export default function SettingsPage() {
   };
 
   const buildUpgradeCliCommand = () => {
-    const parts = ["oxidns", "upgrade", "apply"];
+    const parts = ["oxidns-next", "upgrade", "apply"];
     if (upgradeConfig.repository !== DEFAULT_UPGRADE_CONFIG.repository) {
       parts.push("--repository", upgradeConfig.repository);
     }
@@ -518,22 +507,16 @@ export default function SettingsPage() {
   };
 
   const handleConnect = async () => {
+    const wasConnected = isConnected;
     const nextConfig = { ...serverConfig, url: backendUrl.trim() };
     setServerConfig(nextConfig);
     const ok = await connect(nextConfig);
-    if (ok) await loadConfig();
+    // A disconnected -> connected transition is loaded by the console layout.
+    // An explicit refresh of an already-connected backend needs a reload here.
+    if (ok && wasConnected) await loadConfig();
   };
 
-  type AuthOverride = { enabled: boolean; username: string; password: string };
-
-  const buildApiHttpConfig = (authOverride?: AuthOverride): unknown => {
-    const authEnabled =
-      authOverride !== undefined ? authOverride.enabled : apiAuthEnabled;
-    const authUsername =
-      authOverride !== undefined ? authOverride.username : apiAuthUsername;
-    const authPassword =
-      authOverride !== undefined ? authOverride.password : apiAuthPassword;
-
+  const buildApiHttpConfig = (): unknown => {
     const sslConfig =
       apiSslEnabled && apiSslCert.trim() && apiSslKey.trim()
         ? {
@@ -545,14 +528,19 @@ export default function SettingsPage() {
             ...(apiSslRequireClientCert ? { require_client_cert: true } : {}),
           }
         : undefined;
+    const currentApi = asRecord(configModel.api);
+    const currentHttp =
+      typeof currentApi.http === "string" ? {} : asRecord(currentApi.http);
+    const preservedHttp = { ...currentHttp };
+    for (const managedField of ["listen", "ssl", "auth", "cors", "webui"]) {
+      delete preservedHttp[managedField];
+    }
+    const existingAuth = asRecord(currentHttp.auth);
+    // Authentication secrets live in the account database. Keep only the
+    // server-side auth configuration in YAML and never serialize credentials
+    // from browser state.
     const authConfig =
-      authEnabled && authUsername.trim()
-        ? {
-            type: "basic",
-            username: authUsername.trim(),
-            password: authPassword,
-          }
-        : undefined;
+      Object.keys(existingAuth).length > 0 ? existingAuth : undefined;
     const corsOriginsList = apiCorsOrigins
       .split("\n")
       .map((s) => s.trim())
@@ -568,9 +556,15 @@ export default function SettingsPage() {
             ...(apiWebuiIndex.trim() ? { index: apiWebuiIndex.trim() } : {}),
           }
         : undefined;
-    const hasDetail = sslConfig || authConfig || corsConfig || webuiConfig;
+    const hasDetail =
+      Object.keys(preservedHttp).length > 0 ||
+      sslConfig ||
+      authConfig ||
+      corsConfig ||
+      webuiConfig;
     if (!hasDetail) return apiListen.trim();
     return {
+      ...preservedHttp,
       listen: apiListen.trim(),
       ...(sslConfig ? { ssl: sslConfig } : {}),
       ...(authConfig ? { auth: authConfig } : {}),
@@ -579,7 +573,7 @@ export default function SettingsPage() {
     };
   };
 
-  const buildTopLevelConfig = (authOverride?: AuthOverride): OxiDnsConfig => {
+  const buildTopLevelConfig = (): OxiDnsNextConfig => {
     const outboundRenameMap = outboundProfileRenameMap(outboundProfiles);
     const baseConfigModel = rewritePluginOutboundReferences(
       configModel,
@@ -598,9 +592,7 @@ export default function SettingsPage() {
       ...asRecord(baseConfigModel.api),
     };
     if (apiListen.trim()) {
-      nextApi.http = buildApiHttpConfig(authOverride);
-    } else {
-      delete nextApi.http;
+      nextApi.http = buildApiHttpConfig();
     }
     const nextNetwork: Record<string, unknown> = {
       ...asRecord(baseConfigModel.network),
@@ -640,7 +632,7 @@ export default function SettingsPage() {
   const handleSaveTopLevelConfig = async () => {
     try {
       setSettingsError(null);
-      setYamlConfig(stringifyOxiDnsConfig(buildTopLevelConfig()));
+      setYamlConfig(stringifyOxiDnsNextConfig(buildTopLevelConfig()));
       await saveConfig();
     } catch (error) {
       if (error instanceof Error) setSettingsError(error.message);
@@ -651,52 +643,12 @@ export default function SettingsPage() {
   const handleRestartTopLevelConfig = async () => {
     try {
       setSettingsError(null);
-      setYamlConfig(stringifyOxiDnsConfig(buildTopLevelConfig()));
+      setYamlConfig(stringifyOxiDnsNextConfig(buildTopLevelConfig()));
       await restartApp();
     } catch (error) {
       if (error instanceof Error) setSettingsError(error.message);
       throw error;
     }
-  };
-
-  // Dedicated auth save: updates config.yaml + syncs WebUI connection credentials atomically.
-  const handleAuthSave = async (
-    enabled: boolean,
-    uname: string,
-    pwd: string,
-  ) => {
-    const override: AuthOverride = { enabled, username: uname, password: pwd };
-    try {
-      setSettingsError(null);
-      setYamlConfig(stringifyOxiDnsConfig(buildTopLevelConfig(override)));
-    } catch (error) {
-      if (error instanceof Error) setSettingsError(error.message);
-      throw error;
-    }
-
-    if (enabled && uname.trim()) {
-      setServerConfig({
-        ...serverConfig,
-        requiresAuth: true,
-        username: uname.trim(),
-        password: pwd,
-      });
-    } else {
-      setServerConfig({
-        ...serverConfig,
-        requiresAuth: false,
-        username: "",
-        password: "",
-      });
-    }
-
-    setApiAuthEnabled(enabled);
-    setApiAuthUsername(enabled ? uname : "");
-    setApiAuthPassword(enabled ? pwd : "");
-    setAuthEditMode(null);
-    setNewAuthPassword("");
-    setConfirmAuthPassword("");
-    await restartApp();
   };
 
   const addOutboundProfile = () => {
@@ -796,7 +748,7 @@ export default function SettingsPage() {
   return (
     <>
       <AppHeader title={t(WEBUI.shell.settings)} />
-      <main className="oxidns-dialog-scrollbar min-h-0 flex-1 overflow-auto p-6">
+      <main className="oxidns-next-dialog-scrollbar min-h-0 flex-1 overflow-auto p-6">
         <div className="max-w-4xl space-y-6">
           <Card>
             <CardHeader>
@@ -859,199 +811,13 @@ export default function SettingsPage() {
           </Card>
 
           {isConnected && (
-            <>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ShieldCheck className="h-5 w-5" />
-                    {t(WEBUI.settings.accountCard)}
-                  </CardTitle>
-                  <CardDescription>
-                    {t(WEBUI.settings.accountCardDesc)}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {authEditMode === null && (
-                    <>
-                      {apiAuthEnabled ? (
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant="outline"
-                              className="bg-primary/10 text-primary border-primary/30"
-                            >
-                              {t(WEBUI.settings.authBadgeEnabled)}
-                            </Badge>
-                            <span className="text-sm text-muted-foreground">
-                              {t(WEBUI.settings.accountPrefix)}
-                              <span className="font-mono font-medium text-foreground">
-                                {apiAuthUsername}
-                              </span>
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setNewAuthUsername(apiAuthUsername);
-                                setNewAuthPassword("");
-                                setConfirmAuthPassword("");
-                                setAuthEditMode("change");
-                              }}
-                              disabled={isRestarting}
-                            >
-                              {t(WEBUI.settings.changePassword)}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setAuthEditMode("disable")}
-                              disabled={isRestarting}
-                            >
-                              {t(WEBUI.settings.disableAuth)}
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700 dark:text-yellow-400">
-                            <CircleAlert className="h-4 w-4 shrink-0" />
-                            {t(WEBUI.settings.noAuthWarning)}
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setNewAuthUsername("");
-                              setNewAuthPassword("");
-                              setConfirmAuthPassword("");
-                              setAuthEditMode("enable");
-                            }}
-                            disabled={isRestarting}
-                          >
-                            {t(WEBUI.settings.setAccountPassword)}
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  )}
+            <SecuritySettings key={authSessionGeneration} />
+          )}
 
-                  {(authEditMode === "enable" || authEditMode === "change") && (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void handleAuthSave(
-                          true,
-                          newAuthUsername,
-                          newAuthPassword,
-                        );
-                      }}
-                      className="space-y-4"
-                    >
-                      <Field>
-                        <FieldLabel>
-                          {t(WEBUI.settings.usernameLabel)}
-                        </FieldLabel>
-                        <Input
-                          value={newAuthUsername}
-                          onChange={(e) => setNewAuthUsername(e.target.value)}
-                          autoComplete="username"
-                          autoFocus
-                          className="max-w-xs"
-                        />
-                      </Field>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <Field>
-                          <FieldLabel>
-                            {authEditMode === "change"
-                              ? t(WEBUI.settings.newPasswordLabel)
-                              : t(WEBUI.settings.passwordLabel)}
-                          </FieldLabel>
-                          <Input
-                            type="password"
-                            value={newAuthPassword}
-                            onChange={(e) => setNewAuthPassword(e.target.value)}
-                            autoComplete="new-password"
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel>
-                            {t(WEBUI.settings.confirmPasswordLabel)}
-                          </FieldLabel>
-                          <Input
-                            type="password"
-                            value={confirmAuthPassword}
-                            onChange={(e) =>
-                              setConfirmAuthPassword(e.target.value)
-                            }
-                            autoComplete="new-password"
-                          />
-                        </Field>
-                      </div>
-                      {confirmAuthPassword.length > 0 &&
-                        newAuthPassword !== confirmAuthPassword && (
-                          <p className="text-sm text-destructive">
-                            {t(WEBUI.settings.passwordMismatch)}
-                          </p>
-                        )}
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="submit"
-                          disabled={
-                            isRestarting ||
-                            !newAuthUsername.trim() ||
-                            !newAuthPassword ||
-                            newAuthPassword !== confirmAuthPassword
-                          }
-                        >
-                          <RefreshCw className="h-4 w-4 mr-1.5" />
-                          {isRestarting
-                            ? t(WEBUI.settings.restarting)
-                            : t(WEBUI.settings.saveAndRestart)}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => setAuthEditMode(null)}
-                          disabled={isRestarting}
-                        >
-                          {t(WEBUI.common.cancel)}
-                        </Button>
-                      </div>
-                    </form>
-                  )}
-
-                  {authEditMode === "disable" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                        <CircleAlert className="h-4 w-4 shrink-0" />
-                        {t(WEBUI.settings.disableAuthWarning)}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="destructive"
-                          onClick={() => void handleAuthSave(false, "", "")}
-                          disabled={isRestarting}
-                        >
-                          <RefreshCw className="h-4 w-4 mr-1.5" />
-                          {isRestarting
-                            ? t(WEBUI.settings.restarting)
-                            : t(WEBUI.settings.confirmDisableRestart)}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => setAuthEditMode(null)}
-                          disabled={isRestarting}
-                        >
-                          {t(WEBUI.common.cancel)}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
+          {isConnected &&
+            settingsFormGeneration === authSessionGeneration && (
+              <>
+                <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Server className="h-5 w-5" />
@@ -1558,7 +1324,7 @@ export default function SettingsPage() {
                             <Input
                               value={apiSslCert}
                               onChange={(e) => setApiSslCert(e.target.value)}
-                              placeholder="/etc/oxidns/api.crt"
+                              placeholder="/etc/oxidns-next/api.crt"
                               className="font-mono"
                             />
                           </Field>
@@ -1567,7 +1333,7 @@ export default function SettingsPage() {
                             <Input
                               value={apiSslKey}
                               onChange={(e) => setApiSslKey(e.target.value)}
-                              placeholder="/etc/oxidns/api.key"
+                              placeholder="/etc/oxidns-next/api.key"
                               className="font-mono"
                             />
                           </Field>
@@ -1583,7 +1349,7 @@ export default function SettingsPage() {
                               onChange={(e) =>
                                 setApiSslClientCa(e.target.value)
                               }
-                              placeholder="/etc/oxidns/client-ca.crt"
+                              placeholder="/etc/oxidns-next/client-ca.crt"
                               className="font-mono"
                             />
                           </Field>
@@ -1605,31 +1371,6 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">
-                        {t(WEBUI.settings.authSection)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t(WEBUI.settings.authSectionDesc)}
-                      </p>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className={
-                        apiAuthEnabled
-                          ? "bg-primary/10 text-primary border-primary/30"
-                          : "text-muted-foreground"
-                      }
-                    >
-                      {apiAuthEnabled
-                        ? t(WEBUI.settings.authEnabledFor, {
-                            username: apiAuthUsername,
-                          })
-                        : t(WEBUI.settings.authNotEnabled)}
-                    </Badge>
                   </div>
 
                   <div className="space-y-2">
@@ -1675,7 +1416,7 @@ export default function SettingsPage() {
                           <Input
                             value={apiWebuiRoot}
                             onChange={(e) => setApiWebuiRoot(e.target.value)}
-                            placeholder="/etc/oxidns/webui"
+                            placeholder="/etc/oxidns-next/webui"
                             className="font-mono"
                           />
                         </Field>
@@ -2098,53 +1839,6 @@ export default function SettingsPage() {
                         />
                       </Field>
                     </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">
-                          {t(WEBUI.settings.persistGithubToken)}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {t(WEBUI.settings.persistGithubTokenDesc)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          aria-expanded={tokenPersistenceHelpOpen}
-                          onClick={() =>
-                            setTokenPersistenceHelpOpen((open) => !open)
-                          }
-                        >
-                          <CircleAlert data-icon="inline-start" />
-                          {t(WEBUI.settings.tokenSaveRisk)}
-                        </Button>
-                        <Switch
-                          aria-label={t(WEBUI.settings.persistGithubToken)}
-                          checked={upgradeConfig.persistGithubToken}
-                          onCheckedChange={(v) =>
-                            setUpgradeConfig({ persistGithubToken: v })
-                          }
-                        />
-                      </div>
-                    </div>
-                    {tokenPersistenceHelpOpen && (
-                      <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-                        <p className="font-medium">
-                          {t(WEBUI.settings.tokenPersistenceAdviceTitle)}
-                        </p>
-                        <p className="mt-1">
-                          {t(WEBUI.settings.tokenPersistenceSafe)}
-                        </p>
-                        <p className="mt-1">
-                          {t(WEBUI.settings.tokenPersistenceUnsafe)}
-                        </p>
-                        <p className="mt-1">
-                          {t(WEBUI.settings.tokenPersistenceScope)}
-                        </p>
-                      </div>
-                    )}
                     <div className="flex flex-wrap gap-6">
                       <div className="flex items-center justify-between gap-4">
                         <div>
@@ -2357,9 +2051,9 @@ function outboundProfileRenameMap(
 }
 
 function rewritePluginOutboundReferences(
-  config: OxiDnsConfig,
+  config: OxiDnsNextConfig,
   renameMap: Map<string, string>,
-): OxiDnsConfig {
+): OxiDnsNextConfig {
   if (renameMap.size === 0) return config;
   return {
     ...config,

@@ -17,8 +17,8 @@ lazy_static::lazy_static! {
 
 pub(crate) fn fake_soa_rdata(minimum: u32) -> Arc<RData> {
     Arc::new(RData::SOA(SOA::new(
-        Name::from_ascii("fake-ns.oxidns.fake.root.").expect("fake SOA mname should parse"),
-        Name::from_ascii("fake-mbox.oxidns.fake.root.").expect("fake SOA rname should parse"),
+        Name::from_ascii("fake-ns.oxidns-next.fake.root.").expect("fake SOA mname should parse"),
+        Name::from_ascii("fake-mbox.oxidns-next.fake.root.").expect("fake SOA rname should parse"),
         2021110400,
         1800,
         900,

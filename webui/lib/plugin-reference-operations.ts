@@ -1,7 +1,7 @@
 "use client";
 
-import type { DependencyGraphEdge } from "@/lib/oxidns-api";
-import type { OxiDnsConfig, OxiDnsPluginConfig } from "@/lib/oxidns-config";
+import type { DependencyGraphEdge } from "@/lib/oxidns-next-api";
+import type { OxiDnsNextConfig, OxiDnsNextPluginConfig } from "@/lib/oxidns-next-config";
 import type { PluginInstance } from "@/lib/types";
 import { WEBUI, tClient } from "@/lib/i18n";
 
@@ -12,7 +12,7 @@ export interface PluginReferenceImpact extends DependencyGraphEdge {
 }
 
 export interface PluginReferenceMutationResult {
-  config: OxiDnsConfig;
+  config: OxiDnsNextConfig;
   changedTags: string[];
 }
 
@@ -67,7 +67,7 @@ export function getReplacementCandidates(
 }
 
 export function replacePluginReferences(
-  config: OxiDnsConfig,
+  config: OxiDnsNextConfig,
   edges: DependencyGraphEdge[],
   oldTag: string,
   newTag: string,
@@ -92,7 +92,7 @@ export function replacePluginReferences(
 }
 
 export function removeSafePluginReferences(
-  config: OxiDnsConfig,
+  config: OxiDnsNextConfig,
   edges: DependencyGraphEdge[],
 ): PluginReferenceMutationResult {
   const nextConfig = cloneConfig(config);
@@ -138,7 +138,7 @@ export function removeSafePluginReferences(
 }
 
 export function renamePluginConfigTag(
-  config: OxiDnsConfig,
+  config: OxiDnsNextConfig,
   oldTag: string,
   newTag: string,
 ): PluginReferenceMutationResult {
@@ -149,14 +149,14 @@ export function renamePluginConfigTag(
   return { config: nextConfig, changedTags: [oldTag, newTag] };
 }
 
-function cloneConfig(config: OxiDnsConfig): OxiDnsConfig {
-  return JSON.parse(JSON.stringify(config)) as OxiDnsConfig;
+function cloneConfig(config: OxiDnsNextConfig): OxiDnsNextConfig {
+  return JSON.parse(JSON.stringify(config)) as OxiDnsNextConfig;
 }
 
 function findPluginConfig(
-  config: OxiDnsConfig,
+  config: OxiDnsNextConfig,
   tag: string,
-): OxiDnsPluginConfig | undefined {
+): OxiDnsNextPluginConfig | undefined {
   return config.plugins.find((plugin) => plugin.tag === tag);
 }
 

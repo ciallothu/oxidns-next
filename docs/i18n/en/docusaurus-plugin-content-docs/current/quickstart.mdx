@@ -7,12 +7,12 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import Admonition from '@theme/Admonition';
 
-This page describes the OxiDNS installation paths and the shortest path from download to first successful start.
+This page describes the OxiDNS Next installation paths and the shortest path from download to first successful start.
 
 <Admonition type="tip" title="Which install path should I choose?">
 
 * **Linux servers**: the one-command installer, release archives, or `.deb` packages
-* **OpenWrt routers**: the [`luci-app-oxidns`](openwrt.mdx) LuCI app
+* **OpenWrt routers**: a musl archive matching the device architecture; the current [portable deployment](openwrt.mdx) has no dedicated LuCI app
 * **Containerized environments**: the Docker image
 * **Local development or debugging**: build from source with Cargo
 * **macOS / Windows**: the one-command installer or release archives
@@ -21,33 +21,33 @@ This page describes the OxiDNS installation paths and the shortest path from dow
 
 ## 1. One-Command Install
 
-The installer detects the current platform. On Linux / macOS / Windows, it downloads the matching OxiDNS GitHub Release archive, extracts `oxidns` / `oxidns.exe`, `config.yaml`, and `webui/`, then installs and starts OxiDNS as a system service by default. On OpenWrt, it downloads and installs the `luci-app-oxidns` LuCI app.
+The installer detects the current platform, downloads the matching OxiDNS Next GitHub Release archive, and extracts `oxidns-next` / `oxidns-next.exe`, `config.yaml`, and `webui/`. Linux, macOS, and elevated Windows installs start a system service by default; OpenWrt uses portable mode only.
 
 <Tabs groupId="os">
   <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
-curl -fsSL https://oxidns.org/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sudo sh
 ```
 
   </TabItem>
   <TabItem value="windows" label="Windows">
 
 ```powershell
-irm https://oxidns.org/install.ps1 | iex
+irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.ps1 | iex
 ```
 
   </TabItem>
   <TabItem value="openwrt" label="OpenWrt">
 
 ```sh
-curl -fsSL https://oxidns.org/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
 ```
 
 If `curl` is not installed:
 
 ```sh
-wget -O- https://oxidns.org/install.sh | sh
+wget -O- https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
 ```
 
   </TabItem>
@@ -57,15 +57,15 @@ Default install locations:
 
 | Platform | Default install directory | PATH behavior |
 | --- | --- | --- |
-| Linux / macOS service install with `sudo` | `/opt/oxidns` | Creates `/usr/local/bin/oxidns`, then installs and starts the system service |
-| Windows service install from elevated PowerShell | `%ProgramFiles%\OxiDNS` | Adds the install directory to the Machine PATH, then installs and starts the service |
-| Linux / macOS portable install | `~/.oxidns` | Set `OXIDNS_INSTALL_SERVICE=0`; creates `~/.local/bin/oxidns` |
-| Windows portable install | `%LOCALAPPDATA%\OxiDNS` | Set `OXIDNS_INSTALL_SERVICE=0`; adds the install directory to the user PATH |
-| OpenWrt / LuCI app install | Managed by `opkg` / `apk` | Installs `luci-app-oxidns` and the optional Chinese translation package; install the OxiDNS core from LuCI afterward |
+| Linux / macOS service install with `sudo` | `/opt/oxidns-next` | Creates `/usr/local/bin/oxidns-next`, then installs and starts the system service |
+| Windows service install from elevated PowerShell | `%ProgramFiles%\OxiDNS Next` | Adds the install directory to the Machine PATH, then installs and starts the service |
+| Linux / macOS portable install | `~/.oxidns-next` | Set `OXIDNS_NEXT_INSTALL_SERVICE=0`; creates `~/.local/bin/oxidns-next` |
+| Windows portable install | `%LOCALAPPDATA%\OxiDNS Next` | Set `OXIDNS_NEXT_INSTALL_SERVICE=0`; adds the install directory to the user PATH |
+| OpenWrt portable install | `/opt/oxidns-next` | Creates `/usr/local/bin/oxidns-next` without registering an init service |
 
 In Linux / macOS / Windows archive install mode, running the installer again updates the binary and `webui/`. If `config.yaml` already exists in the install directory, the installer keeps it and writes the release default config as `config.yaml.example`.
 
-On OpenWrt, running the installer again reinstalls the selected `luci-app-oxidns` release package. OxiDNS core version upgrades still use the built-in LuCI / WebUI / API / CLI upgrade flow.
+On OpenWrt, running the installer again updates the binary and WebUI while preserving the existing `config.yaml`. Configure service supervision separately.
 
 ### Install A Specific Version
 
@@ -73,14 +73,14 @@ On OpenWrt, running the installer again reinstalls the selected `luci-app-oxidns
   <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
-curl -fsSL https://oxidns.org/install.sh | sudo env OXIDNS_VERSION=v1.0.1 sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sudo env OXIDNS_NEXT_VERSION=v0.1.0 sh
 ```
 
   </TabItem>
   <TabItem value="windows" label="Windows">
 
 ```powershell
-$env:OXIDNS_VERSION = "v1.0.1"; irm https://oxidns.org/install.ps1 | iex
+$env:OXIDNS_NEXT_VERSION = "v0.1.0"; irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.ps1 | iex
 ```
 
   </TabItem>
@@ -90,18 +90,14 @@ Common environment variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `OXIDNS_VERSION` | Release tag, defaults to `latest` |
-| `OXIDNS_INSTALL_DIR` | Override the install directory |
-| `OXIDNS_BIN_DIR` | Override the command-link directory on Linux / macOS |
-| `OXIDNS_TARGET` | Override the release target, for example `x86_64-unknown-linux-musl` |
-| `OXIDNS_BUNDLE` | Select the release build bundle, default `full`; Linux x86_64 / ARM64 musl can use `minimal` or `standard` |
-| `OXIDNS_NO_PATH=1` | Do not create a command link or update PATH |
-| `OXIDNS_INSTALL_SERVICE=0` | Skip system service installation and use portable install mode |
-| `OXIDNS_START_SERVICE=0` | Install the service but do not start it immediately |
-| `OXIDNS_OPENWRT_INSTALL` | OpenWrt branch switch, defaults to `auto`; set `0` to force normal Linux archive installation |
-| `OXIDNS_OPENWRT_REPO` | LuCI app repository, defaults to `svenshi/luci-app-oxidns` |
-| `OXIDNS_OPENWRT_VERSION` | LuCI app release tag, defaults to `latest` |
-| `OXIDNS_OPENWRT_I18N` | Whether to install the Simplified Chinese translation package, defaults to `auto`; set `0` to skip it |
+| `OXIDNS_NEXT_VERSION` | Release tag, defaults to `latest` |
+| `OXIDNS_NEXT_INSTALL_DIR` | Override the install directory |
+| `OXIDNS_NEXT_BIN_DIR` | Override the command-link directory on Linux / macOS |
+| `OXIDNS_NEXT_TARGET` | Override the release target, for example `x86_64-unknown-linux-musl` |
+| `OXIDNS_NEXT_BUNDLE` | Select the release build bundle, default `full`; Linux x86_64 / ARM64 musl can use `minimal` or `standard` |
+| `OXIDNS_NEXT_NO_PATH=1` | Do not create a command link or update PATH |
+| `OXIDNS_NEXT_INSTALL_SERVICE=0` | Skip system service installation and use portable install mode |
+| `OXIDNS_NEXT_START_SERVICE=0` | Install the service but do not start it immediately |
 
 Portable install:
 
@@ -109,33 +105,33 @@ Portable install:
   <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
-curl -fsSL https://oxidns.org/install.sh | env OXIDNS_INSTALL_SERVICE=0 sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | env OXIDNS_NEXT_INSTALL_SERVICE=0 sh
 ```
 
   </TabItem>
   <TabItem value="windows" label="Windows">
 
 ```powershell
-$env:OXIDNS_INSTALL_SERVICE = "0"; irm https://oxidns.org/install.ps1 | iex
+$env:OXIDNS_NEXT_INSTALL_SERVICE = "0"; irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.ps1 | iex
 ```
 
   </TabItem>
 </Tabs>
 
-After a portable install, start OxiDNS with:
+After a portable install, start OxiDNS Next with:
 
 <Tabs groupId="os">
   <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
-oxidns start -c ~/.oxidns/config.yaml -d ~/.oxidns
+oxidns-next start -c ~/.oxidns-next/config.yaml -d ~/.oxidns-next
 ```
 
   </TabItem>
   <TabItem value="windows" label="Windows">
 
 ```powershell
-oxidns.exe start -c "$env:LOCALAPPDATA\OxiDNS\config.yaml" -d "$env:LOCALAPPDATA\OxiDNS"
+oxidns-next.exe start -c "$env:LOCALAPPDATA\OxiDNS Next\config.yaml" -d "$env:LOCALAPPDATA\OxiDNS Next"
 ```
 
   </TabItem>
@@ -149,39 +145,39 @@ The default config includes a `:53` listener. On Linux / macOS, portable install
 
 ### Uninstall
 
-The uninstall script removes the binary, `webui/`, and PATH entry while keeping `config.yaml` by default. On OpenWrt, it removes `luci-app-oxidns` / the translation package and cleans the LuCI-installed `/usr/bin/oxidns` and `/usr/share/oxidns/webui`; OxiDNS config, the working directory, and LuCI settings are kept by default.
+The uninstall script removes the binary, `webui/`, and PATH entry while keeping `config.yaml` by default. OpenWrt uses the same portable uninstall path.
 
 <Tabs groupId="os">
   <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
-curl -fsSL https://oxidns.org/uninstall.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | sudo sh
 ```
 
   </TabItem>
   <TabItem value="openwrt" label="OpenWrt">
 
 ```sh
-curl -fsSL https://oxidns.org/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | sh
 ```
 
 If `curl` is not installed:
 
 ```sh
-wget -O- https://oxidns.org/uninstall.sh | sh
+wget -O- https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | sh
 ```
 
   </TabItem>
   <TabItem value="windows" label="Windows">
 
 ```powershell
-irm https://oxidns.org/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.ps1 | iex
 ```
 
   </TabItem>
 </Tabs>
 
-If you installed with `sudo` or a custom `OXIDNS_INSTALL_DIR`, use the same privilege level and directory variable when uninstalling. OpenWrt uninstall requires root.
+If you installed with `sudo` or a custom `OXIDNS_NEXT_INSTALL_DIR`, use the same privilege level and directory variable when uninstalling. OpenWrt uninstall requires root.
 
 Remove the install directory and config too:
 
@@ -189,27 +185,27 @@ Remove the install directory and config too:
   <TabItem value="unix" label="Linux / macOS" default>
 
 ```bash
-curl -fsSL https://oxidns.org/uninstall.sh | sudo env OXIDNS_PURGE=1 sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | sudo env OXIDNS_NEXT_PURGE=1 sh
 ```
 
   </TabItem>
   <TabItem value="openwrt" label="OpenWrt">
 
 ```sh
-curl -fsSL https://oxidns.org/uninstall.sh | env OXIDNS_PURGE=1 sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | env OXIDNS_NEXT_PURGE=1 sh
 ```
 
 If `curl` is not installed:
 
 ```sh
-wget -O- https://oxidns.org/uninstall.sh | env OXIDNS_PURGE=1 sh
+wget -O- https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | env OXIDNS_NEXT_PURGE=1 sh
 ```
 
   </TabItem>
   <TabItem value="windows" label="Windows">
 
 ```powershell
-$env:OXIDNS_PURGE = "1"; irm https://oxidns.org/uninstall.ps1 | iex
+$env:OXIDNS_NEXT_PURGE = "1"; irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.ps1 | iex
 ```
 
   </TabItem>
@@ -217,7 +213,7 @@ $env:OXIDNS_PURGE = "1"; irm https://oxidns.org/uninstall.ps1 | iex
 
 <Admonition type="warning" title="Purge removes configuration">
 
-Setting `OXIDNS_PURGE=1` deletes the configuration file. For archive installs it removes the full install directory; on OpenWrt it removes OxiDNS config, the working directory, and LuCI settings. Back up `config.yaml` before running it.
+Setting `OXIDNS_NEXT_PURGE=1` deletes the complete install directory, including its configuration. Back up `config.yaml` before running it.
 
 </Admonition>
 
@@ -225,14 +221,11 @@ Common uninstall variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `OXIDNS_INSTALL_DIR` | Override the uninstall target; keep it aligned with the install command |
-| `OXIDNS_BIN_DIR` | Override the command-link directory on Linux / macOS |
-| `OXIDNS_NO_PATH=1` | Do not remove the command link or user PATH entry |
-| `OXIDNS_UNINSTALL_SERVICE=1` | Force operating-system service uninstall; by default this is attempted automatically as root / administrator |
-| `OXIDNS_PURGE=1` | For archive installs, remove the full install directory; on OpenWrt, remove OxiDNS config, the working directory, and LuCI settings |
-| `OXIDNS_OPENWRT_UNINSTALL` | OpenWrt uninstall branch switch, defaults to `auto`; set `0` to force normal Linux archive uninstall |
-| `OXIDNS_OPENWRT_CONFIG_PATH` | Override the OpenWrt config path; when omitted, reads UCI `config_path`, then falls back to `/etc/oxidns/config.yaml` |
-| `OXIDNS_OPENWRT_WORKING_DIR` | Override the OpenWrt working directory; when omitted, reads UCI `working_dir`, then falls back to `/var/lib/oxidns` |
+| `OXIDNS_NEXT_INSTALL_DIR` | Override the uninstall target; keep it aligned with the install command |
+| `OXIDNS_NEXT_BIN_DIR` | Override the command-link directory on Linux / macOS |
+| `OXIDNS_NEXT_NO_PATH=1` | Do not remove the command link or user PATH entry |
+| `OXIDNS_NEXT_UNINSTALL_SERVICE=1` | Force operating-system service uninstall; by default this is attempted automatically as root / administrator |
+| `OXIDNS_NEXT_PURGE=1` | Remove the complete install directory, including its configuration |
 
 ## 2. Build From Source
 
@@ -246,12 +239,12 @@ Requirements:
 Build and run:
 
 ```bash
-git clone https://github.com/svenshi/oxidns.git
-cd oxidns
+git clone https://github.com/ciallothu/oxidns-next.git
+cd oxidns-next
 
 cargo build --release
-./target/release/oxidns check -c config.yaml
-./target/release/oxidns start -c config.yaml
+./target/release/oxidns-next check -c config.yaml
+./target/release/oxidns-next start -c config.yaml
 ```
 
 Run with debug logging:
@@ -265,43 +258,43 @@ cargo run -- start -c config.yaml -l debug
 
 The release workflow generates standalone binaries for multiple platforms. Each `full` archive includes:
 
-- `oxidns` or `oxidns.exe`
+- `oxidns-next` or `oxidns-next.exe`
 - `config.yaml`
 - `LICENSE`
 - `webui/`
 
-Linux x86_64 / ARM64 musl also get `minimal` and `standard` slim archives. `minimal` only includes `oxidns`, `config.yaml`, and `LICENSE`; `standard` also includes WebUI static files, query_recorder, and the upgrade capability. See [Custom Build](./custom-build#preset-capability-matrix) for the full capability differences between preset bundles.
+Linux x86_64 / ARM64 musl also get `minimal` and `standard` slim archives. `minimal` only includes `oxidns-next`, `config.yaml`, and `LICENSE`; `standard` also includes WebUI static files, query_recorder, and the upgrade capability. See [Custom Build](./custom-build#preset-capability-matrix) for the full capability differences between preset bundles.
 
 Release page:
 
-- [https://github.com/svenshi/oxidns/releases](https://github.com/svenshi/oxidns/releases)
+- [https://github.com/ciallothu/oxidns-next/releases](https://github.com/ciallothu/oxidns-next/releases)
 
 ### Supported Archive Targets
 
 Non-Windows targets use `.tar.gz`:
 
-- `oxidns-x86_64-unknown-linux-gnu.tar.gz`
-- `oxidns-x86_64-unknown-linux-musl.tar.gz`
-- `oxidns-aarch64-unknown-linux-gnu.tar.gz`
-- `oxidns-aarch64-unknown-linux-musl.tar.gz`
-- `oxidns-i686-unknown-linux-musl.tar.gz`
-- `oxidns-arm-unknown-linux-musleabihf.tar.gz`
-- `oxidns-x86_64-apple-darwin.tar.gz`
-- `oxidns-aarch64-apple-darwin.tar.gz`
-- `oxidns-x86_64-unknown-freebsd.tar.gz`
+- `oxidns-next-x86_64-unknown-linux-gnu.tar.gz`
+- `oxidns-next-x86_64-unknown-linux-musl.tar.gz`
+- `oxidns-next-aarch64-unknown-linux-gnu.tar.gz`
+- `oxidns-next-aarch64-unknown-linux-musl.tar.gz`
+- `oxidns-next-i686-unknown-linux-musl.tar.gz`
+- `oxidns-next-arm-unknown-linux-musleabihf.tar.gz`
+- `oxidns-next-x86_64-apple-darwin.tar.gz`
+- `oxidns-next-aarch64-apple-darwin.tar.gz`
+- `oxidns-next-x86_64-unknown-freebsd.tar.gz`
 
 Linux musl slim archives use a bundle prefix:
 
-- `oxidns-minimal-x86_64-unknown-linux-musl.tar.gz`
-- `oxidns-minimal-aarch64-unknown-linux-musl.tar.gz`
-- `oxidns-standard-x86_64-unknown-linux-musl.tar.gz`
-- `oxidns-standard-aarch64-unknown-linux-musl.tar.gz`
+- `oxidns-next-minimal-x86_64-unknown-linux-musl.tar.gz`
+- `oxidns-next-minimal-aarch64-unknown-linux-musl.tar.gz`
+- `oxidns-next-standard-x86_64-unknown-linux-musl.tar.gz`
+- `oxidns-next-standard-aarch64-unknown-linux-musl.tar.gz`
 
 Windows targets use `.zip`:
 
-- `oxidns-x86_64-pc-windows-msvc.zip`
-- `oxidns-i686-pc-windows-msvc.zip`
-- `oxidns-aarch64-pc-windows-msvc.zip`
+- `oxidns-next-x86_64-pc-windows-msvc.zip`
+- `oxidns-next-i686-pc-windows-msvc.zip`
+- `oxidns-next-aarch64-pc-windows-msvc.zip`
 
 ### How To Choose The Right Release Asset
 
@@ -309,21 +302,21 @@ When the correct asset is unclear, use this mapping:
 
 | System / Environment | Recommended release asset | Notes |
 | --- | --- | --- |
-| Linux x86_64 | `oxidns-x86_64-unknown-linux-musl.tar.gz` | Safer default for broad compatibility |
-| Linux ARM64 | `oxidns-aarch64-unknown-linux-musl.tar.gz` | Safer default for broad compatibility |
+| Linux x86_64 | `oxidns-next-x86_64-unknown-linux-musl.tar.gz` | Safer default for broad compatibility |
+| Linux ARM64 | `oxidns-next-aarch64-unknown-linux-musl.tar.gz` | Safer default for broad compatibility |
 | Debian / Ubuntu x86_64 service install | `*_amd64.deb` | Best fit for systemd-based deployment |
 | Debian / Ubuntu ARM64 service install | `*_arm64.deb` | Best fit for systemd-based deployment |
-| OpenWrt / LuCI | `.ipk` / `.apk` packages from [`luci-app-oxidns`](https://github.com/svenshi/luci-app-oxidns) | Install the LuCI app first; LuCI then downloads and installs the OxiDNS Linux musl core |
-| Alpine Linux x86_64 | `oxidns-x86_64-unknown-linux-musl.tar.gz` | Prefer musl on Alpine |
-| Alpine Linux ARM64 | `oxidns-aarch64-unknown-linux-musl.tar.gz` | Static-friendly build |
-| Confirmed glibc Linux requiring a dynamic build | `oxidns-x86_64-unknown-linux-gnu.tar.gz` / `oxidns-aarch64-unknown-linux-gnu.tar.gz` | Only choose this when the target environment is clearly compatible |
-| 32-bit ARM Linux | `oxidns-arm-unknown-linux-musleabihf.tar.gz` | Fits some Raspberry Pi and older ARM boards |
-| macOS Intel | `oxidns-x86_64-apple-darwin.tar.gz` | Intel Macs |
-| macOS Apple Silicon | `oxidns-aarch64-apple-darwin.tar.gz` | M1 / M2 / M3 / M4 Macs |
-| Windows x64 | `oxidns-x86_64-pc-windows-msvc.zip` | Most PCs |
-| Windows 32-bit | `oxidns-i686-pc-windows-msvc.zip` | Only for 32-bit Windows |
-| Windows ARM64 | `oxidns-aarch64-pc-windows-msvc.zip` | ARM-based Windows devices |
-| FreeBSD x86_64 | `oxidns-x86_64-unknown-freebsd.tar.gz` | FreeBSD hosts |
+| OpenWrt | A Linux musl archive matching the device CPU architecture | The installer uses portable mode; MIPS / MIPS64 currently have no official archive |
+| Alpine Linux x86_64 | `oxidns-next-x86_64-unknown-linux-musl.tar.gz` | Prefer musl on Alpine |
+| Alpine Linux ARM64 | `oxidns-next-aarch64-unknown-linux-musl.tar.gz` | Static-friendly build |
+| Confirmed glibc Linux requiring a dynamic build | `oxidns-next-x86_64-unknown-linux-gnu.tar.gz` / `oxidns-next-aarch64-unknown-linux-gnu.tar.gz` | Only choose this when the target environment is clearly compatible |
+| 32-bit ARM Linux | `oxidns-next-arm-unknown-linux-musleabihf.tar.gz` | Fits some Raspberry Pi and older ARM boards |
+| macOS Intel | `oxidns-next-x86_64-apple-darwin.tar.gz` | Intel Macs |
+| macOS Apple Silicon | `oxidns-next-aarch64-apple-darwin.tar.gz` | M1 / M2 / M3 / M4 Macs |
+| Windows x64 | `oxidns-next-x86_64-pc-windows-msvc.zip` | Most PCs |
+| Windows 32-bit | `oxidns-next-i686-pc-windows-msvc.zip` | Only for 32-bit Windows |
+| Windows ARM64 | `oxidns-next-aarch64-pc-windows-msvc.zip` | ARM-based Windows devices |
+| FreeBSD x86_64 | `oxidns-next-x86_64-unknown-freebsd.tar.gz` | FreeBSD hosts |
 
 To verify the platform first, run:
 
@@ -353,16 +346,16 @@ Map `X64`, `Arm64`, and `X86` to the `x86_64`, `aarch64`, and `i686` Windows ass
 Replace `TAG` below with the actual release tag, for example `v0.1.0`. The Linux example below uses `x86_64-unknown-linux-musl` as the default choice:
 
 ```bash
-curl -L -o oxidns.tar.gz \
-  https://github.com/svenshi/oxidns/releases/download/TAG/oxidns-x86_64-unknown-linux-musl.tar.gz
+curl -L -o oxidns-next.tar.gz \
+  https://github.com/ciallothu/oxidns-next/releases/download/TAG/oxidns-next-x86_64-unknown-linux-musl.tar.gz
 
-mkdir -p oxidns
-tar -xzf oxidns.tar.gz -C oxidns
-cd oxidns
+mkdir -p oxidns-next
+tar -xzf oxidns-next.tar.gz -C oxidns-next
+cd oxidns-next
 
-chmod +x oxidns
-./oxidns check -c config.yaml
-./oxidns start -c config.yaml
+chmod +x oxidns-next
+./oxidns-next check -c config.yaml
+./oxidns-next start -c config.yaml
 ```
 
 When the target machine's glibc compatibility is unclear, or when running Alpine Linux, prefer a `*-linux-musl` archive instead of defaulting to `gnu`.
@@ -372,7 +365,7 @@ When the target machine's glibc compatibility is unclear, or when running Alpine
 Download the matching `.zip`, extract it, then run:
 
 ```powershell
-.\oxidns.exe start -c .\config.yaml
+.\oxidns-next.exe start -c .\config.yaml
 ```
 
 ## 4. Install From Debian Packages
@@ -385,88 +378,63 @@ The release workflow currently builds `.deb` packages for:
 Install on Debian / Ubuntu:
 
 ```bash
-sudo dpkg -i oxidns_*_amd64.deb
+sudo dpkg -i oxidns-next_*_amd64.deb
 ```
 
 Or on ARM64 Debian / Ubuntu:
 
 ```bash
-sudo dpkg -i oxidns_*_arm64.deb
+sudo dpkg -i oxidns-next_*_arm64.deb
 ```
 
 Default installed paths:
 
-- Binary: `/usr/bin/oxidns`
-- Config: `/etc/oxidns/config.yaml`
-- Runtime-relative path base: `/var/lib/oxidns`
-- WebUI: `/var/lib/oxidns/webui` symlinked to `/usr/share/oxidns/webui`
+- Binary: `/usr/bin/oxidns-next`
+- Config: `/etc/oxidns-next/config.yaml`
+- Runtime-relative path base: `/var/lib/oxidns-next`
+- WebUI: `/var/lib/oxidns-next/webui` symlinked to `/usr/share/oxidns-next/webui`
 
-The project also ships systemd packaging metadata, so Debian-family systems are a good fit for service-based deployment. The default service explicitly passes `ExecStart ... -d /var/lib/oxidns` as the runtime-relative path base.
+The project also ships systemd packaging metadata, so Debian-family systems are a good fit for service-based deployment. The default service explicitly passes `ExecStart ... -d /var/lib/oxidns-next` as the runtime-relative path base.
 
 After changing the default config, validate it before starting the service:
 
 ```bash
-oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
 Verify service status:
 
 ```bash
-sudo systemctl status oxidns
+sudo systemctl status oxidns-next
 ```
 
 If the service is not running yet:
 
 ```bash
-sudo systemctl enable --now oxidns
+sudo systemctl enable --now oxidns-next
 ```
 
-## 5. OpenWrt / LuCI App
+## 5. Portable OpenWrt Deployment
 
-OpenWrt users should use the OxiDNS installer script to install [`luci-app-oxidns`](https://github.com/svenshi/luci-app-oxidns). It adds `Services -> OxiDNS` pages to LuCI for installing the OxiDNS core, managing the init service, editing configuration, and viewing logs.
+OpenWrt uses the same release archives as Linux, but the installer skips system-service registration:
 
 ```sh
-curl -fsSL https://oxidns.org/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
 ```
 
 If `curl` is not installed:
 
 ```sh
-wget -O- https://oxidns.org/install.sh | sh
+wget -O- https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
 ```
 
-When the script detects OpenWrt, it reads the latest `luci-app-oxidns` release, selects `.ipk` or `.apk` for the system package manager, installs the main package and optional Simplified Chinese translation package, and restarts `rpcd`.
-
-### Manual LuCI App Install
-
-Download the matching LuCI package from the `luci-app-oxidns` Release, then install it:
-
-```sh
-opkg install ./luci-app-oxidns_*.ipk
-# Optional Simplified Chinese translation
-opkg install ./luci-i18n-oxidns-zh-cn_*.ipk
-```
-
-On OpenWrt systems using `apk`:
-
-```sh
-apk add --allow-untrusted --no-network ./luci-app-oxidns_*.apk
-# Optional Simplified Chinese translation
-apk add --allow-untrusted --no-network ./luci-i18n-oxidns-zh-cn_*.apk
-```
-
-After installation, open `Services -> OxiDNS -> Core` and click `Install Core`. LuCI downloads and verifies the official OxiDNS Linux musl release archive for the current CPU architecture; offline environments can upload an official `.tar.gz` archive or a single `oxidns` binary.
-
-See [OpenWrt LuCI App](openwrt.mdx) for the full flow.
+After installation, supervise `oxidns-next` yourself through procd or another process manager. Upstream [`luci-app-oxidns`](https://github.com/svenshi/luci-app-oxidns) targets the original OxiDNS distribution and is not this project's installer. See [OpenWrt Deployment](openwrt.mdx) for supported architectures, default paths, and removal instructions.
 
 ## 6. Run With Docker
 
 The repository publishes a Docker image at:
 
-#### GitHub
-- `ghcr.io/svenshi/oxidns`
-#### Docker Hub
-- `svenshi/oxidns`
+- `ghcr.io/ciallothu/oxidns-next`
 
 The Docker workflow builds:
 
@@ -476,16 +444,21 @@ The Docker workflow builds:
 Pull and run:
 
 ```bash
-docker pull svenshi/oxidns:latest
+docker pull ghcr.io/ciallothu/oxidns-next:latest
+
+# Browser requests into a container are not loopback. Use a temporary token
+# for the first administrator bootstrap.
+export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
 
 docker run -d \
-  --name oxidns \
+  --name oxidns-next \
   --restart unless-stopped \
   -p 53:53/udp \
   -p 53:53/tcp \
   -p 9199:9199/tcp \
-  -v "$(pwd)/config.yaml:/etc/oxidns/config.yaml:ro" \
-  svenshi/oxidns:latest
+  -e OXIDNS_NEXT_BOOTSTRAP_TOKEN \
+  -v "$(pwd)/config.yaml:/etc/oxidns-next/config.yaml:ro" \
+  ghcr.io/ciallothu/oxidns-next:latest
 ```
 
 <Admonition type="note" title="Port binding">
@@ -499,7 +472,7 @@ When the default-branch image is published, the `latest` tag is also available.
 The image entrypoint effectively runs:
 
 ```bash
-oxidns start -c /etc/oxidns/config.yaml -d /etc/oxidns
+oxidns-next start -c /etc/oxidns-next/config.yaml -d /etc/oxidns-next
 ```
 
 The container exposes:
@@ -514,36 +487,48 @@ For Compose-based port mapping and config management, use this `docker-compose.y
 
 ```yaml
 services:
-  oxidns:
-    image: svenshi/oxidns:latest
-    container_name: oxidns
+  oxidns-next:
+    image: ghcr.io/ciallothu/oxidns-next:latest
+    container_name: oxidns-next
     restart: unless-stopped
     ports:
       - "53:53/udp"
       - "53:53/tcp"
       - "9199:9199/tcp"
+    environment:
+      - OXIDNS_NEXT_BOOTSTRAP_TOKEN
     volumes:
-      - ./config.yaml:/etc/oxidns/config.yaml:ro
+      - ./config.yaml:/etc/oxidns-next/config.yaml:ro
 ```
 
 Start it with:
 
 ```bash
+export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
 docker compose up -d
 ```
+
+On the first WebUI visit, enter this token in the setup form and create the administrator. Then immediately remove the temporary token from the container:
+
+```bash
+unset OXIDNS_NEXT_BOOTSTRAP_TOKEN
+docker compose up -d --force-recreate
+```
+
+With a direct `docker run`, remove and recreate the container after setup with the same arguments but without `-e OXIDNS_NEXT_BOOTSTRAP_TOKEN`. Do not place the token in `config.yaml`, the Compose file, or shell history. If OpenSSL is unavailable, use a password manager to generate at least 32 random bytes.
 
 Follow logs with:
 
 ```bash
-docker compose logs -f oxidns
+docker compose logs -f oxidns-next
 ```
 
 ## 7. Selection Guide
 
 - Fastest evaluation path: use the one-command installer for the latest release, or download a release archive manually
 - Long-running Linux service: prefer the Debian package
-- OpenWrt / LuCI management: use `luci-app-oxidns`
-- Container platforms: use the GHCR Docker or Docker Hub image
+- OpenWrt deployment: verify the device architecture, use the portable installer, and configure process supervision yourself
+- Container platforms: use the GHCR image
 - Development or custom builds: compile from source
 
 ## 8. Next Reading

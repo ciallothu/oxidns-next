@@ -5,29 +5,29 @@ import { getPluginKindDefinition } from "@/lib/plugin-definitions";
 import type { PluginInstance, PluginType } from "@/lib/types";
 import { WEBUI, tClient } from "@/lib/i18n";
 
-export interface OxiDnsConfig {
+export interface OxiDnsNextConfig {
   include?: string[];
   runtime?: Record<string, unknown>;
   api?: Record<string, unknown>;
   log?: Record<string, unknown>;
-  plugins: OxiDnsPluginConfig[];
+  plugins: OxiDnsNextPluginConfig[];
   [key: string]: unknown;
 }
 
-export interface OxiDnsPluginConfig {
+export interface OxiDnsNextPluginConfig {
   tag: string;
   type: string;
   args?: unknown;
 }
 
-export interface OxiDnsParseResult {
-  config?: OxiDnsConfig;
+export interface OxiDnsNextParseResult {
+  config?: OxiDnsNextConfig;
   diagnostics: string[];
 }
 
 const emptyMetrics = { calls: 0, avgLatency: 0, errorRate: 0, qps: 0 };
 
-export function parseOxiDnsYaml(text: string): OxiDnsParseResult {
+export function parseOxiDnsNextYaml(text: string): OxiDnsNextParseResult {
   try {
     const document = parseDocument(text, { prettyErrors: true });
     const diagnostics = [
@@ -47,7 +47,7 @@ export function parseOxiDnsYaml(text: string): OxiDnsParseResult {
     }
 
     const plugins = (Array.isArray(rawPlugins) ? rawPlugins : []).map(
-      (plugin, index): OxiDnsPluginConfig => {
+      (plugin, index): OxiDnsNextPluginConfig => {
         if (!isPlainRecord(plugin)) {
           throw new Error(
             tClient(WEBUI.storeErrors.pluginEntryMustBeObject, { index }),
@@ -62,7 +62,7 @@ export function parseOxiDnsYaml(text: string): OxiDnsParseResult {
     );
 
     return {
-      config: { ...value, plugins } as OxiDnsConfig,
+      config: { ...value, plugins } as OxiDnsNextConfig,
       diagnostics,
     };
   } catch (error) {
@@ -76,7 +76,7 @@ export function parseOxiDnsYaml(text: string): OxiDnsParseResult {
   }
 }
 
-export function stringifyOxiDnsConfig(config: OxiDnsConfig): string {
+export function stringifyOxiDnsNextConfig(config: OxiDnsNextConfig): string {
   return stringify(cleanUndefined(config), {
     indent: 2,
     lineWidth: 0,
@@ -95,13 +95,13 @@ export function stringifyOxiDnsConfig(config: OxiDnsConfig): string {
 // if the previous text can't be parsed, so saving never breaks.
 export function serializePluginsPreserving(
   prevText: string,
-  config: OxiDnsConfig,
+  config: OxiDnsNextConfig,
   changedTags: Set<string>,
 ): string {
   const newPlugins = config.plugins;
   // Fallback must serialize the WHOLE config — serializing only `plugins`
   // would wipe runtime/api/log/include when prevText is empty/unparseable.
-  const fallback = (): string => stringifyOxiDnsConfig(config);
+  const fallback = (): string => stringifyOxiDnsNextConfig(config);
   if (!prevText || !prevText.trim()) return fallback();
   try {
     const doc = parseDocument(prevText);
@@ -135,7 +135,7 @@ export function serializePluginsPreserving(
   }
 }
 
-export function pluginsFromConfig(config: OxiDnsConfig): PluginInstance[] {
+export function pluginsFromConfig(config: OxiDnsNextConfig): PluginInstance[] {
   return config.plugins.map((plugin) => {
     const definition = getPluginKindDefinition(plugin.type);
     const now = new Date().toISOString();
@@ -156,9 +156,9 @@ export function pluginsFromConfig(config: OxiDnsConfig): PluginInstance[] {
 }
 
 export function configFromPlugins(
-  baseConfig: OxiDnsConfig,
+  baseConfig: OxiDnsNextConfig,
   plugins: PluginInstance[],
-): OxiDnsConfig {
+): OxiDnsNextConfig {
   return {
     ...baseConfig,
     plugins: plugins.map((plugin) => {
@@ -184,7 +184,7 @@ export function pluginConfigFromYaml(input: string): {
   value?: Record<string, unknown>;
   error?: string;
 } {
-  const result = parseOxiDnsYaml(
+  const result = parseOxiDnsNextYaml(
     `plugins:\n  - tag: plugin\n    type: debug_print\n    args:\n${indentYaml(input || "{}", 6)}\n`,
   );
   if (result.diagnostics.length > 0 || !result.config) {
@@ -230,7 +230,7 @@ export function pluginArgsFromUiConfig(
   return config;
 }
 
-// Compare two OxiDNS YAML configs and return true when anything outside the
+// Compare two OxiDNS Next YAML configs and return true when anything outside the
 // `plugins:` list differs. Top-level keys (runtime, api, log, include, …) only
 // take effect on process start — they are NOT hot-reloadable. Used by the
 // header sync control to switch the pending-change pill from "apply changes"
@@ -248,14 +248,14 @@ export function topLevelConfigChanged(a: string, b: string): boolean {
 }
 
 function stripPluginsForCompare(text: string): Record<string, unknown> | null {
-  const parsed = parseOxiDnsYaml(text);
+  const parsed = parseOxiDnsNextYaml(text);
   if (!parsed.config) return null;
   const rest: Record<string, unknown> = { ...parsed.config };
   delete rest.plugins;
   return rest;
 }
 
-export function createDefaultOxiDnsConfig(): OxiDnsConfig {
+export function createDefaultOxiDnsNextConfig(): OxiDnsNextConfig {
   return {
     log: { level: "info" },
     plugins: [],

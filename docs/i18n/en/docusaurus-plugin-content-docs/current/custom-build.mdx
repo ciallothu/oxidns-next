@@ -7,14 +7,14 @@ import Admonition from '@theme/Admonition';
 
 # Custom Build
 
-OxiDNS exposes every protocol, every optional plugin, and every external
+OxiDNS Next exposes every protocol, every optional plugin, and every external
 dependency as an independent Cargo feature flag. When you need a smaller
 binary, a specific platform, or a particular plugin set, you have **three
 paths**:
 
 | Approach | Best for | Needs local Rust toolchain? |
 |---|---|---|
-| [Template repo + GitHub Actions](#path-1-template-repo-automated-builds) | "Rebuild my own version every time upstream releases," without forking | ❌ |
+| [Reusable workflow + GitHub Actions](#path-1-reusable-github-actions-workflow) | Publish from your own repository manually or on your own schedule, without maintaining a fork | ❌ |
 | [Local `cargo build`](#path-2-local-cargo-build) | One-off custom binary, you already have Rust installed | ✅ |
 | [Fork the whole project](#path-3-fork-the-project) | Long-term source modifications, diverging from upstream | ✅ |
 
@@ -30,16 +30,16 @@ slim-build mode.
 
 ## Bundles
 
-| Bundle | Use case | Approx. size |
+| Bundle | Use case | Relative size |
 |---|---|---|
-| `minimal` | Low-memory devices / containers / experiments — UDP/TCP forwarding only | ~8.9 MB |
-| `standard` | Home router — WebUI + encrypted protocols + common plugins | between the two |
-| `full` (default) | Everything, equivalent to the official release | ~21 MB |
+| `minimal` | Low-memory devices / containers / experiments — UDP/TCP forwarding only | Smallest |
+| `standard` | Home router — WebUI + encrypted protocols + common plugins | Medium |
+| `full` (default) | Everything, equivalent to the official release | Largest |
 
 <Admonition type="note">
 
 When you mix and match features yourself, the actual capability is the one
-reported by `oxidns build-info` or `GET /api/build`. The list below describes
+reported by `oxidns-next build-info` or `GET /api/build`. The list below describes
 the **official preset** contents.
 
 </Admonition>
@@ -154,7 +154,7 @@ path.
 | `plugin-ipset` | `ipset` + `nftset` | `ripset` (Linux only) |
 | `plugin-cron` | `cron` | `cronexpr` |
 | `plugin-script` | `script` | — |
-| `plugin-arbitrary` | `arbitrary` | `oxidns-zoneparser` |
+| `plugin-arbitrary` | `arbitrary` | `oxidns-next-zoneparser` |
 | `plugin-download` | `download` | — |
 | `plugin-http-request` | `http_request` | — |
 | `plugin-reverse-lookup` | `reverse_lookup` | — |
@@ -164,90 +164,74 @@ path.
 
 ---
 
-## Path 1: template repo (automated builds)
+## Path 1: Reusable GitHub Actions Workflow
 
-If you don't want to fork the project but still want **"every time upstream
-releases, automatically rebuild with my own feature set and target list,
-and publish to my own release feed"**, start from the official template:
-
-<div className="custom-build-cta">
-
-### 👉 [svenshi/oxidns-build-template](https://github.com/svenshi/oxidns-build-template)
-
-</div>
+If you do not want to maintain a complete fork, call the reusable OxiDNS Next workflow from an empty repository of your own. This project does not currently publish a separate `oxidns-next-build-template` repository, so create the small caller workflow directly instead of using the old upstream OxiDNS template.
 
 ### How it works
 
 ```
-svenshi/oxidns                     you/oxidns-build (from template)
+ciallothu/oxidns-next                     you/oxidns-next-build
 ─────────────                      ────────────────────────────────
- release v1.2.0  ─poll every 30m─▶ watch-upstream.yml
+ custom-build.yml  ◀──────────────  build.yml (manual trigger)
                                             │
-                                            ▼  reads build.config.yml
-                                    build.yml (~50-line shell)
-                                            │
-                                            ▼  uses: svenshi/oxidns@main
+                                            ▼  uses: ciallothu/oxidns-next@main
                           ┌────────────────────────────────────┐
-                          │ svenshi/oxidns/.github/workflows/  │
+                          │ ciallothu/oxidns-next/.github/workflows/  │
                           │      custom-build.yml              │  ← build matrix
                           │  (runs on the caller's runner)     │
                           └─────────────────┬──────────────────┘
                                             ▼
-                                  publishes to you/oxidns-build releases
+                                  publishes to you/oxidns-next-build releases
                                             ▼
-                       oxidns upgrade --repository you/oxidns-build
+                       oxidns-next upgrade --repository you/oxidns-next-build
 ```
 
 **Key design decisions:**
 
-- The **build matrix is maintained in one place**, the upstream
-  [`.github/workflows/custom-build.yml`](https://github.com/svenshi/oxidns/blob/main/.github/workflows/custom-build.yml)
-- Your repo only contains a 50-line `build.yml` that calls it via `uses:`
-- When upstream improves the pipeline (new target / cross toolchain fix /
-  UPX upgrade), every derivative repo **picks it up on the next trigger**
-  without local changes
+- The **build matrix is maintained in one place**, the main repository
+  [`.github/workflows/custom-build.yml`](https://github.com/ciallothu/oxidns-next/blob/main/.github/workflows/custom-build.yml)
+- Your repository only needs a short `build.yml` that calls it through `uses:`
+- When the main repository improves its pipeline, the caller uses the updated logic on its next trigger
 
 ### Quick start
 
-1. Open [svenshi/oxidns-build-template](https://github.com/svenshi/oxidns-build-template)
-   and click **Use this template** → **Create a new repository**
-2. Edit `build.config.yml` in your new repo:
+1. Create an empty GitHub repository that will own your custom releases.
+2. Add `.github/workflows/build.yml`:
 
    ```yaml
-   upstream: svenshi/oxidns
-   # full | standard | minimal | custom
-   bundle: custom
-   # only used when bundle: custom
-   features:
-     - api
-     - webui
-     - server-doh
-     - upstream-doh
-     - plugin-cron
-     - plugin-upgrade
-   targets:
-     - x86_64-unknown-linux-musl
-     - aarch64-unknown-linux-musl
-     - aarch64-apple-darwin
-     - x86_64-pc-windows-msvc
-   upx: true
-   make_deb: false
+   name: Build OxiDNS Next
+
+   on:
+     workflow_dispatch:
+
+   permissions:
+     contents: write
+
+   jobs:
+     build:
+       uses: ciallothu/oxidns-next/.github/workflows/custom-build.yml@main
+       with:
+         tag: v0.1.0
+         bundle: custom
+         features: api,webui,server-doh,upstream-doh,plugin-cron,plugin-upgrade
+         targets: '["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]'
+         upx: true
+         make_deb: false
+       secrets: inherit
    ```
 
-3. Push to `main`. From the Actions tab, manually run **Watch Upstream** once
-   to trigger the first build.
+3. Push to `main`, then run **Build OxiDNS Next** from the Actions tab.
 
-The workflow polls upstream's latest release every 30 minutes thereafter and
-publishes a matching build into your repo whenever a new version appears.
-You can also manually `workflow_dispatch` against any tag at any time.
+The workflow compiles on the caller's runners and publishes the output to the caller repository. If you need automatic release polling, add a scheduled version check in your own repository; this project does not claim an unpublished template polling workflow.
 
 ### Upgrading the client to your custom build
 
 The most common command:
 
 ```bash
-oxidns upgrade apply \
-  --repository you/oxidns-build \
+oxidns-next upgrade apply \
+  --repository you/oxidns-next-build \
   --bundle full
 ```
 
@@ -255,7 +239,7 @@ oxidns upgrade apply \
 
 The client binary's `PRIMARY_BUNDLE` reports as `custom`, and `--bundle auto`
 refuses to run on custom builds (to avoid guessing the wrong asset name).
-Custom builds use the `oxidns-{target}.{ext}` naming convention, which
+Custom builds use the `oxidns-next-{target}.{ext}` naming convention, which
 matches `--bundle full` exactly.
 
 </Admonition>
@@ -263,9 +247,9 @@ matches `--bundle full` exactly.
 Or specify the asset directly to bypass bundle inference:
 
 ```bash
-oxidns upgrade apply \
-  --repository you/oxidns-build \
-  --asset oxidns-x86_64-unknown-linux-musl.tar.gz
+oxidns-next upgrade apply \
+  --repository you/oxidns-next-build \
+  --asset oxidns-next-x86_64-unknown-linux-musl.tar.gz
 ```
 
 Or wire it into `config.yaml` so the `upgrade` plugin uses it automatically:
@@ -275,27 +259,27 @@ plugins:
   - tag: my_upgrader
     type: upgrade
     args:
-      repository: you/oxidns-build
+      repository: you/oxidns-next-build
       bundle: full
 ```
 
-### Asset naming (must match upstream exactly)
+### Asset naming (must match the OxiDNS Next release)
 
-The template's outputs follow the same naming as the official release —
-otherwise `oxidns upgrade` cannot find or unpack them:
+The reusable workflow outputs follow the same naming as the official OxiDNS Next release —
+otherwise `oxidns-next upgrade` cannot find or unpack them:
 
 | bundle | filename | archive contents | config used |
 |---|---|---|---|
-| `full` / `custom` | `oxidns-{target}.tar.gz` / `.zip` | `oxidns`/`oxidns.exe`, `config.yaml`, `LICENSE`, `webui/` | `config.yaml` |
-| `standard` | `oxidns-standard-{target}.tar.gz` | same as above | `config.yaml` |
-| `minimal` | `oxidns-minimal-{target}.tar.gz` | `oxidns`, `config.yaml`, `LICENSE` | `config.minimal.yaml` |
+| `full` / `custom` | `oxidns-next-{target}.tar.gz` / `.zip` | `oxidns-next`/`oxidns-next.exe`, `config.yaml`, `LICENSE`, `webui/` | `config.yaml` |
+| `standard` | `oxidns-next-standard-{target}.tar.gz` | same as above | `config.yaml` |
+| `minimal` | `oxidns-next-minimal-{target}.tar.gz` | `oxidns-next`, `config.yaml`, `LICENSE` | `config.minimal.yaml` |
 
 All files live at the tarball **root** (no nested directory). Any deviation
-breaks `oxidns upgrade`.
+breaks `oxidns-next upgrade`.
 
 ### Supported targets
 
-Identical to upstream's `release.yml` — 12 targets:
+Identical to this project's `release.yml` — 12 targets:
 
 - `x86_64-unknown-linux-gnu` / `x86_64-unknown-linux-musl`
 - `aarch64-unknown-linux-gnu` / `aarch64-unknown-linux-musl`
@@ -304,7 +288,7 @@ Identical to upstream's `release.yml` — 12 targets:
 - `x86_64-unknown-freebsd`
 - `x86_64-pc-windows-msvc` / `i686-pc-windows-msvc` / `aarch64-pc-windows-msvc`
 
-Comment out the targets you don't need in `build.config.yml` to shorten CI.
+Delete unneeded entries from the caller `build.yml` `targets` JSON array to shorten CI.
 
 ---
 
@@ -329,9 +313,8 @@ cargo build --release --no-default-features --features "minimal,plugin-mikrotik"
 cargo build --release --no-default-features --features "minimal,api"
 ```
 
-The binary lands in `target/release/oxidns` (`oxidns.exe` on Windows).
-WebUI assets need a separate build — see
-[webui/README.md](https://github.com/svenshi/oxidns/blob/main/webui).
+The binary lands in `target/release/oxidns-next` (`oxidns-next.exe` on Windows).
+WebUI assets need a separate build; see [WebUI Deployment](webui.md).
 
 ---
 
@@ -339,17 +322,17 @@ WebUI assets need a separate build — see
 
 For long-term source modifications:
 
-1. Fork [svenshi/oxidns](https://github.com/svenshi/oxidns)
+1. Fork [ciallothu/oxidns-next](https://github.com/ciallothu/oxidns-next)
 2. Change `default = ["standard"]` (or any custom combination) at the top of
    `Cargo.toml` so that `cargo build` and `cargo install` both produce the
    tailored binary out of the box
 3. For automatic updates: override the defaults of the `upgrade` subcommand
-   (`--repository`, `--asset` / `--bundle`) so `oxidns upgrade` looks at
+   (`--repository`, `--asset` / `--bundle`) so `oxidns-next upgrade` looks at
    your release feed. Custom builds should not rely on `bundle: auto` —
    set `asset` explicitly
-4. Reuse upstream's
-   [`.github/workflows/release.yml`](https://github.com/svenshi/oxidns/blob/main/.github/workflows/release.yml)
-   to maintain your own release pipeline
+4. To maintain your own release pipeline, use this project's
+   [`.github/workflows/release.yml`](https://github.com/ciallothu/oxidns-next/blob/main/.github/workflows/release.yml)
+   as a reference
 
 ---
 
@@ -392,24 +375,20 @@ mid-run crash.
 
 ## FAQ
 
-**Q: I'm using the template repo — upstream changed the build pipeline,
-what do I do?**
-A: Usually nothing. The template's `build.yml` pins to
-`svenshi/oxidns@main`, so the next trigger picks up the latest logic
-automatically. Pin to `@v1.2.0` (or any tag) for a fixed version.
+**Q: The main project changed the reusable build pipeline. What do I do?**
+A: Usually nothing. The caller's `build.yml` pins to
+`ciallothu/oxidns-next@main`, so the next trigger picks up the latest logic
+automatically. Pin to `@v0.1.0` (or another OxiDNS Next tag) for a fixed version.
 
 **Q: Can I build a PR branch or a specific commit?**
-A: The template supports release tags only today. To build branches or
-commits, either go through "Path 2: local cargo build", or edit the
-template's `watch-upstream.yml` to detect branch HEADs instead of
-release tags.
+A: The reusable publishing workflow's `tag` input is intended for an OxiDNS Next release tag. For a PR branch or arbitrary commit, use "Path 2: local cargo build" or copy and adapt the workflow in your own fork; do not use a branch name as a release tag.
 
 **Q: How is artifact integrity verified?**
 A: GitHub generates a SHA256 digest per release asset automatically, and
-`oxidns upgrade` validates it on download. No manual signing needed.
+`oxidns-next upgrade` validates it on download. No manual signing needed.
 
 **Q: What's the difference between `bundle: custom` and `bundle: full`?**
-A: The filenames match (`oxidns-{target}.{ext}`), but `custom` lets you
+A: The filenames match (`oxidns-next-{target}.{ext}`), but `custom` lets you
 freely combine features and the resulting binary reports
 `PRIMARY_BUNDLE=custom`, so clients must pass `--bundle full` explicitly
 when upgrading. `full` compiles with `--features full` and is equivalent

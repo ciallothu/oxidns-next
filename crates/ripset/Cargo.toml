@@ -1,18 +1,18 @@
 [package]
-name = "oxidns-ripset"
+name = "oxidns-next-ripset"
 version = "0.1.2"
 edition = "2024"
 authors = ["Chen Xu <windoze@0d0a.com>", "Sven Shi <isvenshi@gmail.com>"]
-homepage = "https://github.com/svenshi/oxidns/tree/main/crates/ripset"
-description = "Pure Rust implementation of ipset/nftset operations via netlink, maintained for OxiDNS"
+homepage = "https://github.com/ciallothu/oxidns-next/tree/main/crates/ripset"
+description = "Pure Rust implementation of ipset/nftset operations via netlink, maintained for OxiDNS Next"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/svenshi/oxidns"
+repository = "https://github.com/ciallothu/oxidns-next"
 readme = "README.md"
 keywords = ["linux", "ipset", "netlink", "nftables", "networking"]
 categories = ["network-programming"]
 
 [lib]
-name = "ripset"
+name = "oxidns_next_ripset"
 path = "src/lib.rs"
 
 [dependencies]

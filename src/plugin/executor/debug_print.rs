@@ -13,6 +13,7 @@ use tracing::info;
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::Result;
+use crate::infra::observability::log_buffer::QUERY_LOG_TARGET;
 use crate::plugin::executor::{ExecStep, Executor};
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::plugin_factory;
@@ -51,6 +52,7 @@ impl Executor for DebugPrint {
     #[hotpath::measure]
     async fn execute(&self, context: &mut DnsContext) -> Result<ExecStep> {
         info!(
+            target: QUERY_LOG_TARGET,
             plugin = %self.tag,
             title = %self.msg,
             query = ?context.request,

@@ -512,7 +512,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "files",
         "hosts 文件",
-        "/etc/oxidns/hosts.txt",
+        "/etc/oxidns-next/hosts.txt",
         false,
         "指定外部 hosts 规则文件列表。",
       ),
@@ -542,7 +542,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "files",
         "记录文件",
-        "/etc/oxidns/zone.txt",
+        "/etc/oxidns-next/zone.txt",
         false,
         "指定静态记录文件列表。",
       ),
@@ -572,7 +572,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "files",
         "规则文件",
-        "/etc/oxidns/redirect.txt",
+        "/etc/oxidns-next/redirect.txt",
         false,
         "指定外部重定向规则文件列表。",
       ),
@@ -1462,7 +1462,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "args",
         "命令参数",
-        "/etc/oxidns/notify.sh\n${qname}",
+        "/etc/oxidns-next/notify.sh\n${qname}",
         false,
         "传给命令的参数数组。",
       ),
@@ -1479,7 +1479,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         description: "指定脚本运行时的工作目录。",
         label: "工作目录",
         type: "text",
-        placeholder: "/etc/oxidns",
+        placeholder: "/etc/oxidns-next",
       },
       {
         key: "timeout",
@@ -1559,7 +1559,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       },
     ],
     quickSetup: {
-      paramPlaceholder: "oxidns_v4,inet,24 oxidns_v6,inet6,64",
+      paramPlaceholder: "oxidns_next_v4,inet,24 oxidns_next_v6,inet6,64",
     },
   },
   {
@@ -1778,13 +1778,13 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
           stringArrayField(
             "files",
             "文件",
-            "/etc/oxidns/persistent_ips.txt",
+            "/etc/oxidns-next/persistent_ips.txt",
             false,
             "从外部文件加载常驻地址集合。",
             {
               type: "text",
               label: "输入值",
-              placeholder: "/etc/oxidns/persistent_ips.txt",
+              placeholder: "/etc/oxidns-next/persistent_ips.txt",
             },
           ),
         ],
@@ -1822,7 +1822,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
     kind: "upgrade",
     type: "executor",
     name: "Upgrade",
-    description: "执行 OxiDNS 升级流程",
+    description: "执行 OxiDNS Next 升级流程",
     icon: "ArrowUpRight",
     configSchema: [
       {
@@ -1845,7 +1845,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         description: "GitHub 仓库。",
         label: "GitHub 仓库",
         type: "text",
-        default: "svenshi/oxidns",
+        default: "ciallothu/oxidns-next",
       },
       {
         key: "asset",
@@ -1978,7 +1978,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
         type: "array",
         required: true,
         placeholder:
-          '[{"url":"https://example.com/geosite.dat","dir":"/etc/oxidns","filename":"geosite.dat"}]',
+          '[{"url":"https://example.com/geosite.dat","dir":"/etc/oxidns-next","filename":"geosite.dat"}]',
         item: {
           type: "object",
           label: "下载项",
@@ -1998,7 +1998,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
               label: "目录",
               type: "text",
               required: true,
-              placeholder: "/etc/oxidns",
+              placeholder: "/etc/oxidns-next",
             },
             {
               key: "filename",
@@ -2042,7 +2042,7 @@ export const executorPluginDefinitions: PluginKindDefinition[] = [
       },
     ],
     quickSetup: {
-      paramPlaceholder: "https://example.com/rules.txt /etc/oxidns",
+      paramPlaceholder: "https://example.com/rules.txt /etc/oxidns-next",
     },
   },
   {

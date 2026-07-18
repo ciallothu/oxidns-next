@@ -40,7 +40,7 @@ import {
   listDynamicDomainRules,
   removeDynamicDomainRules,
   type DynamicDomainRuleKind,
-} from "@/lib/oxidns-api";
+} from "@/lib/oxidns-next-api";
 import type {
   PluginComponentDefinition,
   PluginDetailComponentProps,

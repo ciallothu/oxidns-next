@@ -478,7 +478,7 @@ mod tests {
 
     /// Boundary: `/32` on IPv4 must build successfully and the
     /// exclusive end must be `IP + 1`. This is the dominant case in
-    /// OxiDNS (single A record → /32 add). Catches regressions in
+    /// OxiDNS Next (single A record → /32 add). Catches regressions in
     /// `ip_after_last` for the maximum prefix length.
     #[test]
     fn ipv4_slash32_range_is_single_address() {

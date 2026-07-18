@@ -5,7 +5,7 @@ sidebar_position: 3
 
 import Admonition from "@theme/Admonition";
 
-执行器是 OxiDNS 的核心动作层。它们可以读写请求、设置响应、调用上游、缓存结果、做回退、记录日志，或触发系统联动。
+执行器是 OxiDNS Next 的核心动作层。它们可以读写请求、设置响应、调用上游、缓存结果、做回退、记录日志，或触发系统联动。
 
 阅读本章时，应重点关注以下两个问题：
 
@@ -301,7 +301,7 @@ import Admonition from "@theme/Admonition";
   - 仅在 `addr` 使用域名时有意义。
   - 应写为 `IP:port`，不能再写域名。
   - 典型用于 DoT、DoQ、DoH 域名上游的首次解析。
-  - 使用 `bootstrap` 后，上游域名解析由 OxiDNS 查询该引导服务器完成，并按 TTL 缓存。
+  - 使用 `bootstrap` 后，上游域名解析由 OxiDNS Next 查询该引导服务器完成，并按 TTL 缓存。
   - 与 `dial_addr` 同时配置时，本字段会被忽略。
 
 #### `upstreams[].bootstrap_version`
@@ -373,7 +373,7 @@ import Admonition from "@theme/Admonition";
 - 作用：控制 TCP 或 DoT 流水线。
 - 示例：`enable_pipeline: true`
 - 说明：也可直接通过 `tcp+pipeline://` 或 `tls+pipeline://` 在 `addr` 中启用。
-- 建议：开启前先用 `oxidns probe upstream <addr>` 探测目标上游。该命令会对 TCP/DoT 强制同一条连接并发查询，帮助判断该上游是否适合启用 pipeline，避免遇到超时、连接关闭、响应 ID 错乱或 question 串线。
+- 建议：开启前先用 `oxidns-next probe upstream <addr>` 探测目标上游。该命令会对 TCP/DoT 强制同一条连接并发查询，帮助判断该上游是否适合启用 pipeline，避免遇到超时、连接关闭、响应 ID 错乱或 question 串线。
 - 判定：探测结果为 `supported` 时再考虑开启；如果为 `unsupported`、`unstable` 或 `inconclusive`，建议保持关闭，或降低并发 / 延长超时后重新测试。
 
 #### `upstreams[].enable_http3`
@@ -722,7 +722,7 @@ import Admonition from "@theme/Admonition";
       - "regexp:^api[0-9]+\\.corp\\.local$ 10.10.0.5"
     files:
       # 从文件合并更多 hosts 规则
-      - "/etc/oxidns/hosts.txt"
+      - "/etc/oxidns-next/hosts.txt"
     short_circuit: true
 ```
 
@@ -796,7 +796,7 @@ import Admonition from "@theme/Admonition";
       - "10.2.0.192.in-addr.arpa. 300 IN PTR host.example.com."
     files:
       # 从文件加载更多静态记录
-      - "/etc/oxidns/zone.txt"
+      - "/etc/oxidns-next/zone.txt"
     short_circuit: false
 ```
 
@@ -873,7 +873,7 @@ import Admonition from "@theme/Admonition";
       - "old-static.example.com static.example.net"
     files:
       # 从文件合并更多重定向规则
-      - "/etc/oxidns/redirect.txt"
+      - "/etc/oxidns-next/redirect.txt"
 ```
 
 ### 配置项
@@ -1134,9 +1134,9 @@ old-static.example.com static.example.net
 
 ## `ip_selector`
 
-<Admonition type="warning" title="实验性插件（v1.2.0 引入）">
+<Admonition type="warning" title="实验性插件（继承自上游 OxiDNS v1.2.0）">
 
-`ip_selector` 在 `v1.2.0` 首次发布，目前处于**实验阶段**：配置字段、默认值、探测策略与缓存语义可能在后续版本根据实际使用反馈调整。建议在非关键链路先行验证，关注 release notes 中的相关变更说明。
+`ip_selector` 最初在上游 OxiDNS `v1.2.0` 发布，OxiDNS Next 继承后仍将其视为**实验功能**：配置字段、默认值、探测策略与缓存语义可能在后续版本根据实际使用反馈调整。建议在非关键链路先行验证，关注 release notes 中的相关变更说明。
 
 </Admonition>
 
@@ -1259,7 +1259,7 @@ old-static.example.com static.example.net
 - exec: "ip_selector best_within_budget tcp:443,tcp:80,ping"
 ```
 
-`ip_selector` 只接受上面列出的 OxiDNS 原生命名，不提供兼容别名。
+`ip_selector` 只接受上面列出的 OxiDNS Next 原生命名，不提供兼容别名。
 
 ### 指标
 
@@ -1529,9 +1529,9 @@ old-static.example.com static.example.net
 
 ## `learn_domain`
 
-<Admonition type="warning" title="实验性插件（v1.2.0 引入）">
+<Admonition type="warning" title="实验性插件（继承自上游 OxiDNS v1.2.0）">
 
-`learn_domain` 在 `v1.2.0` 首次发布，目前处于**实验阶段**：过滤条件、写入触发时机与配套 `dynamic_domain_set` 的接口可能在后续版本调整。生产部署前请评估学习速率与磁盘写入对持久化层的影响。
+`learn_domain` 最初在上游 OxiDNS `v1.2.0` 发布，OxiDNS Next 继承后仍将其视为**实验功能**：过滤条件、写入触发时机与配套 `dynamic_domain_set` 的接口可能在后续版本调整。生产部署前请评估学习速率与磁盘写入对持久化层的影响。
 
 </Admonition>
 
@@ -1545,7 +1545,7 @@ old-static.example.com static.example.net
 - tag: learned_allow
   type: dynamic_domain_set
   args:
-    path: "/etc/oxidns/learned-allow.txt"
+    path: "/etc/oxidns-next/learned-allow.txt"
 
 - tag: learn_allow
   type: learn_domain
@@ -1688,6 +1688,8 @@ old-static.example.com static.example.net
 
 把入口 request、执行后 response 以及 `sequence` 路径事件持久化到 recorder 自己的 SQLite 数据库，并暴露历史查询、统计和 SSE 实时推送接口。
 
+仓库默认 `config.yaml` 已启用 `query_log`，并把它放在 `main_sequence` 的第一步，使其 `with_next` 包裹完整的下游请求/响应链。自定义链路时也应把 recorder 放在希望观察的执行范围之前。
+
 ### 配置示例
 
 ```yaml
@@ -1763,7 +1765,7 @@ old-static.example.com static.example.net
 - 进入时抓取入口 request 的结构化快照，并启用 `DnsContext.execution_path`。
 - `next` 返回后立即提交记录；成功时记录当前 response，失败时记录 `error` 和空 response。
 - request / response 不保存 wire 数据，而是把问题区、RR、EDNS 等字段拆成 JSON 文本列。
-- `client_ip` 字段来自 OxiDNS 看到的传输层来源地址；如果前面有 systemd-resolved、dnsmasq、AdGuardHome、dae、clash 等本机转发链路，记录中可能只看到 `127.0.0.1`。
+- `client_ip` 字段来自 OxiDNS Next 看到的传输层来源地址；如果前面有 systemd-resolved、dnsmasq、AdGuardHome、dae、clash 等本机转发链路，记录中可能只看到 `127.0.0.1`。
 - 每个 recorder 使用同一前缀下的版本化表：
   - `qr_<safe_tag>_<fnv64hex>_v1_records`
   - `qr_<safe_tag>_<fnv64hex>_v1_steps`
@@ -1852,7 +1854,7 @@ old-static.example.com static.example.net
 - 如果前置分支在 recorder 之前就短路返回，该请求不会被当前 recorder 记录。
 - 若 `next` 报错而 `server` 后续补发了兜底响应，数据库里仍只记录插件视角下的 `error` 和空 response。
 - 若未启用管理 API，recorder 仍会写库，但不会暴露查询与 SSE 路由。
-- 若需要真实终端 IP，请让客户端直连 OxiDNS，或在 HTTP/DoH 反向代理场景配置可信的 `src_ip_header`。
+- 若需要真实终端 IP，请让客户端直连 OxiDNS Next，或在 HTTP/DoH 反向代理场景配置可信的 `src_ip_header`。
 
 </Admonition>
 
@@ -2008,7 +2010,7 @@ old-static.example.com static.example.net
       X-Client-IP: "${client_ip}"
       X-Qname: "${qname}"
     query_params:
-      source: "oxidns"
+      source: "oxidns-next"
       qname: "${qname}"
     json:
       qname: "${qname}"
@@ -2161,7 +2163,7 @@ old-static.example.com static.example.net
   args:
     command: "bash"
     args:
-      - "/etc/oxidns/notify.sh"
+      - "/etc/oxidns-next/notify.sh"
       - "${qname}"
       - "${client_ip}"
     env:
@@ -2256,9 +2258,9 @@ old-static.example.com static.example.net
   type: ipset
   args:
     # A 记录写入的 ipset
-    set_name4: "oxidns_v4"
+    set_name4: "oxidns-next_v4"
     # AAAA 记录写入的 ipset
-    set_name6: "oxidns_v6"
+    set_name6: "oxidns-next_v6"
     # IPv4 写入前先聚合成 /24
     mask4: 24
     # IPv6 写入前先聚合成 /64
@@ -2290,7 +2292,7 @@ old-static.example.com static.example.net
 ### quick setup
 
 ```yaml
-- exec: "ipset oxidns_v4,inet,24 oxidns_v6,inet6,64"
+- exec: "ipset oxidns-next_v4,inet,24 oxidns-next_v6,inet6,64"
 ```
 
 格式：
@@ -2465,11 +2467,11 @@ old-static.example.com static.example.net
     # 异步提交，避免阻塞 DNS 主路径
     async: true
     # A 记录写入的 address-list
-    address_list4: "oxidns_ipv4"
+    address_list4: "oxidns-next_ipv4"
     # AAAA 记录写入的 address-list
-    address_list6: "oxidns_ipv6"
-    # 用于标记 OxiDNS 管理条目的注释前缀
-    comment_prefix: "oxidns"
+    address_list6: "oxidns-next_ipv6"
+    # 用于标记 OxiDNS Next 管理条目的注释前缀
+    comment_prefix: "oxidns-next"
     # 动态项 TTL 下限
     min_ttl: 60
     # 动态项 TTL 上限
@@ -2488,7 +2490,7 @@ old-static.example.com static.example.net
         - "2001:db8::/64"
       files:
         # 从文件加载更多常驻项
-        - "/etc/oxidns/persistent_ips.txt"
+        - "/etc/oxidns-next/persistent_ips.txt"
 ```
 
 ### 配置项
@@ -2527,7 +2529,7 @@ old-static.example.com static.example.net
 
 - 类型：`u64`；必填：否；默认值：`5`
 - 作用：指定等待下一段 RouterOS API 响应数据的上限，单位为秒。
-- 配置建议：建议为 OxiDNS 使用专用且规模可控的 `address-list`，不建议接入已有的大型共享列表。只有在存量环境无法避免慢列表查询或 RouterOS 管理面响应较慢时，才考虑将该值调大，例如 `30` 或 `60`。
+- 配置建议：建议为 OxiDNS Next 使用专用且规模可控的 `address-list`，不建议接入已有的大型共享列表。只有在存量环境无法避免慢列表查询或 RouterOS 管理面响应较慢时，才考虑将该值调大，例如 `30` 或 `60`。
 
 #### `async`
 
@@ -2550,7 +2552,7 @@ old-static.example.com static.example.net
 #### `comment_prefix`
 
 - 类型：`string`；必填：否；默认值：`fdns`
-- 作用：指定插件写入 RouterOS 条目时使用的注释前缀。该前缀用于区分 OxiDNS 创建的动态项和常驻项，便于后续刷新、重载与清理。
+- 作用：指定插件写入 RouterOS 条目时使用的注释前缀。该前缀用于区分 OxiDNS Next 创建的动态项和常驻项，便于后续刷新、重载与清理。
 - 注意事项：该值及插件 `tag` 不应包含 `;` 或 `=`，以避免影响内部标记格式。
 
 #### `persistent`
@@ -2621,7 +2623,7 @@ old-static.example.com static.example.net
 <Admonition type="note" title="注意事项">
 
 - 至少需要 `address_list4` 或 `address_list6` 之一。
-- 建议使用 OxiDNS 专用 `address-list`，避免接入大型共享列表，以降低 RouterOS 管理面扫描成本。
+- 建议使用 OxiDNS Next 专用 `address-list`，避免接入大型共享列表，以降低 RouterOS 管理面扫描成本。
 - `comment_prefix` 与插件 `tag` 不能包含 `;` 或 `=`。
 - 同步模式不会改变 DNS 应答本身，即使 RouterOS 写入失败也会保留 DNS 结果。
 
@@ -2631,7 +2633,7 @@ old-static.example.com static.example.net
 
 ### 作用
 
-执行 OxiDNS 升级流程，可用于 `cron`、`sequence` 或其它执行器触发的维护任务。
+执行 OxiDNS Next 升级流程，可用于 `cron`、`sequence` 或其它执行器触发的维护任务。
 
 ### 配置示例
 
@@ -2639,7 +2641,7 @@ old-static.example.com static.example.net
 - tag: upgrade_auto
   type: upgrade
   args:
-      repository: svenshi/oxidns
+      repository: ciallothu/oxidns-next
       asset: auto
       bundle: auto
       github_token: ghp_xxx
@@ -2667,7 +2669,7 @@ old-static.example.com static.example.net
     - 默认值：`true`
     - 升级成功后清理 `cache_dir` 和 `backup_dir`。
 - `repository`
-    - GitHub 仓库，默认 `svenshi/oxidns`。
+    - GitHub 仓库，默认 `ciallothu/oxidns-next`。
 - `asset`
     - Release asset 名称；`auto` 会按当前平台和编译版本选择 archive。
     - 显式填写 asset 时优先级最高，不再根据 `bundle` 推导。
@@ -2739,16 +2741,16 @@ old-static.example.com static.example.net
     socks5: "127.0.0.1:1080"
     downloads:
       - url: "https://example.com/geosite.dat"
-        dir: "/etc/oxidns"
+        dir: "/etc/oxidns-next"
       - url: "https://example.com/geoip.dat"
-        dir: "/etc/oxidns"
+        dir: "/etc/oxidns-next"
         filename: "geoip.dat"
 ```
 
 ### Quick Setup
 
 ```yaml
-- exec: "download https://example.com/rules.txt /etc/oxidns"
+- exec: "download https://example.com/rules.txt /etc/oxidns-next"
 ```
 
 ### 行为说明
@@ -2787,12 +2789,12 @@ old-static.example.com static.example.net
   args:
     downloads:
       - url: "https://example.com/geosite.dat"
-        dir: "/etc/oxidns"
+        dir: "/etc/oxidns-next"
 
 - tag: provider_geosite
   type: geosite
   args:
-    file: "/etc/oxidns/geosite.dat"
+    file: "/etc/oxidns-next/geosite.dat"
 
 - tag: reload_rules
   type: reload_provider
@@ -2832,10 +2834,10 @@ plugins:
       startup_if_missing: true
       downloads:
         - url: "https://example.com/geosite.dat"
-          dir: "/etc/oxidns/rules"
+          dir: "/etc/oxidns-next/rules"
           filename: "geosite.dat"
         - url: "https://example.com/geoip.dat"
-          dir: "/etc/oxidns/rules"
+          dir: "/etc/oxidns-next/rules"
           filename: "geoip.dat"
 
   # 4. 下载完成后只刷新相关 provider
@@ -2849,12 +2851,12 @@ plugins:
   - tag: provider_geosite
     type: geosite
     args:
-      file: "/etc/oxidns/rules/geosite.dat"
+      file: "/etc/oxidns-next/rules/geosite.dat"
 
   - tag: provider_geoip
     type: geoip
     args:
-      file: "/etc/oxidns/rules/geoip.dat"
+      file: "/etc/oxidns-next/rules/geoip.dat"
 ```
 
 说明：
@@ -2958,7 +2960,7 @@ plugins:
 
 <Admonition type="note" title="注意事项">
 
-- 需要运行在带有应用控制上下文的正常 OxiDNS 进程中。
+- 需要运行在带有应用控制上下文的正常 OxiDNS Next 进程中。
 - 如果已有 reload 处于 `pending` 或 `in_progress`，本次执行会返回错误。
 - 放进普通请求 `sequence` 时会触发全量应用 reload，通常不建议在实时请求路径上使用。
 

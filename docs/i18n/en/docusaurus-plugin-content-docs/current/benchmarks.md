@@ -1,9 +1,11 @@
 ---
-title: Performance and Benchmarks
+title: Performance and Benchmarks (Upstream Historical Data)
 sidebar_position: 8
 ---
 
-This page provides OxiDNS performance priorities and public benchmark snapshots. The data is intended to show the performance profile under different levels of policy complexity, concurrency, and transport-path pressure, not to claim an absolute winner.
+> This page retains historical benchmark snapshots from upstream [OxiDNS](https://github.com/svenshi/oxidns) `v0.1.0` and `v0.3.0`. They have not been rerun or independently validated for OxiDNS Next `v0.1.0`, so the numbers are not OxiDNS Next performance claims.
+
+The remainder of this page documents upstream OxiDNS performance priorities and public benchmark snapshots. The data is intended to show the performance profile under different levels of policy complexity, concurrency, and transport-path pressure, not to claim an absolute winner.
 
 ## What OxiDNS Cares About
 

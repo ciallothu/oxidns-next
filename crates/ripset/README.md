@@ -1,11 +1,11 @@
-# oxidns-ripset
+# oxidns-next-ripset
 
 Pure Rust library for managing Linux `ipset` and nftables sets through netlink.
 
-This package is published to crates.io as `oxidns-ripset` to avoid the
-upstream name conflict. The library crate name remains `ripset`.
+The workspace package is named `oxidns-next-ripset`, and its Rust library
+identifier is `oxidns_next_ripset`.
 
-OxiDNS uses this crate for system-integration plugins that synchronize DNS
+OxiDNS Next uses this crate for system-integration plugins that synchronize DNS
 policy results into kernel-managed IP sets without spawning `ipset` or `nft`
 commands on the request path.
 
@@ -37,7 +37,7 @@ and membership operations.
 
 ```toml
 [dependencies]
-ripset = { package = "oxidns-ripset", version = "0.1" }
+oxidns_next_ripset = { package = "oxidns-next-ripset", git = "https://github.com/ciallothu/oxidns-next" }
 ```
 
 ## Library Usage
@@ -46,7 +46,7 @@ ripset = { package = "oxidns-ripset", version = "0.1" }
 
 ```rust
 use std::net::IpAddr;
-use ripset::{
+use oxidns_next_ripset::{
     ipset_add, ipset_create, ipset_del, ipset_destroy, ipset_flush, ipset_list, ipset_test,
     IpSetCreateOptions, IpSetFamily, IpSetType,
 };
@@ -72,7 +72,7 @@ ipset_destroy("myset")?;
 
 ```rust
 use std::net::IpAddr;
-use ripset::{
+use oxidns_next_ripset::{
     nftset_add, nftset_create_set, nftset_create_table, nftset_del, nftset_delete_set,
     nftset_delete_table, nftset_list, nftset_test, NftSetCreateOptions, NftSetType,
 };
@@ -109,9 +109,9 @@ platforms, the same API is available but returns
 `IpSetError::UnsupportedPlatform`, allowing cross-platform projects to compile
 while keeping runtime behavior explicit.
 
-## Relationship to OxiDNS
+## Relationship to OxiDNS Next
 
-This crate is maintained with OxiDNS's plugin model in mind. It is suitable for
+This crate is maintained with OxiDNS Next's plugin model in mind. It is suitable for
 background synchronization and side-effect plugins, but DNS request handling
 should avoid blocking on kernel set management unless correctness requires it.
 

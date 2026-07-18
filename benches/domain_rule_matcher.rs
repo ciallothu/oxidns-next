@@ -1,8 +1,8 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use oxidns::core::rule_matcher::DomainRuleMatcher;
-use oxidns::proto::Name;
+use oxidns_next::core::rule_matcher::DomainRuleMatcher;
+use oxidns_next::proto::Name;
 
 fn make_domain_rules() -> Vec<String> {
     let mut rules = Vec::with_capacity(4_000);

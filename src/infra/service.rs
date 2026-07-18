@@ -4,7 +4,7 @@
 //! Operating-system service management infrastructure.
 //!
 //! This module wraps the `service-manager` crate to install, start, stop,
-//! restart, and uninstall OxiDNS as a system service. It keeps
+//! restart, and uninstall OxiDNS Next as a system service. It keeps
 //! platform-specific service manager details outside the normal foreground
 //! application runner.
 
@@ -38,7 +38,7 @@ define_windows_service!(ffi_service_main, windows_service_entry);
 /// the main thread before any other work.
 #[cfg(windows)]
 pub fn try_dispatch_windows_service() -> Result<bool> {
-    match service_dispatcher::start("oxidns", ffi_service_main) {
+    match service_dispatcher::start("oxidns-next", ffi_service_main) {
         Ok(()) => Ok(true),
         // ERROR_FAILED_SERVICE_CONTROLLER_CONNECT (1063): not started by SCM.
         Err(windows_service::Error::Winapi(e)) if e.raw_os_error() == Some(1063) => Ok(false),
@@ -51,7 +51,7 @@ pub fn try_dispatch_windows_service() -> Result<bool> {
 #[cfg(windows)]
 fn windows_service_entry(_args: Vec<OsString>) {
     if let Err(e) = run_windows_service() {
-        eprintln!("OxiDNS service error: {e}");
+        eprintln!("OxiDNS Next service error: {e}");
     }
 }
 
@@ -63,15 +63,18 @@ fn run_windows_service() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
     let ctrl_tx = shutdown_tx.clone();
 
-    let status_handle = service_control_handler::register("oxidns", move |event| match event {
-        ServiceControl::Stop | ServiceControl::Shutdown => {
-            let _ = ctrl_tx.send(());
-            ServiceControlHandlerResult::NoError
-        }
-        ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
-        _ => ServiceControlHandlerResult::NotImplemented,
-    })
-    .map_err(|e| DnsError::runtime(format!("Failed to register service control handler: {e}")))?;
+    let status_handle =
+        service_control_handler::register("oxidns-next", move |event| match event {
+            ServiceControl::Stop | ServiceControl::Shutdown => {
+                let _ = ctrl_tx.send(());
+                ServiceControlHandlerResult::NoError
+            }
+            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+            _ => ServiceControlHandlerResult::NotImplemented,
+        })
+        .map_err(|e| {
+            DnsError::runtime(format!("Failed to register service control handler: {e}"))
+        })?;
 
     let report = |state: ServiceState, accepted: ServiceControlAccept, hint_secs: u64| {
         status_handle
@@ -200,7 +203,7 @@ fn parse_start_config_args(args: &[OsString]) -> Result<crate::app::StartConfig>
     })
 }
 
-const SERVICE_LABEL: &str = "oxidns";
+const SERVICE_LABEL: &str = "oxidns-next";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceInstallConfig {
@@ -247,7 +250,7 @@ pub fn install(options: ServiceInstallConfig) -> Result<()> {
         contents: None,
         username: None,
         // Keep `-d` as the single source of truth for runtime-relative paths.
-        // This lets OxiDNS report path problems after startup instead of the
+        // This lets OxiDNS Next report path problems after startup instead of the
         // service manager failing an earlier chdir with less context.
         working_directory: None,
         environment: None,
@@ -360,14 +363,14 @@ mod tests {
 
     #[test]
     fn packaged_systemd_unit_uses_cli_working_dir_only() {
-        let unit = include_str!("../../packaging/oxidns.service");
+        let unit = include_str!("../../packaging/oxidns-next.service");
         assert!(
             !unit
                 .lines()
                 .any(|line| line.starts_with("WorkingDirectory="))
         );
         assert!(unit.contains(
-            "ExecStart=/usr/bin/oxidns start -c /etc/oxidns/config.yaml -d /var/lib/oxidns"
+            "ExecStart=/usr/bin/oxidns-next start -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next"
         ));
     }
 }

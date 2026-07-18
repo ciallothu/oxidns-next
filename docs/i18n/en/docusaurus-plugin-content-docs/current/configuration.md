@@ -5,7 +5,7 @@ sidebar_position: 2
 
 ## Before Starting
 
-OxiDNS uses YAML configuration. For day-to-day editing, it is easiest to understand the file as six top-level parts:
+OxiDNS Next uses YAML configuration. For day-to-day editing, it is easiest to understand the file as six top-level parts:
 
 ```yaml
 runtime:
@@ -16,7 +16,7 @@ api:
 
 log:
   level: info
-  file: ./oxidns.log
+  file: ./oxidns-next.log
 
 network:
   outbound:
@@ -48,27 +48,27 @@ Where:
 - `include`
   - Load plugin definitions from other configuration files.
 - `plugins`
-  - All plugin instance definitions. OxiDNS composes the full DNS pipeline from plugins.
+  - All plugin instance definitions. OxiDNS Next composes the full DNS pipeline from plugins.
 
 After editing a config, validate it before starting:
 
 ```bash
-oxidns check -c config.yaml
+oxidns-next check -c config.yaml
 ```
 
-If the config uses relative paths and the runtime working directory is not the config directory, pass the working directory explicitly. `-d` is the single base for all runtime relative paths, including logs, SQLite files, rule files, and `api.http.webui.root`; paths do not become relative to `/etc/oxidns` just because the config file lives there:
+If the config uses relative paths and the runtime working directory is not the config directory, pass the working directory explicitly. `-d` is the single base for all runtime relative paths, including logs, SQLite files, rule files, and `api.http.webui.root`; paths do not become relative to `/etc/oxidns-next` just because the config file lives there:
 
 ```bash
-oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
-In the Debian default layout, the config file lives at `/etc/oxidns/config.yaml`, while runtime-relative resources live under `/var/lib/oxidns`.
+In the Debian default layout, the config file lives at `/etc/oxidns-next/config.yaml`, while runtime-relative resources live under `/var/lib/oxidns-next`.
 
 When the plugin composition is still undecided, start from [Common Scenarios](scenarios.md), then return to this page for field details.
 
 ## Environment Variable Substitution
 
-During startup, `oxidns check`, management API validation, and validation before saving a config, OxiDNS first **parses the YAML into a data structure** and then expands `${VAR}` placeholders inside string scalars. The `config.yaml` file itself is not rewritten, so the WebUI still reads and saves the original placeholders.
+During startup, `oxidns-next check`, management API validation, and validation before saving a config, OxiDNS Next first **parses the YAML into a data structure** and then expands `${VAR}` placeholders inside string scalars. The `config.yaml` file itself is not rewritten, so the WebUI still reads and saves the original placeholders.
 
 Supported syntax:
 
@@ -94,16 +94,16 @@ api:
       cert: ${API_TLS_CERT}
       key: ${API_TLS_KEY}
     auth:
-      type: basic
-      username: ${ADMIN_USER}
-      password: ${ADMIN_PASS}
+      type: accounts
+      database: ${OXIDNS_NEXT_AUTH_DB:-./data/oxidns-next-auth.db}
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
 ```
 
 Because substitution happens after YAML parsing, an environment value may contain any characters — `*`, `&`, `:`, `#`, `'`, `"`, `\`, newlines, even binary bytes — without breaking the config syntax. You do not need to manually quote values that contain special characters. When the entire scalar is exactly one placeholder (e.g. `timeout: ${CACHE_TTL}`), the expanded value is re-parsed once against the YAML 1.2 scalar rules, so number / boolean / `null`-shaped environment values still match numeric / boolean / null fields; everywhere else the value lands as a plain string. `include` paths support placeholders too:
 
 ```yaml
 include:
-  - ${OXIDNS_CONF_DIR}/plugins/common.yaml
+  - ${OXIDNS_NEXT_CONF_DIR}/plugins/common.yaml
 ```
 
 ## Top-Level Fields
@@ -145,7 +145,8 @@ Field notes:
 ```yaml
 log:
   level: info
-  file: ./oxidns.log
+  file: ./oxidns-next.log
+  query_file: ./data/query-events.log
   rotation:
     type: daily
     max_files: 7
@@ -159,8 +160,13 @@ Field notes:
 - `file`
   - Meaning: Optional log file path.
   - If omitted, logs go only to stdout.
-  - When configured, OxiDNS writes to both stdout and the log file.
+  - When configured, OxiDNS Next writes to both stdout and the log file.
   - Log files are written as UTF-8 plain text without terminal ANSI color escape codes.
+- `query_file`
+  - Meaning: Optional DNS query-event log file used only by query diagnostics such as `debug_print` and `query_summary`.
+  - If omitted, no query-event text file is written. Structured searchable history remains independently available through the `query_recorder` SQLite database.
+  - Configure this field when text output from `debug_print` or `query_summary` is wanted. Without it, those query diagnostics do not enter system logs; searchable history is unaffected.
+  - Query events may contain client addresses and domain names; restrict file access and choose a retention period that matches your privacy policy.
 - `rotation`
   - Meaning: Log file rotation policy.
   - Default: `never`
@@ -209,7 +215,7 @@ Field notes:
 
 - `outbound.default`
   - Meaning: Which profile HTTP clients and upstreams use when they do not set `outbound` explicitly.
-  - Default: none; without a default profile, OxiDNS uses system DNS + direct connections.
+  - Default: none; without a default profile, OxiDNS Next uses system DNS + direct connections.
   - Constraint: If set, it must reference an existing entry in `profiles`.
   - Note: The default profile proxy is applied strictly to upstreams. Startup fails if a default SOCKS5 proxy is applied to UDP, DoQ, or DoH3 upstreams, because those connection models do not support profile proxying.
 - `outbound.profiles.<name>.resolver`
@@ -244,16 +250,22 @@ api:
   http:
     listen: "127.0.0.1:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
-      client_ca: "/etc/oxidns/client-ca.crt"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
+      client_ca: "/etc/oxidns-next/client-ca.crt"
       require_client_cert: true
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
+      cookie_same_site: lax
+      public_url: "https://dns.example.com"
+      passkey:
+        rp_id: "dns.example.com"
+        origins: ["https://dns.example.com"]
     webui:
-      root: "/etc/oxidns/webui"
+      root: "/etc/oxidns-next/webui"
       index: "index.html"
 ```
 
@@ -271,16 +283,35 @@ Field notes:
 - `http.ssl.require_client_cert`
   - Whether mutual TLS is required.
 - `http.auth`
-  - Currently supports `basic`.
-  - See the Management API chapter for the Basic Auth header encoding rules.
+  - New deployments use `type: accounts`, with SQLite storage for local accounts, TOTP, passkeys, OIDC bindings, and sessions.
+  - `type: basic` remains only as a one-time upstream-config migration path. Remove the plaintext YAML password after import.
+- `http.auth.database`
+  - Account database path. Defaults to `./data/oxidns-next-auth.db`; relative paths resolve against the working directory. The database and its backups contain password hashes, TOTP secrets, passkeys, and session security data and must be protected as credentials. On Unix, runtime tightens the database mode to `0600`.
+- `http.auth.bootstrap_token` / `bootstrap_token_env`
+  - One-time token required to create the first administrator from anything other than a direct loopback request, including a local reverse proxy. Configure only one. Reverse-proxy and remote bootstrap should use `bootstrap_token_env`; remove the environment variable afterward and do not retain the token in YAML.
+- `http.auth.session_ttl_seconds`
+  - Session lifetime from 300 through 604800 seconds. Defaults to 43200.
+- `http.auth.cookie_secure`
+  - Optional override for automatic Secure-cookie handling. HTTPS production deployments normally leave this unset.
+- `http.auth.cookie_same_site`
+  - Supports `lax` (default), `strict`, and `none`; a cross-site WebUI using `none` also requires a Secure cookie and an exact CORS origin.
+- `http.auth.public_url`
+  - Absolute browser-visible HTTP(S) URL used to derive passkey and callback origins. When a reverse proxy terminates TLS, it is also the exact trusted origin accepted by public authentication endpoints. Configure the URL that browsers actually use for the API; `X-Forwarded-*` headers are not trusted.
+- `http.auth.passkey`
+  - `rp_id` and `origins` can be explicit. Without them, they must be derivable from `public_url`.
+- `http.auth.oidc`
+  - Configures `issuer_url`, `client_id`, a client secret, `redirect_url`, and `allowed_users`.
+  - Each `allowed_users` entry explicitly maps an identity-provider claim to an existing local account. OIDC does not create administrators.
+  - Inject the client secret through `client_secret_env` instead of writing it in YAML. `client_secret` remains only for compatibility, and the two forms cannot be configured together.
 - `http.cors.allowed_origins`
-  - Optional WebUI/API cross-origin allowlist; when omitted, it is inferred from `http.listen`.
-  - `0.0.0.0` and `[::]` automatically allow any origin; a specific IP automatically allows any WebUI port on the same host.
+  - Optional WebUI/API cross-origin allowlist.
+  - With authentication disabled, an omitted rule is inferred from `http.listen`: `0.0.0.0` and `[::]` allow any origin, while a specific IP allows any WebUI port on the same host.
+  - Account authentication does not use that permissive inference. A same-origin WebUI needs no CORS rule; a cross-origin WebUI carrying the session cookie must list every exact origin explicitly.
   - When configured explicitly, entries are matched exactly against the browser's `Origin`.
   - Use `"*"` to allow any origin, but not for credentialed browser requests.
 - `http.webui.root`
   - Optional WebUI static file directory. When enabled, the WebUI is mounted at `/` and the management API is available under `/api/*`.
-  - Relative paths resolve against `-d/--working-dir`; with the Debian service default `-d /var/lib/oxidns`, `root: "./webui"` means `/var/lib/oxidns/webui`.
+  - Relative paths resolve against `-d/--working-dir`; with the Debian service default `-d /var/lib/oxidns-next`, `root: "./webui"` means `/var/lib/oxidns-next/webui`.
   - See [WebUI Deployment](webui.md) for build steps, publish directories, and standalone nginx deployment.
 - `http.webui.index`
   - Optional index file name. Defaults to `index.html`.
@@ -290,7 +321,11 @@ Validation rules:
 - `listen` must not be empty.
 - `cert` and `key` must be configured together.
 - `require_client_cert: true` requires `client_ca`.
-- `basic.username` and `basic.password` must both be non-empty.
+- `accounts.database` must not be empty; `bootstrap_token` and `bootstrap_token_env` cannot both be configured.
+- `session_ttl_seconds` must be between 300 and 604800.
+- `cookie_same_site: none` cannot be combined with `cookie_secure: false`, and runtime configuration must make the cookie Secure.
+- Enabled OIDC requires valid issuer, client ID, redirect URL, scopes containing `openid`, and at least one `allowed_users` mapping.
+- Enabled passkeys require a browser scope through either `public_url` or `rp_id` plus `origins`.
 - `webui.root` must not be empty.
 - `webui.index`, when configured, must not be empty.
 
@@ -372,7 +407,7 @@ Current main provider types:
 
 ## The `sequence` Orchestration Model
 
-`sequence` is the policy hub of OxiDNS. Most non-trivial configs use it as the primary entry.
+`sequence` is the policy hub of OxiDNS Next. Most non-trivial configs use it as the primary entry.
 
 Example:
 
@@ -413,7 +448,7 @@ Use `$tag` to reference a plugin that has already been defined:
 
 ### Quick Setup
 
-If a `sequence` rule uses `type + arguments` instead of `$tag`, OxiDNS creates a temporary plugin on the fly.
+If a `sequence` rule uses `type + arguments` instead of `$tag`, OxiDNS Next creates a temporary plugin on the fly.
 
 Example:
 
@@ -612,5 +647,5 @@ Example:
 args:
   - "domain:example.com"
   - "$core_domains"
-  - "&/etc/oxidns/domains.txt"
+  - "&/etc/oxidns-next/domains.txt"
 ```

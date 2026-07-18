@@ -17,7 +17,7 @@ use super::policy::SelectionSource;
 use super::probe::{ProbeCache, ProbeObservation};
 use crate::infra::observability::metrics::{MetricLabel, MetricSample, MetricSink, MetricSource};
 
-/// Per-method counters exposed through the OxiDNS metrics registry.
+/// Per-method counters exposed through the OxiDNS Next metrics registry.
 #[derive(Debug)]
 struct MethodMetrics {
     method: ProbeMethod,

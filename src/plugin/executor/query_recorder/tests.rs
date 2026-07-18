@@ -460,12 +460,13 @@ async fn test_query_recorder_clear_history_does_not_wait_for_reader_permits() {
 #[test]
 fn test_query_recorder_query_parsers_accept_common_filters() {
     let query = super::api::parse_list_query(Some(
-        "limit=50&since_ms=10&until_ms=20&qname=&qtype=aaaa&client_ip=192.0.2.1&rcode=nxdomain&status=has_response",
+        "limit=50&since_ms=10&until_ms=20&search=example&qname=&qtype=aaaa&client_ip=192.0.2.1&rcode=nxdomain&status=has_response",
     ))
     .unwrap();
     assert_eq!(query.limit, 50);
     assert_eq!(query.since_ms, Some(10));
     assert_eq!(query.until_ms, Some(20));
+    assert_eq!(query.filter.search.as_deref(), Some("example"));
     assert_eq!(query.filter.qname, None);
     assert_eq!(query.filter.qtype.as_deref(), Some("AAAA"));
     assert_eq!(query.filter.client_ip.as_deref(), Some("192.0.2.1"));
@@ -575,6 +576,26 @@ async fn test_query_recorder_query_records_support_common_filters() {
             }),
         ),
         vec![3]
+    );
+    assert_eq!(
+        filtered_record_ids(
+            backend.clone(),
+            list_query(QueryRecordFilter {
+                search: Some("example".to_string()),
+                ..QueryRecordFilter::default()
+            }),
+        ),
+        vec![3, 1]
+    );
+    assert_eq!(
+        filtered_record_ids(
+            backend.clone(),
+            list_query(QueryRecordFilter {
+                search: Some("0.2.4".to_string()),
+                ..QueryRecordFilter::default()
+            }),
+        ),
+        vec![4]
     );
     let all_records = query_records(backend.clone(), list_query(QueryRecordFilter::default()))
         .unwrap()
@@ -1010,6 +1031,29 @@ async fn test_qtype_and_rcode_distribution_counts() {
         .find(|row| row.key == "_NO_RESPONSE")
         .expect("_NO_RESPONSE bucket expected for missing response");
     assert_eq!(no_response_bucket.count, 1);
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_empty_rcode_distribution_has_no_unknown_phantom_bucket() {
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_config(&temp.path().display().to_string()))).unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    let response = load_rcode_distribution(
+        backend,
+        DistributionQuery {
+            since_ms: None,
+            until_ms: None,
+            filter: QueryRecordFilter::default(),
+        },
+    )
+    .unwrap();
+    assert_eq!(response.sample_size, 0);
+    assert!(response.rows.is_empty());
 
     plugin.destroy().await.unwrap();
 }

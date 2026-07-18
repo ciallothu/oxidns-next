@@ -19,7 +19,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "files",
         "域名规则文件",
-        "/etc/oxidns/domains.txt",
+        "/etc/oxidns-next/domains.txt",
         false,
         "指定外部规则文件路径列表。",
       ),
@@ -53,7 +53,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
         type: "text",
         required: true,
         fullWidth: true,
-        placeholder: "/etc/oxidns/learned-allow.txt",
+        placeholder: "/etc/oxidns-next/learned-allow.txt",
       },
       stringArrayField(
         "bootstrap_rules",
@@ -98,7 +98,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
         label: "geosite.dat",
         type: "text",
         required: true,
-        placeholder: "/etc/oxidns/geosite.dat",
+        placeholder: "/etc/oxidns-next/geosite.dat",
       },
       stringArrayField(
         "selectors",
@@ -126,7 +126,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "files",
         "规则文件",
-        "/etc/oxidns/adguard.txt",
+        "/etc/oxidns-next/adguard.txt",
         false,
         "从外部规则文件加载。",
       ),
@@ -149,7 +149,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
       stringArrayField(
         "files",
         "IP 规则文件",
-        "/etc/oxidns/ips.txt",
+        "/etc/oxidns-next/ips.txt",
         false,
         "指定外部 IP 规则文件路径列表。",
       ),
@@ -182,7 +182,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
         label: "geoip.dat",
         type: "text",
         required: true,
-        placeholder: "/etc/oxidns/geoip.dat",
+        placeholder: "/etc/oxidns-next/geoip.dat",
       },
       stringArrayField(
         "selectors",

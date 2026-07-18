@@ -5,12 +5,12 @@
 //! without elevated privileges. To exercise the real netlink path:
 //!
 //! ```sh
-//! sudo cargo test --package oxidns-ripset --test integration -- --ignored --test-threads=1
+//! sudo cargo test --package oxidns-next-ripset --test integration -- --ignored --test-threads=1
 //! ```
 //!
 //! Each test sets up its own uniquely-named table/set, asserts kernel
 //! state via the `nft` / `ipset` userspace binaries, and tears the
-//! resources down even on assertion failure. Coverage targets OxiDNS's
+//! resources down even on assertion failure. Coverage targets OxiDNS Next's
 //! production usage of `nftset_add` / `ipset_add` plus the surrounding
 //! create / test / delete / list APIs.
 
@@ -21,13 +21,13 @@ mod harness;
 use std::net::IpAddr;
 
 use harness::{NftCleanup, ensure_nft_available, run_nft, unique_name};
-use ripset::{
+use oxidns_next_ripset::{
     IpCidr, IpEntry, IpSetError, NftSetCreateOptions, NftSetType, nftset_add, nftset_create_set,
     nftset_create_table, nftset_del, nftset_delete_set, nftset_delete_table, nftset_list,
     nftset_list_tables, nftset_test,
 };
 
-/// Smoke test for OxiDNS's primary nftset use case: add /32 entries to a
+/// Smoke test for OxiDNS Next's primary nftset use case: add /32 entries to a
 /// `flags interval` ipv4 set under the `ip` family. Mirrors the exact
 /// shape of the proxy_set configuration from issues #122 / #127.
 #[test]
@@ -59,7 +59,7 @@ fn nftset_add_slash32_to_interval_ipv4_set() {
 }
 
 /// Repeating the same /32 add must not cascade into a fatal error.
-/// OxiDNS retries the same answer on every DNS query for popular
+/// OxiDNS Next retries the same answer on every DNS query for popular
 /// domains. The library issues NEWSETELEM with NLM_F_CREATE (no
 /// NLM_F_EXCL), so the kernel's documented behaviour is either
 /// "silently succeed" or "return EEXIST" depending on version. Either
@@ -124,7 +124,7 @@ fn nftset_add_slash128_to_interval_ipv6_set() {
     );
 }
 
-/// `inet` family must work the same as `ip`. OxiDNS users sometimes
+/// `inet` family must work the same as `ip`. OxiDNS Next users sometimes
 /// share one inet table between v4 and v6 sets.
 #[test]
 #[ignore]
@@ -152,7 +152,7 @@ fn nftset_add_in_inet_family() {
 
 /// A CIDR add into a non-interval set must be refused at the library
 /// layer (`UnsupportedEntry`) rather than producing a netlink error
-/// surfaced to callers — this keeps the OxiDNS executor's "skip
+/// surfaced to callers — this keeps the OxiDNS Next executor's "skip
 /// gracefully" path predictable.
 #[test]
 #[ignore]
@@ -204,7 +204,7 @@ fn nftset_add_slash24_subnet() {
 }
 
 /// Full lifecycle: add → test (true) → del → test (false). Exercises
-/// every operation OxiDNS could plausibly want from the crate.
+/// every operation OxiDNS Next could plausibly want from the crate.
 #[test]
 #[ignore]
 fn nftset_add_test_del_test_lifecycle() {
@@ -230,7 +230,7 @@ fn nftset_add_test_del_test_lifecycle() {
     assert!(!nftset_test("ip", &table, "s", cidr).unwrap());
 }
 
-/// Bulk-add path: OxiDNS can produce hundreds of new IPs in a single
+/// Bulk-add path: OxiDNS Next can produce hundreds of new IPs in a single
 /// DNS reply batch (CDN domains). Sustained throughput must not leak
 /// state or accumulate errors.
 #[test]
@@ -335,13 +335,13 @@ fn nftset_create_and_delete_via_library() {
 }
 
 // -----------------------------------------------------------------------
-// ipset: hash:ip flows used by the OxiDNS `ipset` executor.
+// ipset: hash:ip flows used by the OxiDNS Next `ipset` executor.
 // -----------------------------------------------------------------------
 
 use harness::{IpsetCleanup, ensure_ipset_available, run_ipset};
-use ripset::{ipset_add, ipset_create, ipset_del, ipset_list, ipset_test};
+use oxidns_next_ripset::{ipset_add, ipset_create, ipset_del, ipset_list, ipset_test};
 
-/// Primary OxiDNS ipset path: `hash:ip` set populated from DNS
+/// Primary OxiDNS Next ipset path: `hash:ip` set populated from DNS
 /// answers. Add one v4 IP, then verify it via the `ipset` cli.
 #[test]
 #[ignore]
@@ -392,7 +392,7 @@ fn ipset_add_test_del_test_lifecycle() {
     assert!(!ipset_test(&name, addr).unwrap());
 }
 
-/// hash:net for CIDR adds (OxiDNS uses /24 etc. when configured).
+/// hash:net for CIDR adds (OxiDNS Next uses /24 etc. when configured).
 #[test]
 #[ignore]
 fn ipset_add_cidr_to_hash_net_set() {
@@ -411,7 +411,7 @@ fn ipset_add_cidr_to_hash_net_set() {
 /// Duplicate add must not be fatal. ipset's classic kernel semantics
 /// return EEXIST on duplicate add, but the request goes out without
 /// NLM_F_EXCL so newer kernels may also silently succeed. Either
-/// outcome lets OxiDNS keep running — that's what the test pins.
+/// outcome lets OxiDNS Next keep running — that's what the test pins.
 #[test]
 #[ignore]
 fn ipset_duplicate_add_is_idempotent_or_element_exists() {
@@ -435,7 +435,7 @@ fn ipset_duplicate_add_is_idempotent_or_element_exists() {
 #[test]
 #[ignore]
 fn ipset_create_via_library() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_libc");
     let _g = IpsetCleanup::new(&name);
@@ -464,7 +464,7 @@ fn ipset_create_via_library() {
 #[test]
 #[ignore]
 fn ipset_create_with_hashsize_maxelem_round_trips() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_hs");
     let _g = IpsetCleanup::new(&name);
@@ -500,7 +500,7 @@ fn ipset_create_with_hashsize_maxelem_round_trips() {
 #[test]
 #[ignore]
 fn ipset_create_with_timeout_round_trips() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_to");
     let _g = IpsetCleanup::new(&name);
@@ -527,7 +527,7 @@ fn ipset_create_with_timeout_round_trips() {
 #[test]
 #[ignore]
 fn ipset_add_with_per_element_timeout() {
-    use ripset::{IpEntry, IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpEntry, IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_eto");
     let _g = IpsetCleanup::new(&name);
@@ -559,7 +559,7 @@ fn ipset_add_with_per_element_timeout() {
 #[test]
 #[ignore]
 fn ipset_destroy_removes_set() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType, ipset_destroy};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType, ipset_destroy};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_dst");
     let _g = IpsetCleanup::new(&name);
@@ -592,7 +592,7 @@ fn ipset_destroy_removes_set() {
 #[test]
 #[ignore]
 fn ipset_flush_empties_set() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType, ipset_flush};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType, ipset_flush};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_flu");
     let _g = IpsetCleanup::new(&name);
@@ -626,7 +626,7 @@ fn ipset_flush_empties_set() {
 #[test]
 #[ignore]
 fn ipset_list_returns_added_entries() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_lis");
     let _g = IpsetCleanup::new(&name);
@@ -656,12 +656,12 @@ fn ipset_list_returns_added_entries() {
     }
 }
 
-/// IPv6 family + hash:net combination (OxiDNS uses this if both
+/// IPv6 family + hash:net combination (OxiDNS Next uses this if both
 /// `ipv4_addr` and `ipv6_addr` sets are configured).
 #[test]
 #[ignore]
 fn ipset_add_cidr_to_hash_net_ipv6() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_n6");
     let _g = IpsetCleanup::new(&name);
@@ -691,7 +691,7 @@ fn ipset_add_cidr_to_hash_net_ipv6() {
 #[test]
 #[ignore]
 fn ipset_bulk_add_500_unique_ips() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_blk");
     let _g = IpsetCleanup::new(&name);
@@ -722,7 +722,7 @@ fn ipset_bulk_add_500_unique_ips() {
 #[test]
 #[ignore]
 fn ipset_del_missing_element_on_hash_ip_is_silent_ok() {
-    use ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
+    use oxidns_next_ripset::{IpSetCreateOptions, IpSetFamily, IpSetType};
     ensure_ipset_available();
     let name = unique_name("oxi_ips_dlm");
     let _g = IpsetCleanup::new(&name);

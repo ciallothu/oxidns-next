@@ -1,6 +1,11 @@
 "use client";
 
-import { useAuthStore } from "./auth-store";
+import {
+  apiHeaders,
+  apiRequest,
+  apiUrl,
+  readApiResponseBody,
+} from "./api-client";
 import { WEBUI, tClient } from "./i18n";
 
 export interface ConfigFileResponse {
@@ -298,6 +303,8 @@ export type QueryRecordStatusFilter =
 export interface QueryRecordFilters {
   sinceMs?: number;
   untilMs?: number;
+  /** Unified substring search across QNAME and client IP. */
+  search?: string;
   qname?: string;
   qtype?: string;
   clientIp?: string;
@@ -395,7 +402,7 @@ export interface QueryRecorderTimeseriesResponse {
 }
 
 export async function fetchConfigFile(): Promise<ConfigFileResponse> {
-  const response = await fetch(apiUrl("/config"), {
+  const response = await apiRequest(apiUrl("/config"), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -403,7 +410,7 @@ export async function fetchConfigFile(): Promise<ConfigFileResponse> {
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
-  const response = await fetch(apiUrl("/health"), {
+  const response = await apiRequest(apiUrl("/health"), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -411,7 +418,7 @@ export async function fetchHealth(): Promise<HealthResponse> {
 }
 
 export async function fetchBuildInfo(): Promise<BuildInfoResponse> {
-  const response = await fetch(apiUrl("/build"), {
+  const response = await apiRequest(apiUrl("/build"), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -419,7 +426,7 @@ export async function fetchBuildInfo(): Promise<BuildInfoResponse> {
 }
 
 export async function fetchControl(): Promise<ControlResponse> {
-  const response = await fetch(apiUrl("/control"), {
+  const response = await apiRequest(apiUrl("/control"), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -427,7 +434,7 @@ export async function fetchControl(): Promise<ControlResponse> {
 }
 
 export async function fetchSystem(): Promise<SystemResponse> {
-  const response = await fetch(apiUrl("/system"), {
+  const response = await apiRequest(apiUrl("/system"), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -435,7 +442,7 @@ export async function fetchSystem(): Promise<SystemResponse> {
 }
 
 export async function fetchReloadStatus(): Promise<ReloadSnapshot> {
-  const response = await fetch(apiUrl("/reload/status"), {
+  const response = await apiRequest(apiUrl("/reload/status"), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -445,7 +452,7 @@ export async function fetchReloadStatus(): Promise<ReloadSnapshot> {
 export async function validateConfigText(
   content: string,
 ): Promise<ConfigValidateResponse> {
-  const response = await fetch(apiUrl("/config/validate"), {
+  const response = await apiRequest(apiUrl("/config/validate"), {
     method: "POST",
     headers: {
       ...apiHeaders(),
@@ -462,7 +469,7 @@ export async function saveConfigFile({
   validate = true,
   reload = false,
 }: SaveConfigOptions): Promise<SaveConfigResponse> {
-  const response = await fetch(apiUrl("/config"), {
+  const response = await apiRequest(apiUrl("/config"), {
     method: "PUT",
     headers: {
       ...apiHeaders(),
@@ -480,7 +487,7 @@ export async function saveConfigFile({
 }
 
 export async function requestReload(): Promise<void> {
-  const response = await fetch(apiUrl("/reload"), {
+  const response = await apiRequest(apiUrl("/reload"), {
     method: "POST",
     headers: apiHeaders(),
   });
@@ -488,7 +495,7 @@ export async function requestReload(): Promise<void> {
 }
 
 export async function requestRestart(): Promise<void> {
-  const response = await fetch(apiUrl("/restart"), {
+  const response = await apiRequest(apiUrl("/restart"), {
     method: "POST",
     headers: apiHeaders(),
   });
@@ -504,7 +511,7 @@ export async function fetchCacheEntries(
   if (options.cursor) params.set("cursor", options.cursor);
   if (options.qname) params.set("qname", options.qname);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/entries${suffix}`),
     { method: "GET", headers: apiHeaders() },
   );
@@ -512,7 +519,7 @@ export async function fetchCacheEntries(
 }
 
 export async function deleteCacheEntry(tag: string, id: string): Promise<void> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(
       `/plugins/${encodeURIComponent(tag)}/entries/${encodeURIComponent(id)}`,
     ),
@@ -522,10 +529,10 @@ export async function deleteCacheEntry(tag: string, id: string): Promise<void> {
 }
 
 export async function flushCache(tag: string): Promise<void> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/flush`),
     {
-      method: "GET",
+      method: "POST",
       headers: apiHeaders(),
     },
   );
@@ -533,19 +540,14 @@ export async function flushCache(tag: string): Promise<void> {
 }
 
 export async function fetchCacheDump(tag: string): Promise<Blob> {
-  const { serverConfig } = useAuthStore.getState();
-  const headers: Record<string, string> = {};
-  if (serverConfig.requiresAuth && serverConfig.username) {
-    headers.Authorization = `Basic ${btoa(`${serverConfig.username}:${serverConfig.password}`)}`;
-  }
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/dump`),
-    { method: "GET", headers },
+    { method: "GET" },
   );
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-  return response.blob();
+  return readApiResponseBody(response, (current) => current.blob());
 }
 
 export interface CacheLoadDumpResponse {
@@ -557,15 +559,11 @@ export async function loadCacheDump(
   tag: string,
   data: ArrayBuffer,
 ): Promise<CacheLoadDumpResponse> {
-  const { serverConfig } = useAuthStore.getState();
   const headers: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/octet-stream",
   };
-  if (serverConfig.requiresAuth && serverConfig.username) {
-    headers.Authorization = `Basic ${btoa(`${serverConfig.username}:${serverConfig.password}`)}`;
-  }
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/load_dump`),
     { method: "POST", headers, body: data },
   );
@@ -585,7 +583,7 @@ export async function fetchQueryRecords(
   if (options.cursor) params.set("cursor", options.cursor);
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/records${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -603,7 +601,7 @@ export async function fetchQueryRecorderPluginStats(
   params.set("kind", options.kind ?? "all");
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/plugins${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -614,7 +612,7 @@ export async function fetchQueryRecordDetail(
   tag: string,
   id: number,
 ): Promise<QueryRecordDetailResponse> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/records/${id}`),
     { method: "GET", headers: apiHeaders() },
   );
@@ -624,7 +622,7 @@ export async function fetchQueryRecordDetail(
 export async function clearQueryRecorderHistory(
   tag: string,
 ): Promise<QueryRecorderClearResponse> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/records`),
     { method: "DELETE", headers: apiHeaders() },
   );
@@ -639,7 +637,7 @@ export async function fetchQueryRecorderTopClients(
   if (options.limit) params.set("limit", String(options.limit));
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/top_clients${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -654,7 +652,7 @@ export async function fetchQueryRecorderTopQnames(
   if (options.limit) params.set("limit", String(options.limit));
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/top_qnames${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -668,7 +666,7 @@ export async function fetchQueryRecorderQtypeDistribution(
   const params = new URLSearchParams();
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/qtype${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -682,7 +680,7 @@ export async function fetchQueryRecorderRcodeDistribution(
   const params = new URLSearchParams();
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/rcode${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -700,7 +698,7 @@ export async function fetchQueryRecorderLatency(
   if (options.slowLimit) params.set("slow_limit", String(options.slowLimit));
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/latency${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -720,7 +718,7 @@ export async function fetchQueryRecorderTimeseries(
   if (options.buckets) params.set("buckets", String(options.buckets));
   appendQueryRecordFilters(params, options);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/stats/timeseries${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -754,7 +752,7 @@ export async function listDynamicDomainRules(
     params.set("cursor", String(options.cursor));
   if (options.limit !== undefined) params.set("limit", String(options.limit));
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/rules${suffix}`),
     { method: "GET", headers: apiHeaders(), signal: options.signal },
   );
@@ -766,7 +764,7 @@ export async function appendDynamicDomainRules(
   rules: string[],
   rule_kind?: DynamicDomainRuleKind,
 ): Promise<DynamicDomainMutationResponse> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/rules`),
     {
       method: "POST",
@@ -782,7 +780,7 @@ export async function removeDynamicDomainRules(
   rules: string[],
   rule_kind?: DynamicDomainRuleKind,
 ): Promise<DynamicDomainMutationResponse> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/rules`),
     {
       method: "DELETE",
@@ -796,7 +794,7 @@ export async function removeDynamicDomainRules(
 export async function clearDynamicDomainRules(
   tag: string,
 ): Promise<DynamicDomainMutationResponse> {
-  const response = await fetch(
+  const response = await apiRequest(
     apiUrl(`/plugins/${encodeURIComponent(tag)}/rules/clear`),
     { method: "POST", headers: apiHeaders() },
   );
@@ -828,7 +826,7 @@ export async function fetchRecentLogs(params?: {
   if (params?.level) query.set("level", params.level);
   if (params?.limit) query.set("limit", String(params.limit));
   const suffix = query.size > 0 ? `?${query}` : "";
-  const response = await fetch(apiUrl(`/logs${suffix}`), {
+  const response = await apiRequest(apiUrl(`/logs${suffix}`), {
     method: "GET",
     headers: apiHeaders(),
   });
@@ -844,15 +842,11 @@ export async function streamLogs(
   if (params.level) query.set("level", params.level);
   if (params.tail !== undefined) query.set("tail", String(params.tail));
   const suffix = query.size > 0 ? `?${query}` : "";
-  const response = await fetch(apiUrl(`/logs/stream${suffix}`), {
+  const response = await apiRequest(apiUrl(`/logs/stream${suffix}`), {
     method: "GET",
     headers: { ...apiHeaders(), Accept: "text/event-stream" },
     signal,
   });
-  if (response.status === 401) {
-    useAuthStore.getState().logout();
-    throw new Error(tClient(WEBUI.storeErrors.loginExpired));
-  }
   if (!response.ok || !response.body) {
     throw new Error(`HTTP ${response.status}`);
   }
@@ -860,7 +854,9 @@ export async function streamLogs(
   const decoder = new TextDecoder();
   let buf = "";
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readApiResponseBody(response, () =>
+      reader.read(),
+    );
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     const blocks = buf.split("\n\n");
@@ -881,14 +877,14 @@ export async function streamLogs(
 }
 
 export async function fetchPrometheusMetrics(): Promise<string> {
-  const response = await fetch(apiUrl("/metrics"), {
+  const response = await apiRequest(apiUrl("/metrics"), {
     method: "GET",
     headers: { ...apiHeaders(), Accept: "text/plain" },
   });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-  return response.text();
+  return readApiResponseBody(response, (current) => current.text());
 }
 
 // --- Upgrade API ---
@@ -940,7 +936,7 @@ export async function fetchUpgradeCheck(
   if (options.allowPrerelease) body.allow_prerelease = true;
   if (options.target) body.target = options.target;
   if (options.githubToken) body.github_token = options.githubToken;
-  const response = await fetch(apiUrl("/upgrade/check"), {
+  const response = await apiRequest(apiUrl("/upgrade/check"), {
     method: "POST",
     headers: { ...apiHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -959,7 +955,7 @@ export async function triggerUpgradeApply(
   if (options.allowPrerelease) body.allow_prerelease = true;
   if (options.target) body.target = options.target;
   if (options.githubToken) body.github_token = options.githubToken;
-  const response = await fetch(apiUrl("/upgrade/apply"), {
+  const response = await apiRequest(apiUrl("/upgrade/apply"), {
     method: "POST",
     headers: { ...apiHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -968,16 +964,11 @@ export async function triggerUpgradeApply(
 }
 
 export async function fetchUpgradeStatus(): Promise<UpgradeStatusResponse> {
-  const response = await fetch(apiUrl("/upgrade/status"), {
+  const response = await apiRequest(apiUrl("/upgrade/status"), {
     method: "GET",
     headers: apiHeaders(),
   });
   return readJsonResponse<UpgradeStatusResponse>(response);
-}
-
-export function apiUrl(path: string) {
-  const baseUrl = useAuthStore.getState().serverConfig.url.trim();
-  return `${baseUrl.replace(/\/$/, "")}${path}`;
 }
 
 function appendQueryRecordFilters(
@@ -990,6 +981,7 @@ function appendQueryRecordFilters(
   if (options.untilMs !== undefined) {
     params.set("until_ms", String(options.untilMs));
   }
+  if (options.search) params.set("search", options.search);
   if (options.qname) params.set("qname", options.qname);
   if (options.qtype) params.set("qtype", options.qtype);
   if (options.clientIp) params.set("client_ip", options.clientIp);
@@ -1000,21 +992,10 @@ function appendQueryRecordFilters(
   if (options.matcherTag) params.set("matcher_tag", options.matcherTag);
 }
 
-export function apiHeaders() {
-  const { serverConfig } = useAuthStore.getState();
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (serverConfig.requiresAuth && serverConfig.username) {
-    headers.Authorization = `Basic ${btoa(`${serverConfig.username}:${serverConfig.password}`)}`;
-  }
-  return headers;
-}
+export { apiHeaders, apiUrl };
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
-  if (response.status === 401) {
-    useAuthStore.getState().logout();
-    throw new Error(tClient(WEBUI.storeErrors.loginExpired));
-  }
-  const text = await response.text();
+  const text = await readApiResponseBody(response, (current) => current.text());
   const parsed = parseJsonResponseText(text);
   const body = parsed.ok ? parsed.value : undefined;
   if (!response.ok) {

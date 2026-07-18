@@ -5,7 +5,7 @@ sidebar_position: 4
 
 import Admonition from "@theme/Admonition";
 
-OxiDNS exposes a standalone control plane for:
+OxiDNS Next exposes a standalone control plane for:
 
 * Process and startup health checks
 * Config checks and raw config text validation
@@ -33,16 +33,30 @@ api:
   http:
     listen: "127.0.0.1:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
-      client_ca: "/etc/oxidns/client-ca.crt"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
+      client_ca: "/etc/oxidns-next/client-ca.crt"
       require_client_cert: true
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
+      cookie_same_site: lax
+      public_url: "https://dns.example.com"
+      passkey:
+        rp_id: "dns.example.com"
+        origins: ["https://dns.example.com"]
+      oidc:
+        issuer_url: "https://id.example.com"
+        client_id: "oxidns-next"
+        client_secret_env: OXIDNS_NEXT_OIDC_CLIENT_SECRET
+        redirect_url: "https://dns.example.com/api/auth/oidc/callback"
+        allowed_users:
+          - claim: "admin@example.com"
+            username: "admin"
     webui:
-      root: "/etc/oxidns/webui"
+      root: "/etc/oxidns-next/webui"
       index: "index.html"
 ```
 
@@ -59,52 +73,63 @@ Optional hardening:
 * `require_client_cert`
   * Enforces mutual TLS.
 
-### Basic Auth
+### Accounts, Sessions, And CSRF
+
+The default release configuration uses `type: accounts`. On first startup, bootstrap the local administrator from the machine running the listener, then use that account to sign in to the console.
 
 ```yaml
 auth:
-  type: basic
-  username: "admin"
-  password: "secret"
+  type: accounts
+  database: "./data/oxidns-next-auth.db"
+  bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+  session_ttl_seconds: 43200
+  cookie_same_site: lax
 ```
 
-When enabled, all API requests require Basic Auth.
+`accounts` uses a persistent SQLite account store and opaque session cookies. Passwords are stored as Argon2 hashes. The browser receives an HttpOnly cookie and the session response includes a CSRF token. Protected requests other than `GET`, `HEAD`, and `OPTIONS` must also send `X-CSRF-Token`.
 
-The request header looks like this:
+When the account database is empty, only a direct loopback request whose peer, Host, and Origin are all local may create the first administrator without a token. Reverse-proxy requests (even when the proxy connects from `127.0.0.1`) and remote bootstrap must submit a bootstrap token. Inject it through `bootstrap_token_env` and remove that environment variable after initialization. Inject OIDC client secrets through `client_secret_env` as well. Never put administrator passwords, bootstrap tokens, OIDC client secrets, or session tokens in YAML or browser storage.
 
-```http
-Authorization: Basic YWRtaW46c2VjcmV0
+Main authentication routes:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/auth/methods` | Report enabled methods and whether bootstrap is required |
+| `GET /api/auth/session` | Return the current session, user, and CSRF token |
+| `POST /api/auth/bootstrap` | Create the first local administrator |
+| `POST /api/auth/login` | Local password login; returns a second-step challenge when TOTP is enabled |
+| `POST /api/auth/login/totp` | Complete the TOTP second step |
+| `POST /api/auth/logout` | Revoke the current session; requires the CSRF token |
+| `PUT /api/auth/password` | Verify the current password and change the local password |
+| `GET /api/auth/security` | Return TOTP, passkeys, and linked OIDC identities |
+| `POST /api/auth/totp/begin` / `confirm` | Bind and confirm TOTP; confirmation returns one-time recovery codes |
+| `DELETE /api/auth/totp` | Disable TOTP after password and second-factor verification |
+| `POST /api/auth/passkeys/register/begin` / `finish` | Register a passkey |
+| `POST /api/auth/passkeys/login/begin` / `finish` | Sign in with a passkey |
+| `POST /api/auth/oidc/start` | Obtain the OIDC authorization URL; the JSON body may include `return_to`, and the callback is `/api/auth/oidc/callback` |
+
+Local password login example:
+
+```bash
+curl -i -c cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your-password"}' \
+  http://127.0.0.1:9088/api/auth/login
 ```
 
-Encoding rules:
+Use the returned `csrf_token` for subsequent mutations:
 
-* Concatenate the raw string as `username:password`
-* Base64-encode the whole string
-* Prefix the header value with `Basic `
+```bash
+curl -b cookies.txt \
+  -H 'X-CSRF-Token: <csrf_token>' \
+  -X POST http://127.0.0.1:9088/api/reload
+```
 
-In the example above, the Base64 value for `admin:secret` is `YWRtaW46c2VjcmV0`.
+<Admonition type="note" title="Legacy Basic migration">
 
-<Admonition type="note" title="Notes">
-
-* This uses standard Base64, not URL-safe Base64.
-* Do not encode `username` and `password` separately.
-* Do not percent-encode or URL-encode first.
-* The server compares the fully decoded value directly against `username:password`.
+`type: basic` exists only to migrate an upstream configuration. On first startup, its username and password are imported into the account store, and the YAML credentials are ignored afterward. New deployments should use `type: accounts`. After migration, remove the plaintext password from configuration.
 
 </Admonition>
-
-Examples:
-
-```bash
-curl -u admin:secret http://127.0.0.1:9088/api/healthz
-```
-
-Or:
-
-```bash
-curl -H 'Authorization: Basic YWRtaW46c2VjcmV0' \
-  http://127.0.0.1:9088/api/healthz
-```
 
 ### Static WebUI Files
 
@@ -115,21 +140,21 @@ api:
   http:
     listen: "0.0.0.0:9199"
     webui:
-      root: "/etc/oxidns/webui"
+      root: "/etc/oxidns-next/webui"
       index: "index.html"
 ```
 
-After enabling it, open `http://server:9199/` for the WebUI. The WebUI uses same-origin `/api` requests to reach the backend. Static files are not protected by Basic Auth, while `/api/*` keeps the management API authentication and CORS behavior. If `webui.root` is relative, it resolves against OxiDNS `-d/--working-dir`, not the configuration file directory. See [WebUI Deployment](webui.md) for the full configuration, build steps, and standalone nginx example.
+After enabling it, open `http://server:9199/` for the WebUI. The WebUI uses same-origin `/api` requests to reach the backend. Static files can be read publicly, while protected `/api/*` endpoints still require an account session and keep the management API CORS behavior. If `webui.root` is relative, it resolves against OxiDNS Next `-d/--working-dir`, not the configuration file directory. See [WebUI Deployment](webui.md) for the full configuration, build steps, and standalone nginx example.
 
 ### CORS / WebUI Cross-Origin Access
 
-By default, the management API infers WebUI CORS behavior from `api.http.listen`:
+With authentication disabled, the management API infers WebUI CORS behavior from `api.http.listen`:
 
 * When listening on `0.0.0.0` or `[::]`, it returns `Access-Control-Allow-Origin: *`.
 * When listening on a specific IP, it allows WebUI origins on the same host without constraining the WebUI port. For example, if the API listens on `192.168.1.10:8080`, both `http://192.168.1.10:3000` and `http://192.168.1.10:5173` are allowed.
 * When listening on `127.0.0.1` or `[::1]`, `localhost` is also allowed.
 
-To tighten or override the automatic policy, configure `cors.allowed_origins` explicitly:
+Once authentication is configured, the service does not use that permissive inference. A same-origin WebUI needs no CORS rule; a cross-origin WebUI carrying the session cookie must configure exact `cors.allowed_origins` entries:
 
 ```yaml
 api:
@@ -141,7 +166,9 @@ api:
         - "http://192.168.1.100:3000"
 ```
 
-When configured explicitly, `allowed_origins` is matched exactly against the browser's `Origin` header. Use `"*"` to allow any origin, but browsers will not accept credentialed cross-origin requests with a wildcard origin.
+When configured explicitly, `allowed_origins` is matched exactly against the browser's `Origin` header. Use `"*"` to allow any origin, but browsers will not accept credentialed cross-origin requests with a wildcard origin, so it cannot be used for account sessions.
+
+For a genuinely cross-site WebUI, use HTTPS, an exact `allowed_origins` entry, and `auth.cookie_same_site: none`; `SameSite=None` requires a Secure cookie. Same-origin and same-site deployments should keep the default `lax` policy.
 
 ## Route Layout
 
@@ -352,7 +379,7 @@ Example response:
 ```json
 {
   "ok": true,
-  "path": "/etc/oxidns/config.yaml",
+  "path": "/etc/oxidns-next/config.yaml",
   "format": "yaml",
   "content": "plugins:\n  - tag: forward\n    type: forward\n",
   "version": "sha256-hex",
@@ -528,7 +555,7 @@ Query parameters:
 * `status=all|error|has_response|no_response`
   * Filter by recorder row status.
 
-`client_ip` is the transport peer observed by the DNS server. If record lists or `/stats/top_clients` show only `127.0.0.1`, the queries are usually passing through a local forwarder first, such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash. Check the deployment chain, point clients directly at OxiDNS, or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
+`client_ip` is the transport peer observed by the DNS server. If record lists or `/stats/top_clients` show only `127.0.0.1`, the queries are usually passing through a local forwarder first, such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash. Check the deployment chain, point clients directly at OxiDNS Next, or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
 
 Responses:
 
@@ -806,12 +833,13 @@ api:
   http:
     listen: "0.0.0.0:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
 ```
 
 Good fit:
@@ -826,9 +854,9 @@ api:
   http:
     listen: "0.0.0.0:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
-      client_ca: "/etc/oxidns/client-ca.crt"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
+      client_ca: "/etc/oxidns-next/client-ca.crt"
       require_client_cert: true
 ```
 

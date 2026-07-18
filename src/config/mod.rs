@@ -3,7 +3,7 @@
 
 //! Runtime configuration loading and validation entry points.
 //!
-//! OxiDNS configuration is defined as YAML and deserialized into
+//! OxiDNS Next configuration is defined as YAML and deserialized into
 //! [`types::Config`]. This module keeps the file-loading boundary small:
 //!
 //! - read the configuration file from disk;
@@ -243,7 +243,7 @@ plugins:
             r#"
 plugins:
   - tag: debug_main
-    type: ${OXIDNS_MISSING_VALIDATE_TEXT_DEFAULT_7485F1D6:-debug_print}
+    type: ${OXIDNS_NEXT_MISSING_VALIDATE_TEXT_DEFAULT_7485F1D6:-debug_print}
 "#,
         )
         .expect("default value should be used");
@@ -272,7 +272,7 @@ plugins:
     /// tests in the same test binary.
     #[test]
     fn validate_text_accepts_env_value_with_yaml_specials() {
-        const VAR: &str = "OXIDNS_TEST_PW_YAML_SPECIALS_3F7A22C4";
+        const VAR: &str = "OXIDNS_NEXT_TEST_PW_YAML_SPECIALS_3F7A22C4";
         const PW: &str = "p@ss*w0rd!\"\\'\nlast";
 
         let yaml = format!(
@@ -306,13 +306,13 @@ plugins:
             r#"
 plugins:
   - tag: debug_main
-    type: ${OXIDNS_MISSING_VALIDATE_TEXT_REQUIRED_D6D7F2AE}
+    type: ${OXIDNS_NEXT_MISSING_VALIDATE_TEXT_REQUIRED_D6D7F2AE}
 "#,
         )
         .expect_err("missing environment variable should fail");
         let msg = err.to_string();
         assert!(msg.contains("env expansion failed"));
-        assert!(msg.contains("OXIDNS_MISSING_VALIDATE_TEXT_REQUIRED_D6D7F2AE"));
+        assert!(msg.contains("OXIDNS_NEXT_MISSING_VALIDATE_TEXT_REQUIRED_D6D7F2AE"));
     }
 
     #[cfg(feature = "plugin-script")]
@@ -543,7 +543,7 @@ plugins:
     fn validate_file_expands_env_in_include_path() {
         let (env_name, root) = existing_env_path_root();
         let dir = Builder::new()
-            .prefix("oxidns-env-include-")
+            .prefix("oxidns-next-env-include-")
             .tempdir_in(&root)
             .expect("temp dir under env root");
         std::fs::write(

@@ -40,30 +40,30 @@ type Locale = 'zh' | 'en';
 type InstallTab = { label: string; prompt: string; code: string };
 type Feature = { icon: keyof typeof ICONS; title: string; desc: string; href: string };
 type NextStep = { num: number; label: string; href: string };
-type Community = { title: string; desc: string; cta: string; qrAlt: string };
+type Community = { title: string; desc: string; cta: string };
 type HeroProps = { locale?: Locale };
 
-const TELEGRAM_URL = 'https://t.me/oxidns';
-const TELEGRAM_QR = '/img/telegram-qr.png';
+const UPSTREAM_URL = 'https://github.com/svenshi/oxidns';
+const INSTALL_BASE = 'https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts';
 
 const INSTALL_TABS: InstallTab[] = [
-  { label: 'Linux / macOS', prompt: '$', code: 'curl -fsSL https://oxidns.org/install.sh | sudo sh' },
-  { label: 'Windows', prompt: 'PS>', code: 'irm https://oxidns.org/install.ps1 | iex' },
-  { label: 'OpenWrt', prompt: '#', code: 'curl -fsSL https://oxidns.org/install.sh | sh' },
+  { label: 'Linux / macOS', prompt: '$', code: `curl -fsSL ${INSTALL_BASE}/install.sh | sudo sh` },
+  { label: 'Windows', prompt: 'PS>', code: `irm ${INSTALL_BASE}/install.ps1 | iex` },
+  { label: 'OpenWrt', prompt: '#', code: `curl -fsSL ${INSTALL_BASE}/install.sh | sh` },
   { label: 'Docker', prompt: '$', code: 'docker run -d \\\n' +
-          '  --name oxidns \\\n' +
+          '  --name oxidns-next \\\n' +
           '  --restart unless-stopped \\\n' +
           '  -p 53:53/udp \\\n' +
           '  -p 53:53/tcp \\\n' +
           '  -p 9199:9199/tcp \\\n' +
-          '  -v "$(pwd)/config.yaml:/etc/oxidns/config.yaml:ro" \\\n' +
-          '  svenshi/oxidns:latest' },
-  { label: 'Cargo', prompt: '$', code: 'cargo install oxidns' },
+          '  -v "$(pwd)/config.yaml:/etc/oxidns-next/config.yaml:ro" \\\n' +
+          '  ghcr.io/ciallothu/oxidns-next:latest' },
+  { label: 'Source', prompt: '$', code: 'git clone https://github.com/ciallothu/oxidns-next.git\ncd oxidns-next && cargo build --release' },
 ];
 
 const COPY = {
   zh: {
-    eyebrow: 'Rust · DNS Engine · v1.x',
+    eyebrow: 'Rust · DNS Engine · v0.1.0',
     titleAccent: '面向复杂网络的高性能 DNS 策略编排引擎',
     tagline: '用 Rust 重写的高性能 DNS 服务，灵感来自 MosDNS，为复杂策略、加密上游和系统联动而设计。',
     quickstart: '快速开始',
@@ -105,14 +105,13 @@ const COPY = {
       { num: 5, label: '想理解设计取舍？阅读《架构与设计》', href: '/architecture-and-design' },
     ] satisfies NextStep[],
     community: {
-      title: '加入社区',
-      desc: '欢迎进入 Telegram 群与作者和其他用户交流配置、反馈问题或讨论新特性。',
-      cta: 'Telegram · @OXIDNS',
-      qrAlt: 'OxiDNS Telegram 群二维码',
+      title: '项目来源',
+      desc: 'OxiDNS Next 是基于 Sven Shi 维护的 OxiDNS 进行的独立二次开发，保留上游版权与 GPL 许可证。',
+      cta: '查看上游 OxiDNS',
     } satisfies Community,
   },
   en: {
-    eyebrow: 'Rust · DNS Engine · v1.x',
+    eyebrow: 'Rust · DNS Engine · v0.1.0',
     titleAccent: 'A high-performance DNS policy orchestration engine for complex networks',
     tagline: 'A high-performance DNS service built with Rust, inspired by MosDNS, and designed for complex policy, encrypted upstreams, and system integrations.',
     quickstart: 'Quick Start',
@@ -154,10 +153,9 @@ const COPY = {
       { num: 5, label: 'Want the design trade-offs? Read Architecture and Design', href: '/architecture-and-design' },
     ] satisfies NextStep[],
     community: {
-      title: 'Join the community',
-      desc: 'Hop into the Telegram group to chat with the author and other users about configuration, feedback, or upcoming features.',
-      cta: 'Telegram · @OXIDNS',
-      qrAlt: 'OxiDNS Telegram group QR code',
+      title: 'Project lineage',
+      desc: 'OxiDNS Next is an independently maintained derivative of OxiDNS by Sven Shi and retains the upstream copyright and GPL license.',
+      cta: 'View upstream OxiDNS',
     } satisfies Community,
   },
 } as const;
@@ -231,7 +229,7 @@ export default function Hero({ locale = 'zh' }: HeroProps): JSX.Element {
       </span>
 
       <h1 className="oxi-hero__title">
-        OxiDNS
+        OxiDNS Next
         <span className="oxi-hero__title-accent">{text.titleAccent}</span>
       </h1>
 
@@ -245,7 +243,7 @@ export default function Hero({ locale = 'zh' }: HeroProps): JSX.Element {
             <path d="m13 5 7 7-7 7" />
           </svg>
         </Link>
-        <Link className="oxi-hero__cta oxi-hero__cta--ghost" to="https://github.com/svenshi/oxidns">{text.github}</Link>
+        <Link className="oxi-hero__cta oxi-hero__cta--ghost" to="https://github.com/ciallothu/oxidns-next">{text.github}</Link>
       </div>
 
       <div className="oxi-hero__install">
@@ -304,16 +302,10 @@ export default function Hero({ locale = 'zh' }: HeroProps): JSX.Element {
         <div className="oxi-hero__community-text">
           <h2 className="oxi-hero__community-title">{text.community.title}</h2>
           <p className="oxi-hero__community-desc">{text.community.desc}</p>
-          <Link className="oxi-hero__community-cta" to={TELEGRAM_URL}>
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M21.198 3.105 2.43 10.42c-1.281.514-1.273 1.235-.234 1.553l4.815 1.502 11.144-7.03c.527-.32 1.008-.148.612.204l-9.03 8.155h-.002l.002.001-.332 4.964c.488 0 .703-.224.976-.49l2.347-2.282 4.864 3.593c.897.494 1.541.24 1.764-.831l3.193-15.04c.327-1.317-.503-1.914-1.351-1.614Z"/>
-            </svg>
+          <Link className="oxi-hero__community-cta" to={UPSTREAM_URL}>
             {text.community.cta}
           </Link>
         </div>
-        <a className="oxi-hero__community-qr" href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer">
-          <img src={TELEGRAM_QR} alt={text.community.qrAlt} loading="lazy" />
-        </a>
       </div>
     </section>
   );

@@ -70,7 +70,7 @@ const ARRAY_SYNTAX_KEYS: Record<ArrayItemSyntax, string> = {
   domain: WEBUI.plugins.arraySyntaxDomain,
 };
 
-const OPTIONAL_SELECT_VALUE = "__oxidns_unset__";
+const OPTIONAL_SELECT_VALUE = "__oxidns-next_unset__";
 
 function InvertCheckbox({
   checked,
@@ -266,7 +266,7 @@ export function PluginConfigFieldsEditor({
           itself, because FieldGroup establishes `@container/field-group`
           and CSS container queries cannot match the container element they
           establish — only its descendants. */}
-      <div className="oxidns-config-fields-grid w-full">
+      <div className="oxidns-next-config-fields-grid w-full">
         {fields.map((field) => (
           <Field
             key={field.key}

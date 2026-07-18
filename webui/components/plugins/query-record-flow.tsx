@@ -38,7 +38,7 @@ import type {
   SequenceFlowExpression,
   SequenceFlowReport,
   SequenceFlowRule,
-} from "@/lib/oxidns-api";
+} from "@/lib/oxidns-next-api";
 import { cn } from "@/lib/utils";
 import {
   pluginKindAccentHex,
@@ -48,6 +48,10 @@ import {
 } from "@/components/plugins/display";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
+import {
+  removeLegacyStorageKey,
+  useAuthenticatedStorageScope,
+} from "@/lib/storage-scope";
 
 type MatchStatus = "matched" | "not_matched" | "unchecked";
 type ActionStatus =
@@ -124,10 +128,10 @@ type TFn = (
   params?: Record<string, string | number | boolean | null | undefined>,
 ) => string;
 
-// Single global store, content-keyed: positions persist across query records
-// that exercise the same sequence / step layout instead of being trapped per
-// record id. See `sequenceNodeKey` / `stepNodeKey` for the key derivation.
-const QRF_STORAGE_KEY = "oxidns_qrf_positions";
+// Content-keyed within one authenticated backend/account scope: positions
+// persist across records that exercise the same sequence without exposing
+// plugin metadata to another operator or OxiDNS Next instance.
+const QRF_STORAGE_KEY = "oxidns-next_qrf_positions";
 
 export function QueryRecordFlowCanvas({
   record,
@@ -139,7 +143,8 @@ export function QueryRecordFlowCanvas({
   plugins: PluginInstance[];
 }) {
   const { t } = useI18n();
-  const positionStorageKey = QRF_STORAGE_KEY;
+  const storageScope = useAuthenticatedStorageScope();
+  const positionStorageKey = `${QRF_STORAGE_KEY}:${storageScope}`;
   const [savedPositions, setSavedPositions] = useState<NodePositions>(() => {
     try {
       return (
@@ -152,20 +157,40 @@ export function QueryRecordFlowCanvas({
     }
   });
 
+  useEffect(() => {
+    removeLegacyStorageKey(QRF_STORAGE_KEY);
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(positionStorageKey) ?? "null",
+      ) as NodePositions | null;
+      setSavedPositions(
+        stored && typeof stored === "object" && !Array.isArray(stored)
+          ? stored
+          : {},
+      );
+    } catch {
+      setSavedPositions({});
+    }
+  }, [positionStorageKey]);
+
   const handlePositionChange = (
     nodeId: string,
     pos: { x: number; y: number },
   ) => {
     setSavedPositions((prev) => {
       const next = { ...prev, [nodeId]: pos };
-      localStorage.setItem(positionStorageKey, JSON.stringify(next));
+      try {
+        localStorage.setItem(positionStorageKey, JSON.stringify(next));
+      } catch {
+        // Keep the position for this session when browser storage is disabled.
+      }
       return next;
     });
   };
 
   const resetPositions = () => {
     setSavedPositions({});
-    localStorage.removeItem(positionStorageKey);
+    removeLegacyStorageKey(positionStorageKey);
   };
 
   const model = useMemo(

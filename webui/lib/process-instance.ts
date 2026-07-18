@@ -1,6 +1,6 @@
 "use client";
 
-import type { HealthResponse } from "./oxidns-api";
+import type { HealthResponse } from "./oxidns-next-api";
 
 const FRESH_PROCESS_BUFFER_MS = 2_000;
 

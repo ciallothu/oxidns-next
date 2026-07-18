@@ -33,7 +33,7 @@ import type {
   DependencyGraphReport,
   SequenceFlowExpression,
   SequenceFlowReport,
-} from "@/lib/oxidns-api";
+} from "@/lib/oxidns-next-api";
 import { cn } from "@/lib/utils";
 import {
   getPluginCatalogItem,
@@ -50,6 +50,10 @@ import {
 import { WEBUI } from "@/lib/i18n";
 import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
 import { useI18n } from "@/lib/i18n/provider";
+import {
+  removeLegacyStorageKey,
+  useAuthenticatedStorageScope,
+} from "@/lib/storage-scope";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -218,12 +222,12 @@ type DerivedTopology = {
 // no longer nested per active-root. A plugin keeps its dragged position
 // regardless of which root view it appears under, which matches what the
 // sequence-composer and query-record-flow canvases do.
-const TOPOLOGY_STORAGE_KEY = "oxidns_topo_positions_v2";
+const TOPOLOGY_STORAGE_KEY = "oxidns-next_topo_positions_v2";
 
-function loadTopologyPositions(): NodePositions {
+function loadTopologyPositions(storageKey: string): NodePositions {
   try {
     const parsed = JSON.parse(
-      localStorage.getItem(TOPOLOGY_STORAGE_KEY) ?? "null",
+      localStorage.getItem(storageKey) ?? "null",
     ) as NodePositions | null;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? parsed
@@ -269,10 +273,17 @@ export function TopologyView({
   onSelect: (plugin: PluginInstance) => void;
 }) {
   const { t } = useI18n();
+  const storageScope = useAuthenticatedStorageScope();
+  const topologyStorageKey = `${TOPOLOGY_STORAGE_KEY}:${storageScope}`;
   const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
   const [savedPositions, setSavedPositions] = useState<NodePositions>(
-    loadTopologyPositions,
+    () => loadTopologyPositions(topologyStorageKey),
   );
+
+  useEffect(() => {
+    removeLegacyStorageKey(TOPOLOGY_STORAGE_KEY);
+    setSavedPositions(loadTopologyPositions(topologyStorageKey));
+  }, [topologyStorageKey]);
 
   const topology = useMemo(() => {
     if (!dependencyGraph) return null;
@@ -286,16 +297,19 @@ export function TopologyView({
   const handlePositionChange = (key: string, pos: { x: number; y: number }) => {
     setSavedPositions((prev) => {
       const next: NodePositions = { ...prev, [key]: pos };
-      localStorage.setItem(TOPOLOGY_STORAGE_KEY, JSON.stringify(next));
+      try {
+        localStorage.setItem(topologyStorageKey, JSON.stringify(next));
+      } catch {
+        // Keep the position for this session when browser storage is disabled.
+      }
       return next;
     });
   };
 
-  // Reset clears every saved position. The previous per-root scope is gone
-  // because positions are now content-keyed and shared across root views.
+  // Reset clears saved positions for this authenticated backend/account.
   const resetPositions = () => {
     setSavedPositions({});
-    localStorage.removeItem(TOPOLOGY_STORAGE_KEY);
+    removeLegacyStorageKey(topologyStorageKey);
   };
 
   // `onSelect` is recreated each render by the parent page; capture it in a

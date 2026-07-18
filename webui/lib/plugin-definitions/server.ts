@@ -91,14 +91,14 @@ export const serverPluginDefinitions: PluginKindDefinition[] = [
         description: "指定 TLS 证书文件路径。",
         label: "TLS 证书",
         type: "text",
-        placeholder: "/etc/oxidns/server.crt",
+        placeholder: "/etc/oxidns-next/server.crt",
       },
       {
         key: "key",
         description: "指定 TLS 私钥文件路径。",
         label: "TLS 私钥",
         type: "text",
-        placeholder: "/etc/oxidns/server.key",
+        placeholder: "/etc/oxidns-next/server.key",
       },
       {
         key: "idle_timeout",
@@ -178,14 +178,14 @@ export const serverPluginDefinitions: PluginKindDefinition[] = [
         description: "指定 HTTPS 证书文件路径。",
         label: "HTTPS 证书",
         type: "text",
-        placeholder: "/etc/oxidns/server.crt",
+        placeholder: "/etc/oxidns-next/server.crt",
       },
       {
         key: "key",
         description: "指定 HTTPS 私钥文件路径。",
         label: "HTTPS 私钥",
         type: "text",
-        placeholder: "/etc/oxidns/server.key",
+        placeholder: "/etc/oxidns-next/server.key",
       },
       {
         key: "idle_timeout",
@@ -231,7 +231,7 @@ export const serverPluginDefinitions: PluginKindDefinition[] = [
         description: "指定 DoQ 所需 TLS 证书文件。",
         label: "TLS 证书",
         type: "text",
-        placeholder: "/etc/oxidns/server.crt",
+        placeholder: "/etc/oxidns-next/server.crt",
         required: true,
       },
       {
@@ -239,7 +239,7 @@ export const serverPluginDefinitions: PluginKindDefinition[] = [
         description: "指定 DoQ 所需 TLS 私钥文件。",
         label: "TLS 私钥",
         type: "text",
-        placeholder: "/etc/oxidns/server.key",
+        placeholder: "/etc/oxidns-next/server.key",
         required: true,
       },
       {

@@ -10,20 +10,29 @@ use jiff::Zoned;
 use tracing::{Event, Subscriber, info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::fmt::{
     self as tracing_fmt, FmtContext, FormatEvent, FormatFields, FormattedFields, format,
 };
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 use crate::config::types::{LogConfig, LogRotation};
 use crate::infra::clock::AppClock;
-use crate::infra::observability::log_buffer::{LogBuffer, LogLayer, install_global_log_buffer};
+use crate::infra::observability::log_buffer::{
+    LogBuffer, LogLayer, QUERY_LOG_TARGET, install_global_log_buffer,
+};
 
-/// Initialize the logging system with console and optional file output.
-pub fn start_logging(log: LogConfig) -> WorkerGuard {
+/// Keeps every non-blocking log writer alive for the process lifetime.
+pub struct LogGuards {
+    _guards: Vec<WorkerGuard>,
+}
+
+/// Initialize system logging plus an optional, isolated query-event file.
+pub fn start_logging(log: LogConfig) -> LogGuards {
+    let mut guards = Vec::new();
     let (file_writer, guard) = if let Some(ref file_path) = log.file {
         let file_appender = build_file_appender(file_path, &log.rotation)
             .unwrap_or_else(|err| panic!("failed to initialize log file appender: {err}"));
@@ -32,15 +41,39 @@ pub fn start_logging(log: LogConfig) -> WorkerGuard {
     } else {
         (None, None)
     };
+    if let Some(guard) = guard {
+        guards.push(guard);
+    }
+
+    let (query_writer, query_guard) = if let Some(ref file_path) = log.query_file {
+        let file_appender = build_file_appender(file_path, &log.rotation)
+            .unwrap_or_else(|err| panic!("failed to initialize query log file appender: {err}"));
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        (Some(non_blocking), Some(guard))
+    } else {
+        (None, None)
+    };
+    if let Some(guard) = query_guard {
+        guards.push(guard);
+    }
 
     let console_layer = tracing_fmt::layer()
-        .event_format(OxiDnsLogFormatter)
-        .with_writer(std::io::stdout);
+        .event_format(OxiDnsNextLogFormatter)
+        .with_writer(std::io::stdout)
+        .with_filter(filter_fn(|metadata| metadata.target() != QUERY_LOG_TARGET));
     let file_layer = file_writer.map(|writer| {
         tracing_fmt::layer()
             .with_ansi(false)
-            .event_format(OxiDnsLogFormatter)
+            .event_format(OxiDnsNextLogFormatter)
             .with_writer(writer)
+            .with_filter(filter_fn(|metadata| metadata.target() != QUERY_LOG_TARGET))
+    });
+    let query_layer = query_writer.map(|writer| {
+        tracing_fmt::layer()
+            .with_ansi(false)
+            .event_format(OxiDnsNextLogFormatter)
+            .with_writer(writer)
+            .with_filter(filter_fn(|metadata| metadata.target() == QUERY_LOG_TARGET))
     });
 
     let (filter, invalid_level) = match EnvFilter::try_new(&log.level) {
@@ -52,15 +85,13 @@ pub fn start_logging(log: LogConfig) -> WorkerGuard {
     install_global_log_buffer(log_buffer.clone());
     let log_layer = LogLayer::new(log_buffer);
 
-    let subscriber = Registry::default()
+    Registry::default()
         .with(filter)
         .with(log_layer)
-        .with(console_layer);
-    if let Some(file_layer) = file_layer {
-        subscriber.with(file_layer).init();
-    } else {
-        subscriber.init();
-    };
+        .with(console_layer)
+        .with(file_layer)
+        .with(query_layer)
+        .init();
 
     if invalid_level {
         warn!(
@@ -70,17 +101,14 @@ pub fn start_logging(log: LogConfig) -> WorkerGuard {
         );
     }
 
-    if let Some(file_path) = log.file.as_deref() {
-        info!(
-            level = %log.level,
-            file = %file_path,
-            "Logging system initialized"
-        );
-    } else {
-        info!(level = %log.level, "Logging system initialized");
-    }
+    info!(
+        level = %log.level,
+        file = ?log.file,
+        query_file = ?log.query_file,
+        "Logging system initialized"
+    );
 
-    guard.unwrap_or_else(|| tracing_appender::non_blocking(std::io::sink()).1)
+    LogGuards { _guards: guards }
 }
 
 fn build_file_appender(path: &str, rotation: &LogRotation) -> std::io::Result<RollingFileAppender> {
@@ -132,10 +160,10 @@ fn build_official_appender(
         .map_err(|err| std::io::Error::other(err.to_string()))
 }
 
-/// Custom log formatter for OxiDNS.
-pub struct OxiDnsLogFormatter;
+/// Custom log formatter for OxiDNS Next.
+pub struct OxiDnsNextLogFormatter;
 
-impl<S, N> FormatEvent<S, N> for OxiDnsLogFormatter
+impl<S, N> FormatEvent<S, N> for OxiDnsNextLogFormatter
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,

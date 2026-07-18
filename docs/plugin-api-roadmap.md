@@ -2,7 +2,7 @@
 
 最后更新：2026-06-02
 
-本文档梳理 OxiDNS 插件在 **HTTP 管理 API** 与 **Prometheus metrics** 两个观测面上的现状与待办，给后端补接口、给 WebUI 接 API 时提供单一参考。
+本文档梳理 OxiDNS Next 插件在 **HTTP 管理 API** 与 **Prometheus metrics** 两个观测面上的现状与待办，给后端补接口、给 WebUI 接 API 时提供单一参考。
 
 适用读者：
 
@@ -34,7 +34,7 @@ API 与 metrics 不重复实现，按数据形态决定归属：
 |---|---|---|---|
 | A1 | `POST /api/plugins/<tag>/reload` | 动作 | 由 registry 自动给每个 provider 注册，覆盖 `domain_set` / `dynamic_domain_set` / `geosite` / `adguard_rule` / `ip_set` / `geoip`。WebUI 只有全局 `requestReload()`，缺单 provider 触发 |
 | A2 | `GET /api/plugins/<reverse_lookup_tag>?ip=<addr>` | 个体查询 | 从反查缓存返回 FQDN，未命中返回空 |
-| A3 | `GET /api/plugins/<query_recorder_tag>/stream` | SSE 事件流 | 已在 `components/plugins/kinds/query-recorder.tsx` 内联使用，没走 `lib/oxidns-api.ts`，建议抽到 lib 与 `streamLogs` 同款 |
+| A3 | `GET /api/plugins/<query_recorder_tag>/stream` | SSE 事件流 | 已在 `components/plugins/kinds/query-recorder.tsx` 内联使用，没走 `lib/oxidns-next-api.ts`，建议抽到 lib 与 `streamLogs` 同款 |
 
 ## B. 后端新增 API 提案
 
@@ -238,7 +238,7 @@ register_plugin_api!(
 ### 前端：包装一个新端点
 
 ```typescript
-// lib/oxidns-api.ts
+// lib/oxidns-next-api.ts
 export async function fooBar(tag: string, params: ...): Promise<...> {
   const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(tag)}/...`), {
     method: "...",
@@ -249,7 +249,7 @@ export async function fooBar(tag: string, params: ...): Promise<...> {
 }
 ```
 
-参考实现：`lib/oxidns-api.ts` 里的 `listDynamicDomainRules` / `appendDynamicDomainRules` 等。
+参考实现：`lib/oxidns-next-api.ts` 里的 `listDynamicDomainRules` / `appendDynamicDomainRules` 等。
 
 ### 前端：给插件加 detail tab
 

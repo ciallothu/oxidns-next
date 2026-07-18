@@ -3,11 +3,11 @@ title: Architecture and Design
 sidebar_position: 7
 ---
 
-This page explains the OxiDNS request path, plugin layering, and performance boundaries. It is intended as background for configuration design, policy composition, and troubleshooting.
+This page explains the OxiDNS Next request path, plugin layering, and performance boundaries. It is intended as background for configuration design, policy composition, and troubleshooting.
 
 ## Core Request Path
 
-OxiDNS is organized around this path:
+OxiDNS Next is organized around this path:
 
 `server -> DnsContext -> matcher / executor / provider -> upstream or side effects -> response`
 
@@ -53,7 +53,7 @@ F --> G
 
 ## Why This Layering
 
-OxiDNS avoids scattering policy logic across listeners or transports. It centralizes decision making in the policy layer for several reasons:
+OxiDNS Next avoids scattering policy logic across listeners or transports. It centralizes decision making in the policy layer for several reasons:
 
 - The hot path is shorter and easier to optimize.
 - Features compose naturally across protocols.
@@ -73,7 +73,7 @@ The target is not to pile up switches. The target is to keep complex policies op
 
 ### 2. Policy as a First-Class Capability
 
-OxiDNS is not just a forwarder. It is a composable policy engine.
+OxiDNS Next is not just a forwarder. It is a composable policy engine.
 
 - `sequence` orders execution.
 - `matcher` determines branch conditions.
@@ -93,9 +93,9 @@ DNS answers can also drive:
 
 That is why side-effect isolation and post-response execution are treated as architectural concerns, not bolt-ons.
 
-## Why OxiDNS Uses Its Own DNS Message Layer
+## Why OxiDNS Next Uses Its Own DNS Message Layer
 
-OxiDNS keeps its own DNS model and wire codec instead of building the full path on top of opaque third-party message objects.
+OxiDNS Next keeps its own DNS model and wire codec instead of building the full path on top of opaque third-party message objects.
 
 Main reasons:
 

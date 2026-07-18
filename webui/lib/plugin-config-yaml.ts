@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { pluginConfigFromYaml, pluginConfigToYaml } from "@/lib/oxidns-config";
+import { pluginConfigFromYaml, pluginConfigToYaml } from "@/lib/oxidns-next-config";
 import { WEBUI, tClient } from "@/lib/i18n";
 
 export interface YamlParseResult {

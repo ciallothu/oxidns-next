@@ -88,12 +88,12 @@ export const enUSPluginDefined = {
         cert: {
           label: "TLS certificate",
           description: "Specify the TLS certificate file path.",
-          placeholder: "/etc/oxidns/server.crt",
+          placeholder: "/etc/oxidns-next/server.crt",
         },
         key: {
           label: "TLS private key",
           description: "Specify the TLS private key file path.",
-          placeholder: "/etc/oxidns/server.key",
+          placeholder: "/etc/oxidns-next/server.key",
         },
         idle_timeout: {
           label: "Idle timeout (seconds)",
@@ -175,12 +175,12 @@ export const enUSPluginDefined = {
         cert: {
           label: "HTTPS certificate",
           description: "Specify the HTTPS certificate file path.",
-          placeholder: "/etc/oxidns/server.crt",
+          placeholder: "/etc/oxidns-next/server.crt",
         },
         key: {
           label: "HTTPS private key",
           description: "Specify the HTTPS private key file path.",
-          placeholder: "/etc/oxidns/server.key",
+          placeholder: "/etc/oxidns-next/server.key",
         },
         idle_timeout: {
           label: "Idle timeout (seconds)",
@@ -240,12 +240,12 @@ export const enUSPluginDefined = {
         cert: {
           label: "TLS certificate",
           description: "Specify the TLS certificate file required by DoQ.",
-          placeholder: "/etc/oxidns/server.crt",
+          placeholder: "/etc/oxidns-next/server.crt",
         },
         key: {
           label: "TLS private key",
           description: "Specify the TLS private key file required by DoQ.",
-          placeholder: "/etc/oxidns/server.key",
+          placeholder: "/etc/oxidns-next/server.key",
         },
         idle_timeout: {
           label: "Idle timeout (seconds)",
@@ -651,11 +651,11 @@ export const enUSPluginDefined = {
         files: {
           label: "hosts file",
           description: "Specify a list of external hosts rule files.",
-          placeholder: "/etc/oxidns/hosts.txt",
+          placeholder: "/etc/oxidns-next/hosts.txt",
         },
         "files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/hosts.txt",
+          placeholder: "/etc/oxidns-next/hosts.txt",
         },
         short_circuit: {
           label: "Stop subsequent execution after hit",
@@ -697,11 +697,11 @@ export const enUSPluginDefined = {
         files: {
           label: "log file",
           description: "Specify a list of static record files.",
-          placeholder: "/etc/oxidns/zone.txt",
+          placeholder: "/etc/oxidns-next/zone.txt",
         },
         "files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/zone.txt",
+          placeholder: "/etc/oxidns-next/zone.txt",
         },
         short_circuit: {
           label: "Stop subsequent execution after hit",
@@ -728,11 +728,11 @@ export const enUSPluginDefined = {
         files: {
           label: "rules file",
           description: "Specify a list of external redirection rule files.",
-          placeholder: "/etc/oxidns/redirect.txt",
+          placeholder: "/etc/oxidns-next/redirect.txt",
         },
         "files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/redirect.txt",
+          placeholder: "/etc/oxidns-next/redirect.txt",
         },
       },
     },
@@ -1387,11 +1387,11 @@ export const enUSPluginDefined = {
         args: {
           label: "Command parameters",
           description: "Array of parameters passed to the command.",
-          placeholder: "/etc/oxidns/notify.sh\n${qname}",
+          placeholder: "/etc/oxidns-next/notify.sh\n${qname}",
         },
         "args[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/notify.sh",
+          placeholder: "/etc/oxidns-next/notify.sh",
         },
         env: {
           label: "environment variables",
@@ -1403,7 +1403,7 @@ export const enUSPluginDefined = {
         cwd: {
           label: "Working directory",
           description: "Specify the working directory when the script is run.",
-          placeholder: "/etc/oxidns",
+          placeholder: "/etc/oxidns-next",
         },
         timeout: {
           label: "Timeout",
@@ -1469,7 +1469,7 @@ export const enUSPluginDefined = {
         },
       },
       quickSetup: {
-        paramPlaceholder: "oxidns_v4,inet,24 oxidns_v6,inet6,64",
+        paramPlaceholder: "oxidns_next_v4,inet,24 oxidns_next_v6,inet6,64",
       },
       metrics: {
         labels: {
@@ -1664,11 +1664,11 @@ export const enUSPluginDefined = {
           label: "document",
           description:
             "Loads a collection of resident addresses from an external file.",
-          placeholder: "/etc/oxidns/persistent_ips.txt",
+          placeholder: "/etc/oxidns-next/persistent_ips.txt",
         },
         "persistent.files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/persistent_ips.txt",
+          placeholder: "/etc/oxidns-next/persistent_ips.txt",
         },
         min_ttl: {
           label: "Dynamic item minimum TTL",
@@ -1711,7 +1711,7 @@ export const enUSPluginDefined = {
     },
     upgrade: {
       name: "Upgrade",
-      description: "Perform the OxiDNS upgrade process",
+      description: "Perform the OxiDNS Next upgrade process",
       fields: {
         force: {
           label: "Forced upgrade",
@@ -1809,7 +1809,7 @@ export const enUSPluginDefined = {
           description:
             "Download one or more HTTP/HTTPS files to a local directory and overwrite the target files after the new content is completely written.",
           placeholder:
-            '[{"url":"https://example.com/geosite.dat","dir":"/etc/oxidns","filename":"geosite.dat"}]',
+            '[{"url":"https://example.com/geosite.dat","dir":"/etc/oxidns-next","filename":"geosite.dat"}]',
         },
         "downloads[]": {
           label: "Download items",
@@ -1822,7 +1822,7 @@ export const enUSPluginDefined = {
         "downloads[].dir": {
           label: "Directory",
           description: "The destination directory for downloaded items.",
-          placeholder: "/etc/oxidns",
+          placeholder: "/etc/oxidns-next",
         },
         "downloads[].filename": {
           label: "File name",
@@ -1852,7 +1852,7 @@ export const enUSPluginDefined = {
         },
       },
       quickSetup: {
-        paramPlaceholder: "https://example.com/rules.txt /etc/oxidns",
+        paramPlaceholder: "https://example.com/rules.txt /etc/oxidns-next",
       },
       metrics: {
         labels: {
@@ -2013,7 +2013,7 @@ export const enUSPluginDefined = {
           label: "Domain name rules",
           description: "Define the source of domain name matching rules.",
           placeholder:
-            "full:login.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^api[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns/domains.txt",
+            "full:login.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^api[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns-next/domains.txt",
         },
         "args.$provider_ref": {
           label: "Reference provider",
@@ -2161,7 +2161,7 @@ export const enUSPluginDefined = {
           description:
             "Defines the response CNAME target domain name matching rule source.",
           placeholder:
-            "full:alias.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^edge[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns/cnames.txt",
+            "full:alias.example.com\ndomain:example.com\nkeyword:cdn\nregexp:^edge[0-9]+\\.example\\.net$\n$core_domains\n&/etc/oxidns-next/cnames.txt",
         },
         "args.$provider_ref": {
           label: "Reference provider",
@@ -2344,11 +2344,11 @@ export const enUSPluginDefined = {
         files: {
           label: "Domain name rules file",
           description: "Specify a list of external rule file paths.",
-          placeholder: "/etc/oxidns/domains.txt",
+          placeholder: "/etc/oxidns-next/domains.txt",
         },
         "files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/domains.txt",
+          placeholder: "/etc/oxidns-next/domains.txt",
         },
         sets: {
           label: "Downstream Provider",
@@ -2371,7 +2371,7 @@ export const enUSPluginDefined = {
           label: "Rules file",
           description:
             "Specify the path to the local rules file managed by this dynamic provider.",
-          placeholder: "/etc/oxidns/learned-allow.txt",
+          placeholder: "/etc/oxidns-next/learned-allow.txt",
         },
         bootstrap_rules: {
           label: "Initial rules",
@@ -2406,7 +2406,7 @@ export const enUSPluginDefined = {
         file: {
           label: "geosite.dat",
           description: "Specify the geosite.dat file path.",
-          placeholder: "/etc/oxidns/geosite.dat",
+          placeholder: "/etc/oxidns-next/geosite.dat",
         },
         selectors: {
           label: "Selector",
@@ -2436,11 +2436,11 @@ export const enUSPluginDefined = {
         files: {
           label: "rules file",
           description: "Load from external rules file.",
-          placeholder: "/etc/oxidns/adguard.txt",
+          placeholder: "/etc/oxidns-next/adguard.txt",
         },
         "files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/adguard.txt",
+          placeholder: "/etc/oxidns-next/adguard.txt",
         },
       },
     },
@@ -2461,11 +2461,11 @@ export const enUSPluginDefined = {
         files: {
           label: "IP rules file",
           description: "Specify a list of external IP rule file paths.",
-          placeholder: "/etc/oxidns/ips.txt",
+          placeholder: "/etc/oxidns-next/ips.txt",
         },
         "files[]": {
           label: "Enter value",
-          placeholder: "/etc/oxidns/ips.txt",
+          placeholder: "/etc/oxidns-next/ips.txt",
         },
         sets: {
           label: "Downstream Provider",
@@ -2485,7 +2485,7 @@ export const enUSPluginDefined = {
         file: {
           label: "geoip.dat",
           description: "Specify the geoip.dat file path.",
-          placeholder: "/etc/oxidns/geoip.dat",
+          placeholder: "/etc/oxidns-next/geoip.dat",
         },
         selectors: {
           label: "Selector",

@@ -40,7 +40,7 @@ import { useAppStore } from "@/lib/store";
 import { useAuthStore } from "@/lib/auth-store";
 import type { ConfigSnapshot } from "@/lib/config-history";
 import { ConfigDiffDialog } from "@/components/config/config-diff-dialog";
-import { topLevelConfigChanged } from "@/lib/oxidns-config";
+import { topLevelConfigChanged } from "@/lib/oxidns-next-config";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
 

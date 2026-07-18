@@ -3,9 +3,9 @@ title: 命令行工具
 sidebar_position: 3
 ---
 
-本页按使用任务介绍 OxiDNS 的命令行工具。日常部署时，最常用的是先 `check` 校验配置，再 `start` 启动服务。
+本页按使用任务介绍 OxiDNS Next 的命令行工具。日常部署时，最常用的是先 `check` 校验配置，再 `start` 启动服务。
 
-主程序只有一个二进制：`oxidns`。
+主程序只有一个二进制：`oxidns-next`。
 
 可用顶层命令如下：
 
@@ -21,47 +21,47 @@ sidebar_position: 3
 
 | 目标 | 命令 |
 | --- | --- |
-| 校验配置 | `oxidns check -c config.yaml` |
-| 前台启动 | `oxidns start -c config.yaml` |
-| 临时开启调试日志 | `oxidns start -c config.yaml -l debug` |
-| 查看插件依赖图 | `oxidns check -c config.yaml --graph` |
-| 查看当前二进制编译能力 | `oxidns build-info` |
-| 探测上游连通性和并发行为 | `oxidns probe upstream tcp://1.1.1.1:53` |
-| 安装系统服务 | `sudo oxidns service install -d /var/lib/oxidns -c /etc/oxidns/config.yaml` |
-| 检查新版本 | `oxidns upgrade check` |
-| 从 dat 导出规则文件 | `oxidns export-dat --file ./rules/geosite.dat --kind geosite --selector cn --out-dir ./rules/exported` |
+| 校验配置 | `oxidns-next check -c config.yaml` |
+| 前台启动 | `oxidns-next start -c config.yaml` |
+| 临时开启调试日志 | `oxidns-next start -c config.yaml -l debug` |
+| 查看插件依赖图 | `oxidns-next check -c config.yaml --graph` |
+| 查看当前二进制编译能力 | `oxidns-next build-info` |
+| 探测上游连通性和并发行为 | `oxidns-next probe upstream tcp://1.1.1.1:53` |
+| 安装系统服务 | `sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml` |
+| 检查新版本 | `oxidns-next upgrade check` |
+| 从 dat 导出规则文件 | `oxidns-next export-dat --file ./rules/geosite.dat --kind geosite --selector cn --out-dir ./rules/exported` |
 
 ## 查看帮助
 
 可先查看顶层帮助：
 
 ```bash
-oxidns --help
+oxidns-next --help
 ```
 
 查看某个子命令的帮助：
 
 ```bash
-oxidns start --help
-oxidns check --help
-oxidns build-info --help
-oxidns export-dat --help
-oxidns probe --help
-oxidns probe upstream --help
-oxidns service --help
-oxidns upgrade --help
+oxidns-next start --help
+oxidns-next check --help
+oxidns-next build-info --help
+oxidns-next export-dat --help
+oxidns-next probe --help
+oxidns-next probe upstream --help
+oxidns-next service --help
+oxidns-next upgrade --help
 ```
 
 ## `start`
 
-前台启动 OxiDNS 服务。
+前台启动 OxiDNS Next 服务。
 
 典型用法：
 
 ```bash
-oxidns start -c config.yaml
-oxidns start -c config.yaml -l debug
-oxidns start -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+oxidns-next start -c config.yaml
+oxidns-next start -c config.yaml -l debug
+oxidns-next start -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
 参数说明：
@@ -72,7 +72,7 @@ oxidns start -c /etc/oxidns/config.yaml -d /var/lib/oxidns
 - `-d, --working-dir <PATH>`
   - 启动前切换到指定工作目录。
   - 所有运行期相对路径都以该目录为基准，包括日志、SQLite、规则文件和 `api.http.webui.root`。
-  - Debian 默认布局中，配置放在 `/etc/oxidns/config.yaml`，运行期相对路径资源放在 `/var/lib/oxidns`。
+  - Debian 默认布局中，配置放在 `/etc/oxidns-next/config.yaml`，运行期相对路径资源放在 `/var/lib/oxidns-next`。
 - `-l, --log-level <LEVEL>`
   - 临时覆盖配置文件中的日志级别。
   - 支持：`off` `trace` `debug` `info` `warn` `error`
@@ -85,15 +85,15 @@ oxidns start -c /etc/oxidns/config.yaml -d /var/lib/oxidns
 
 ## `check`
 
-静态检查配置文件是否有效，但不会真正启动 OxiDNS。
+静态检查配置文件是否有效，但不会真正启动 OxiDNS Next。
 
 典型用法：
 
 ```bash
-oxidns check -c config.yaml
-oxidns check -c /etc/oxidns/config.yaml
-oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
-oxidns check -c config.yaml --graph
+oxidns-next check -c config.yaml
+oxidns-next check -c /etc/oxidns-next/config.yaml
+oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
+oxidns-next check -c config.yaml --graph
 ```
 
 参数说明：
@@ -128,11 +128,11 @@ oxidns check -c config.yaml --graph
 典型用法：
 
 ```bash
-oxidns probe upstream udp://1.1.1.1:53
-oxidns probe upstream tcp://1.1.1.1:53
-oxidns probe upstream tls://dns.google:853 --qname example.com. --qtype A
-oxidns probe upstream https://dns.google/dns-query --json
-oxidns probe upstream tcp://dns.example.com:53 -c config.yaml --outbound remote
+oxidns-next probe upstream udp://1.1.1.1:53
+oxidns-next probe upstream tcp://1.1.1.1:53
+oxidns-next probe upstream tls://dns.google:853 --qname example.com. --qtype A
+oxidns-next probe upstream https://dns.google/dns-query --json
+oxidns-next probe upstream tcp://dns.example.com:53 -c config.yaml --outbound remote
 ```
 
 参数说明：
@@ -197,12 +197,12 @@ oxidns probe upstream tcp://dns.example.com:53 -c config.yaml --outbound remote
 
 ## `build-info`
 
-输出当前 `oxidns` 二进制的编译期能力信息。
+输出当前 `oxidns-next` 二进制的编译期能力信息。
 
 典型用法：
 
 ```bash
-oxidns build-info
+oxidns-next build-info
 ```
 
 行为说明：
@@ -232,7 +232,7 @@ oxidns build-info
 典型用法：
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --selector cn \
   --selector geolocation-\!cn \
@@ -242,7 +242,7 @@ oxidns export-dat \
 额外生成并集文件：
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --kind geosite \
   --selector cn \
@@ -254,7 +254,7 @@ oxidns export-dat \
 导出 `geoip.dat`：
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geoip.dat \
   --kind geoip \
   --selector cn \
@@ -264,7 +264,7 @@ oxidns export-dat \
 不传 selector，直接导出整份 dat：
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --kind geosite \
   --out-dir ./rules/exported
@@ -273,7 +273,7 @@ oxidns export-dat \
 指定原始格式导出：
 
 ```bash
-oxidns export-dat \
+oxidns-next export-dat \
   --file ./rules/geosite.dat \
   --kind geosite \
   --format original \
@@ -291,8 +291,9 @@ oxidns export-dat \
   - 默认值：`auto`
 - `--format <FORMAT>`
   - 指定文本导出格式。
-  - 可选值：`oxidns` `original`
-  - 默认值：`oxidns`
+  - 可选值：`oxidns-next` `original`
+  - 默认值：`oxidns-next`
+  - 为兼容上游脚本，旧值 `oxidns` 仍作为 `oxidns-next` 的别名接受。
 - `--selector <SELECTOR>`
   - 要导出的 selector。
   - 可重复传入多个，按输入顺序分别导出。
@@ -311,12 +312,12 @@ oxidns export-dat \
 
 - 默认按 selector 分别生成文件，例如 `cn.txt`、`geolocation-!cn.txt`。
 - 不传 selector 时，会直接生成单个整表导出文件；默认文件名分别为 `geosite.txt` 或 `geoip.txt`。
-- `geosite` 输出为 OxiDNS 域名规则格式，例如 `full:`、`domain:`、`keyword:`、`regexp:`。
-- `oxidns` 格式会在导出文件头加入注释行，例如 `# selector: cn`；不传 selector 时为 `# selector: all`。
+- `geosite` 输出为 OxiDNS Next 域名规则格式，例如 `full:`、`domain:`、`keyword:`、`regexp:`。
+- `oxidns-next` 格式会在导出文件头加入注释行，例如 `# selector: cn`；不传 selector 时为 `# selector: all`。
 - `geosite` 在 `original` 格式下会保留原始类型语义，输出如 `plain:`、`regex:`、`root_domain:`、`full:`。
 - `geosite` 的 `original` 格式会按 code 分组输出；如果域名带 attribute，会追加在域名后面，例如 `@cn`、`@ads=1`。
 - `geoip` 输出为 IP / CIDR 纯文本规则。
-- `geoip` 的 `oxidns` 格式同样会加入 selector 注释行。
+- `geoip` 的 `oxidns-next` 格式同样会加入 selector 注释行。
 - `geoip` 的 `original` 格式会按 code 分组输出，组头形式为 `[code]`。
 - `geosite` selector 支持 `code@attribute`，例如 `mastercard@cn`。
 - 任一 selector 没有匹配结果时，命令会直接失败，不会静默跳过。
@@ -338,7 +339,7 @@ oxidns export-dat \
 安装系统服务定义，但不会立即启动。
 
 ```bash
-sudo oxidns service install -d /var/lib/oxidns -c /etc/oxidns/config.yaml
+sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml
 ```
 
 参数说明：
@@ -346,7 +347,7 @@ sudo oxidns service install -d /var/lib/oxidns -c /etc/oxidns/config.yaml
 - `-d, --working-dir <PATH>`
   - 服务工作目录，也是服务内所有运行期相对路径的基准。
   - 必须为绝对路径。
-  - 生成的服务会通过 `ExecStart ... -d <PATH>` 传给 OxiDNS；自定义 systemd unit 若额外设置 `WorkingDirectory=`，请保持二者一致。
+  - 生成的服务会通过 `ExecStart ... -d <PATH>` 传给 OxiDNS Next；自定义 systemd unit 若额外设置 `WorkingDirectory=`，请保持二者一致。
 - `-c, --config <PATH>`
   - 服务启动时使用的配置文件路径。
 
@@ -355,7 +356,7 @@ sudo oxidns service install -d /var/lib/oxidns -c /etc/oxidns/config.yaml
 启动已安装的系统服务。
 
 ```bash
-sudo oxidns service start
+sudo oxidns-next service start
 ```
 
 ### `service stop`
@@ -363,7 +364,7 @@ sudo oxidns service start
 停止已安装的系统服务。
 
 ```bash
-sudo oxidns service stop
+sudo oxidns-next service stop
 ```
 
 ### `service restart`
@@ -371,7 +372,7 @@ sudo oxidns service stop
 重启已安装的系统服务。
 
 ```bash
-sudo oxidns service restart
+sudo oxidns-next service restart
 ```
 
 ### `service uninstall`
@@ -379,12 +380,12 @@ sudo oxidns service restart
 卸载已安装的系统服务。
 
 ```bash
-sudo oxidns service uninstall
+sudo oxidns-next service uninstall
 ```
 
 ## `upgrade`
 
-检查、下载或应用 GitHub Release 中的 OxiDNS 升级包。
+检查、下载或应用 GitHub Release 中的 OxiDNS Next 升级包。
 
 支持以下子命令：
 
@@ -395,12 +396,12 @@ sudo oxidns service uninstall
 典型用法：
 
 ```bash
-oxidns upgrade
-oxidns upgrade --force
-oxidns upgrade check
-oxidns upgrade download --target latest
-sudo oxidns upgrade apply
-sudo oxidns upgrade apply --no-restart
+oxidns-next upgrade
+oxidns-next upgrade --force
+oxidns-next upgrade check
+oxidns-next upgrade download --target latest
+sudo oxidns-next upgrade apply
+sudo oxidns-next upgrade apply --no-restart
 ```
 
 通用参数：
@@ -410,20 +411,20 @@ sudo oxidns upgrade apply --no-restart
   - 默认值：`latest`
 - `--repository <OWNER/REPO>`
   - GitHub 仓库。
-  - 默认值：`svenshi/oxidns`
+  - 默认值：`ciallothu/oxidns-next`
 - `--asset <NAME|auto>`
   - Release asset 名称；`auto` 会按当前平台和编译版本选择 archive。
   - 默认值：`auto`
 - `-c, --config <PATH>`
   - 运行配置文件路径，用于在未显式指定 `--webui-dir` 时读取 `api.http.webui.root`。
-  - 未指定时，优先使用当前目录的 `config.yaml`；Linux 打包安装环境中，如果存在 `/etc/oxidns/config.yaml`，会用它推导 WebUI 路径。
+  - 未指定时，优先使用当前目录的 `config.yaml`；Linux 打包安装环境中，如果存在 `/etc/oxidns-next/config.yaml`，会用它推导 WebUI 路径。
 - `-d, --working-dir <DIR>`
   - 运行期相对路径的基准目录，语义与 `start -d/--working-dir` 一致。
-  - 未指定且检测到 Linux 打包配置时，默认使用 `/var/lib/oxidns`；否则使用当前目录。
+  - 未指定且检测到 Linux 打包配置时，默认使用 `/var/lib/oxidns-next`；否则使用当前目录。
 - `--bundle <auto|full|standard|minimal>`
   - 当 `--asset auto` 时选择 release 编译版本。
   - 默认值：`auto`，跟随当前二进制的编译版本。
-  - `full` 使用旧资产名，例如 `oxidns-x86_64-unknown-linux-musl.tar.gz`；`standard` / `minimal` 使用 slim 资产名，例如 `oxidns-standard-x86_64-unknown-linux-musl.tar.gz`。
+  - `full` 使用旧资产名，例如 `oxidns-next-x86_64-unknown-linux-musl.tar.gz`；`standard` / `minimal` 使用 slim 资产名，例如 `oxidns-next-standard-x86_64-unknown-linux-musl.tar.gz`。
 - `--cache-dir <DIR>`
   - 升级文件缓存目录。
   - 默认值：`./upgrade-cache`
@@ -459,10 +460,10 @@ sudo oxidns upgrade apply --no-restart
 - `apply` 默认只有检测到新版本才会更新；`--force` 会强制更新。
 - `apply` 在 Unix 平台会解包 `.tar.gz`、备份当前二进制并替换；Windows 会解包 `.zip`、备份并替换二进制，同样支持 WebUI 目录升级。
 - `apply` 默认在替换二进制后，将 archive 中的 `webui/` 目录备份并安装到 `--webui-dir`；`--skip-webui` 可跳过；archive 不含 `webui/` 时跳过且不影响二进制升级。
-- Debian 打包安装的默认布局中，直接运行 `sudo oxidns upgrade apply` 会按 `/etc/oxidns/config.yaml` 和 `/var/lib/oxidns` 推导 WebUI 目录；`/var/lib/oxidns/webui` 是符号链接时，会更新其指向的真实目录。
+- Debian 打包安装的默认布局中，直接运行 `sudo oxidns-next upgrade apply` 会按 `/etc/oxidns-next/config.yaml` 和 `/var/lib/oxidns-next` 推导 WebUI 目录；`/var/lib/oxidns-next/webui` 是符号链接时，会更新其指向的真实目录。
 - `apply` 成功后默认通过系统服务管理器重启服务；如果不想自动重启，传 `--no-restart`。
 - `apply` 成功后会询问是否清理缓存目录和备份目录，默认选择 `Y`。
 
 ## 页面范围
 
-本页覆盖上面这些命令。需要确认本机二进制的完整参数时，可运行 `oxidns <subcommand> --help` 查看。
+本页覆盖上面这些命令。需要确认本机二进制的完整参数时，可运行 `oxidns-next <subcommand> --help` 查看。

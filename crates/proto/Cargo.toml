@@ -1,17 +1,17 @@
 [package]
-name = "oxidns-proto"
+name = "oxidns-next-proto"
 version = "0.1.3"
 edition = "2024"
 authors = ["Sven Shi <isvenshi@gmail.com>"]
-description = "DNS message model and wire codec primitives used by OxiDNS"
+description = "DNS message model and wire codec primitives used by OxiDNS Next"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/svenshi/oxidns"
+repository = "https://github.com/ciallothu/oxidns-next"
 readme = "README.md"
 keywords = ["dns", "protocol", "codec", "wire"]
 categories = ["network-programming", "parser-implementations"]
 
 [lib]
-name = "oxidns_proto"
+name = "oxidns_next_proto"
 path = "src/lib.rs"
 doctest = false
 

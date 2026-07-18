@@ -3,7 +3,7 @@ title: Plugin Overview
 sidebar_position: 1
 ---
 
-All OxiDNS capabilities ship as plugins, organized into four layers by responsibility:
+All OxiDNS Next capabilities ship as plugins, organized into four layers by responsibility:
 
 - `server`: network ingress; listens for traffic and hands it to the policy entrypoint.
 - `executor`: performs actions such as forwarding, caching, rewriting, observability, and system integrations.
@@ -91,7 +91,7 @@ See [Executor Plugins](executor.mdx) for full field reference. Grouped as: polic
 
 | Plugin | Purpose |
 | --- | --- |
-| [`upgrade`](executor.mdx#upgrade) | Triggers the OxiDNS upgrade flow from inside the executor pipeline. |
+| [`upgrade`](executor.mdx#upgrade) | Triggers the OxiDNS Next upgrade flow from inside the executor pipeline. |
 | [`download`](executor.mdx#download) | Downloads one or more `http/https` files locally and atomically replaces targets after fully written. |
 | [`reload_provider`](executor.mdx#reload_provider) | Rebuilds selected provider snapshots by tag without triggering a full application reload. |
 | [`reload`](executor.mdx#reload) | Triggers the same application-level full reload as `POST /reload`. |

@@ -1,9 +1,9 @@
-# oxidns-macros
+# oxidns-next-macros
 
-`oxidns-macros` contains procedural macros used by OxiDNS internals.
+`oxidns-next-macros` contains procedural macros used by OxiDNS Next internals.
 
 The crate is intentionally small. Its current job is to reduce boilerplate
-when registering stateless plugin factories with the OxiDNS plugin inventory.
+when registering stateless plugin factories with the OxiDNS Next plugin inventory.
 
 ## Provided Macros
 
@@ -12,7 +12,7 @@ when registering stateless plugin factories with the OxiDNS plugin inventory.
 Registers a unit struct or empty braced struct as a plugin factory:
 
 ```rust
-use oxidns_macros::plugin_factory;
+use oxidns_next_macros::plugin_factory;
 
 #[plugin_factory("cache")]
 pub struct CacheFactory;
@@ -34,10 +34,10 @@ Use this macro for simple plugin factories that:
 - can be registered only by plugin type and module path
 
 For factories that carry state, need dependency setup, or require a custom
-constructor, use OxiDNS's explicit `register_plugin_factory!` path instead.
+constructor, use OxiDNS Next's explicit `register_plugin_factory!` path instead.
 
 ## Repository Notes
 
-This crate is built for the OxiDNS workspace and assumes the consuming crate
+This crate is built for the OxiDNS Next workspace and assumes the consuming crate
 has the expected `crate::plugin` types available. It is not meant to be a
 general-purpose plugin framework.

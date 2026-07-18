@@ -19,8 +19,8 @@
 //! run in parallel. Positive cases install a runtime and tear it back down via
 //! `plugin::destroy_runtime`.
 
-use oxidns::config::types::Config;
-use oxidns::infra::clock::AppClock;
+use oxidns_next::config::types::Config;
+use oxidns_next::infra::clock::AppClock;
 
 /// Parse + validate + initialize a config, returning the error string from
 /// whichever stage rejects it. Panics if the config unexpectedly succeeds.
@@ -28,7 +28,7 @@ use oxidns::infra::clock::AppClock;
 async fn start_error(yaml: &str) -> String {
     AppClock::start();
     #[cfg(debug_assertions)]
-    oxidns::plugin::enable_runtime_test_serialization();
+    oxidns_next::plugin::enable_runtime_test_serialization();
 
     let config: Config = serde_yaml_ng::from_str(yaml).expect("yaml should parse");
     // Unknown plugin types are rejected here; protocol-not-compiled errors
@@ -36,7 +36,7 @@ async fn start_error(yaml: &str) -> String {
     if let Err(err) = config.validate() {
         return err.to_string();
     }
-    oxidns::plugin::init(config)
+    oxidns_next::plugin::init(config)
         .await
         .expect_err("plugin init should fail for a not-compiled protocol")
         .to_string()
@@ -48,14 +48,14 @@ async fn start_error(yaml: &str) -> String {
 async fn start_ok(yaml: &str) {
     AppClock::start();
     #[cfg(debug_assertions)]
-    oxidns::plugin::enable_runtime_test_serialization();
+    oxidns_next::plugin::enable_runtime_test_serialization();
 
     let config: Config = serde_yaml_ng::from_str(yaml).expect("yaml should parse");
     config.validate().expect("config should validate");
-    oxidns::plugin::init(config)
+    oxidns_next::plugin::init(config)
         .await
         .expect("plugin init should succeed when the feature is enabled");
-    oxidns::plugin::destroy_runtime().await;
+    oxidns_next::plugin::destroy_runtime().await;
 }
 
 /// A `forward` upstream + `udp_server` entry, so the forward executor is

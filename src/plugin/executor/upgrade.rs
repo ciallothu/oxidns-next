@@ -451,7 +451,7 @@ mod tests {
         let config = parse_quick_setup(None).unwrap();
         assert!(!config.force);
         assert!(config.cleanup_after_apply);
-        assert_eq!(config.repository, "svenshi/oxidns");
+        assert_eq!(config.repository, "ciallothu/oxidns-next");
     }
 
     #[test]
@@ -464,7 +464,7 @@ mod tests {
         assert!(config.no_restart);
         assert_eq!(config.github_token.as_deref(), Some("ghp_test"));
         assert_eq!(config.bundle, UpgradeBundle::Standard);
-        assert_eq!(config.repository, "svenshi/oxidns");
+        assert_eq!(config.repository, "ciallothu/oxidns-next");
     }
 
     #[test]

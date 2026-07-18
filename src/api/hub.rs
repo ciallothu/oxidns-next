@@ -11,6 +11,7 @@ use http::Method;
 use tokio::sync::{Mutex, oneshot, watch};
 
 use crate::api::ApiHandler;
+use crate::api::auth::AuthService;
 use crate::api::health::HealthState;
 use crate::api::route::{PrefixRoute, RouteKey, build_plugin_route_path, normalize_route_path};
 use crate::api::server::{ApiServerContext, build_tls_acceptor, run_api_server};
@@ -38,6 +39,10 @@ impl ApiRegister {
 
     pub(crate) fn health_state(&self) -> Arc<HealthState> {
         self.hub.health_state()
+    }
+
+    pub(crate) fn auth_service(&self) -> Option<Arc<AuthService>> {
+        self.hub.auth_service()
     }
 
     /// Register one handler under an absolute API path.
@@ -257,6 +262,7 @@ impl Debug for ApiRegister {
 
 pub struct ApiHub {
     config: ResolvedApiHttpConfig,
+    auth: Option<Arc<AuthService>>,
     routes: StdMutex<AHashMap<RouteKey, Arc<dyn ApiHandler>>>,
     prefix_routes: StdMutex<Vec<PrefixRoute>>,
     health: Arc<HealthState>,
@@ -295,11 +301,30 @@ impl ApiHub {
         }
         let listen_addr = parse_listen_addr(listen)?;
         let normalized_listen = listen_addr.to_string();
-        let cors = Some(crate::api::cors::resolve_cors_config(
-            resolved.cors,
-            listen_addr,
-        ));
+        let cors = if resolved.auth.is_some() {
+            crate::api::cors::resolve_authenticated_cors_config(resolved.cors.clone())
+        } else {
+            Some(crate::api::cors::resolve_cors_config(
+                resolved.cors.clone(),
+                listen_addr,
+            ))
+        };
         let webui = resolved.webui.clone();
+        let tls_enabled = resolved
+            .ssl
+            .as_ref()
+            .is_some_and(|ssl| ssl.cert.is_some() && ssl.key.is_some());
+        let auth = resolved
+            .auth
+            .as_ref()
+            .map(|config| {
+                let return_origins = cors
+                    .as_ref()
+                    .map(|cors| cors.allowed_origins.as_slice())
+                    .unwrap_or_default();
+                AuthService::new_with_tls(config, tls_enabled, return_origins)
+            })
+            .transpose()?;
 
         let (shutdown_tx, _) = watch::channel(false);
         Ok(Some(Arc::new(Self {
@@ -310,6 +335,7 @@ impl ApiHub {
                 cors,
                 webui,
             },
+            auth,
             routes: StdMutex::new(AHashMap::new()),
             prefix_routes: StdMutex::new(Vec::new()),
             health: Arc::new(HealthState::new()),
@@ -396,6 +422,10 @@ impl ApiHub {
             return Ok(());
         }
 
+        if let Some(auth) = &self.auth {
+            auth.initialize().await?;
+        }
+
         let listen = parse_listen_addr(&self.config.listen)?;
         let routes = self
             .routes
@@ -408,7 +438,7 @@ impl ApiHub {
             .map_err(|_| DnsError::runtime("API route registry lock poisoned"))?
             .clone();
         let tls_acceptor = build_tls_acceptor(&self.config)?;
-        let auth = self.config.auth.clone();
+        let auth = self.auth.clone();
         let cors = self.config.cors.clone();
         #[cfg(feature = "webui")]
         let webui = self
@@ -471,6 +501,10 @@ impl ApiHub {
 
     pub(crate) fn health_state(&self) -> Arc<HealthState> {
         self.health.clone()
+    }
+
+    pub(crate) fn auth_service(&self) -> Option<Arc<AuthService>> {
+        self.auth.clone()
     }
 }
 

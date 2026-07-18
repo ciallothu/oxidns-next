@@ -87,9 +87,25 @@ impl RecorderBackend {
                 err
             )
         })?;
+        restrict_database_permissions(&config.path).map_err(|err| {
+            DnsError::plugin(format!(
+                "failed to restrict query_recorder database '{}': {}",
+                config.path.display(),
+                err
+            ))
+        })?;
 
         let tables = table_names(&tag);
         create_schema(&mut conn, &tables)?;
+        // WAL mode can create its sidecars during schema initialization, so
+        // apply the restrictive mode again after those files can exist.
+        restrict_database_permissions(&config.path).map_err(|err| {
+            DnsError::plugin(format!(
+                "failed to restrict query_recorder database sidecars '{}': {}",
+                config.path.display(),
+                err
+            ))
+        })?;
         // Refresh query planner stats once at startup; this is the cheap
         // version of ANALYZE and is the recommended way to keep indexes
         // selectable across schema upgrades.
@@ -183,5 +199,62 @@ impl RecorderBackend {
         reply_rx
             .recv()
             .map_err(|err| format!("query_recorder flush reply failed: {err}"))?
+    }
+}
+
+#[cfg(unix)]
+fn restrict_database_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path_text = path.as_os_str().to_string_lossy();
+    for candidate in [
+        path.to_path_buf(),
+        std::path::PathBuf::from(format!("{path_text}-wal")),
+        std::path::PathBuf::from(format!("{path_text}-shm")),
+    ] {
+        if candidate.exists() {
+            std::fs::set_permissions(candidate, std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_database_permissions(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::restrict_database_permissions;
+
+    #[test]
+    fn permission_helper_restricts_query_database_sidecars() {
+        let directory = tempfile::tempdir().expect("temporary query recorder directory");
+        let path = directory.path().join("queries.db");
+        let path_text = path.as_os_str().to_string_lossy();
+        let candidates = [
+            path.clone(),
+            std::path::PathBuf::from(format!("{path_text}-wal")),
+            std::path::PathBuf::from(format!("{path_text}-shm")),
+        ];
+        for candidate in &candidates {
+            std::fs::write(candidate, []).expect("create database file");
+            std::fs::set_permissions(candidate, std::fs::Permissions::from_mode(0o644))
+                .expect("set deliberately broad permissions");
+        }
+
+        restrict_database_permissions(&path).expect("restrict query database files");
+
+        for candidate in candidates {
+            let mode = std::fs::metadata(candidate)
+                .expect("database metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 }

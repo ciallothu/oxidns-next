@@ -1,14 +1,15 @@
 [package]
-name = "oxidns-macros"
+name = "oxidns-next-macros"
 version = "0.1.0"
 edition = "2024"
 authors = ["Sven Shi <isvenshi@gmail.com>"]
-description = "Proc macros for OxiDNS."
-repository = "https://github.com/svenshi/oxidns"
+description = "Proc macros for OxiDNS Next."
+repository = "https://github.com/ciallothu/oxidns-next"
 license = "GPL-3.0-or-later"
 readme = "README.md"
 
 [lib]
+name = "oxidns_next_macros"
 proc-macro = true
 test = false
 doctest = false

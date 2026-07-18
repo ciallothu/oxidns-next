@@ -110,7 +110,7 @@ pub(super) struct IpSelectorConfig {
 /// YAML-facing config.
 ///
 /// Unknown fields are rejected deliberately. `ip_selector` exposes an
-/// OxiDNS-native configuration surface and does not accept compatibility
+/// OxiDNS Next-native configuration surface and does not accept compatibility
 /// aliases for fields or modes.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

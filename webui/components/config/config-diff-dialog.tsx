@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
-import { registerOxiDnsYamlLanguage } from "@/lib/oxidns-yaml-monaco";
+import { registerOxiDnsNextYamlLanguage } from "@/lib/oxidns-next-yaml-monaco";
 
 type MonacoApi = Parameters<DiffOnMount>[1];
 
@@ -37,14 +37,14 @@ export function ConfigDiffDialog({
   const { t } = useI18n();
   const { resolvedTheme } = useTheme();
   const theme =
-    resolvedTheme === "light" ? "oxidns-yaml-light" : "oxidns-yaml-dark";
+    resolvedTheme === "light" ? "oxidns-next-yaml-light" : "oxidns-next-yaml-dark";
   const displayOriginalTitle =
     originalTitle ?? t(WEBUI.configEditor.historySnapshot);
   const displayModifiedTitle =
     modifiedTitle ?? t(WEBUI.configEditor.currentEditor);
 
   const handleBeforeMount = (monaco: MonacoApi) => {
-    registerOxiDnsYamlLanguage(monaco);
+    registerOxiDnsNextYamlLanguage(monaco);
   };
 
   return (

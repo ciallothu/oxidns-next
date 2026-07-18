@@ -1,0 +1,16 @@
+services:
+  oxidns-next:
+    image: ghcr.io/ciallothu/oxidns-next:latest
+    container_name: oxidns-next
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+      - "9199:9199/tcp"
+    environment:
+      # Export this variable only for the first start. After creating the
+      # administrator, unset it and recreate the container.
+      - OXIDNS_NEXT_BOOTSTRAP_TOKEN
+    volumes:
+      - ./config.yaml:/etc/oxidns-next/config.yaml
+      - ./data:/etc/oxidns-next/data

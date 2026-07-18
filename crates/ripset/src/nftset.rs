@@ -158,7 +158,7 @@ impl Default for NftSetCreateOptions {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::nftset_create_table;
+/// use oxidns_next_ripset::nftset_create_table;
 ///
 /// nftset_create_table("inet", "mytable").unwrap();
 /// ```
@@ -239,7 +239,7 @@ pub fn nftset_create_table(family: &str, table: &str) -> Result<()> {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::nftset_delete_table;
+/// use oxidns_next_ripset::nftset_delete_table;
 ///
 /// nftset_delete_table("inet", "mytable").unwrap();
 /// ```
@@ -318,7 +318,7 @@ pub fn nftset_delete_table(family: &str, table: &str) -> Result<()> {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::{nftset_create_set, NftSetCreateOptions, NftSetType};
+/// use oxidns_next_ripset::{nftset_create_set, NftSetCreateOptions, NftSetType};
 ///
 /// let opts = NftSetCreateOptions {
 ///     set_type: NftSetType::Ipv4Addr,
@@ -438,7 +438,7 @@ pub fn nftset_create_set(
 /// # Example
 ///
 /// ```no_run
-/// use ripset::nftset_delete_set;
+/// use oxidns_next_ripset::nftset_delete_set;
 ///
 /// nftset_delete_set("inet", "filter", "myset").unwrap();
 /// ```
@@ -826,7 +826,7 @@ fn nftset_operate(
 ///
 /// ```no_run
 /// use std::net::IpAddr;
-/// use ripset::nftset_add;
+/// use oxidns_next_ripset::nftset_add;
 ///
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// nftset_add("inet", "filter", "myset", addr).unwrap();
@@ -853,7 +853,7 @@ pub fn nftset_add<E: Into<IpEntry>>(
 ///
 /// ```no_run
 /// use std::net::IpAddr;
-/// use ripset::nftset_del;
+/// use oxidns_next_ripset::nftset_del;
 ///
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// nftset_del("inet", "filter", "myset", addr).unwrap();
@@ -886,7 +886,7 @@ pub fn nftset_del<E: Into<IpEntry>>(
 ///
 /// ```no_run
 /// use std::net::IpAddr;
-/// use ripset::nftset_test;
+/// use oxidns_next_ripset::nftset_test;
 ///
 /// let addr: IpAddr = "192.168.1.1".parse().unwrap();
 /// let exists = nftset_test("inet", "filter", "myset", addr).unwrap();
@@ -916,7 +916,7 @@ pub fn nftset_test<E: Into<IpEntry>>(
 /// # Example
 ///
 /// ```no_run
-/// use ripset::nftset_list;
+/// use oxidns_next_ripset::nftset_list;
 ///
 /// let entries = nftset_list("inet", "filter", "myset").unwrap();
 /// for entry in entries {
@@ -1157,7 +1157,7 @@ fn parse_nftset_data_value(data: &[u8]) -> Option<IpAddr> {
 /// # Example
 ///
 /// ```no_run
-/// use ripset::nftset_list_tables;
+/// use oxidns_next_ripset::nftset_list_tables;
 ///
 /// let tables = nftset_list_tables("inet").unwrap();
 /// for table in tables {

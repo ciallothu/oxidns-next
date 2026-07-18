@@ -1,6 +1,6 @@
 {
-  "name": "next-app",
-  "version": "0.0.1",
+  "name": "oxidns-next-webui",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {

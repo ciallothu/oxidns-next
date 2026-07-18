@@ -45,7 +45,7 @@ pub(super) fn add_cors_headers(
     );
     headers.insert(
         http::header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("*"),
+        HeaderValue::from_static("Accept, Content-Type, X-CSRF-Token"),
     );
 
     if !wildcard {
@@ -53,6 +53,7 @@ pub(super) fn add_cors_headers(
             http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
             HeaderValue::from_static("true"),
         );
+        headers.append(http::header::VARY, HeaderValue::from_static("Origin"));
     }
 }
 
@@ -95,6 +96,17 @@ pub(super) fn resolve_cors_config(
         }
         _ => infer_cors_config_from_listen(listen),
     }
+}
+
+/// Authentication cookies must never be exposed to the listen-address host
+/// inference, which intentionally accepts every port on that host. An
+/// authenticated deployment therefore opts into cross-origin access only
+/// through an explicit `allowed_origins` list. A configured wildcard remains
+/// non-credentialed in `add_cors_headers`.
+pub(super) fn resolve_authenticated_cors_config(
+    configured: Option<ApiCorsConfig>,
+) -> Option<ApiCorsConfig> {
+    configured.filter(|cors| !cors.allowed_origins.is_empty())
 }
 
 fn origin_host_allowed(origin: &str, allowed_hosts: &[String]) -> bool {

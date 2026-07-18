@@ -13,7 +13,7 @@ use crate::infra::observability::metrics::{
     MetricLabel, MetricSample, MetricSink, MetricSource, register_metric_source,
 };
 
-const NETWORK_METRICS_TAG: &str = "oxidns_builtin_network";
+const NETWORK_METRICS_TAG: &str = "oxidns_next_builtin_network";
 pub(crate) const OUTBOUND_PROFILE_LOCAL: &str = "__local";
 pub(crate) const OUTBOUND_PROFILE_SYSTEM: &str = "__system";
 const PROTOCOL_COUNT: usize = 6;

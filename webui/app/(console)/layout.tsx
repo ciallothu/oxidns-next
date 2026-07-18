@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/shell/app-sidebar";
@@ -32,6 +32,7 @@ export default function ConsoleLayout({
   const editorMode = useAppStore((s) => s.editorMode);
   const historyOpen = useAppStore((s) => s.historyOpen);
   const setHistoryOpen = useAppStore((s) => s.setHistoryOpen);
+  const resetBackendState = useAppStore((s) => s.resetBackendState);
   const loadConfig = useAppStore((s) => s.loadConfig);
   const refreshMetrics = useAppStore((s) => s.refreshMetrics);
   const isOfflineMode = useAppStore((s) => s.isOfflineMode);
@@ -40,6 +41,10 @@ export default function ConsoleLayout({
   const isConnecting = useAuthStore((s) => s.isConnecting);
   const connectionError = useAuthStore((s) => s.connectionError);
   const needsCredentials = useAuthStore((s) => s.needsCredentials);
+  const setupRequired = useAuthStore((s) => s.setupRequired);
+  const authUserId = useAuthStore((s) => s.user?.id ?? null);
+  const authServerUrl = useAuthStore((s) => s.serverConfig.url);
+  const sessionGeneration = useAuthStore((s) => s.sessionGeneration);
   const hasAttemptedAutoConnect = useAuthStore(
     (s) => s.hasAttemptedAutoConnect,
   );
@@ -48,11 +53,15 @@ export default function ConsoleLayout({
   const pathname = usePathname();
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   const resetApplyState = useUpdateStore((s) => s.resetApplyState);
+  const syncUpgradeSessionScope = useUpdateStore(
+    (s) => s.syncSessionScope,
+  );
   const upgradeAutoCheck = useUpdateStore((s) => s.upgradeConfig.autoCheck);
   const buildInfo = useAppStore((s) => s.buildInfo);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const sidebarStateBeforeEditor = useRef(sidebarOpen);
   const previousEditorMode = useRef(editorMode);
+  const previousBackendScope = useRef<string | null>(null);
   const hasCheckedUpdates = useRef(false);
 
   // Once the store has hydrated, eagerly probe the configured backend (default
@@ -60,20 +69,34 @@ export default function ConsoleLayout({
   useEffect(() => {
     if (!isAuthHydrated) return;
     void attemptAutoConnect();
-  }, [isAuthHydrated, attemptAutoConnect]);
+  }, [isAuthHydrated, hasAttemptedAutoConnect, attemptAutoConnect]);
 
   // While the initial auto-connect is still in flight, neither render
   // backend-dependent pages nor the connection-required prompt; show a pending state.
   const isAutoConnectPending =
-    isAuthHydrated &&
-    !isConnected &&
-    (!hasAttemptedAutoConnect || (isConnecting && !connectionError));
+    !isAuthHydrated ||
+    (!isConnected &&
+      (!hasAttemptedAutoConnect || (isConnecting && !connectionError)));
   const canUseBackendPages =
-    !isAuthHydrated || isConnected || pathname === "/settings";
+    isAuthHydrated && (isConnected || pathname === "/settings");
+
+  useLayoutEffect(() => {
+    syncUpgradeSessionScope(
+      authServerUrl,
+      isConnected ? authUserId : null,
+      sessionGeneration,
+    );
+  }, [
+    authServerUrl,
+    authUserId,
+    isConnected,
+    sessionGeneration,
+    syncUpgradeSessionScope,
+  ]);
 
   useEffect(() => {
     if (isConnected) void loadConfig();
-  }, [isConnected, loadConfig]);
+  }, [isConnected, loadConfig, sessionGeneration]);
 
   const health = useAppStore((s) => s.health);
   const system = useAppStore((s) => s.system);
@@ -102,6 +125,22 @@ export default function ConsoleLayout({
       resetApplyState();
     }
   }, [isConnected, resetApplyState]);
+
+  // Erase all backend-derived data when a session ends or the backend is
+  // switched. This prevents cached configuration, query data, and open sheets
+  // from leaking into the next account on a shared browser.
+  useLayoutEffect(() => {
+    const nextScope = isConnected
+      ? `${authServerUrl.trim()}|${authUserId ?? "anonymous"}`
+      : null;
+    if (
+      previousBackendScope.current !== null &&
+      previousBackendScope.current !== nextScope
+    ) {
+      resetBackendState();
+    }
+    previousBackendScope.current = nextScope;
+  }, [authServerUrl, authUserId, isConnected, resetBackendState]);
 
   // On reconnect, drop offline mode so loadConfig's authoritative state wins.
   useEffect(() => {
@@ -172,7 +211,7 @@ export default function ConsoleLayout({
               <AppHeader title={t(WEBUI.shell.connectBackend)} />
               <ConnectionPending />
             </>
-          ) : needsCredentials ? (
+          ) : needsCredentials || setupRequired ? (
             <>
               <AppHeader title={t(WEBUI.shell.login)} />
               <LoginRequired />
@@ -184,10 +223,17 @@ export default function ConsoleLayout({
             </>
           )}
         </SidebarInset>
-        <PluginDetailSheet />
-        <ConfigHistorySheet open={historyOpen} onOpenChange={setHistoryOpen} />
-        <RestartingOverlay />
-        <UpgradeOverlay />
+        {isConnected && (
+          <>
+            <PluginDetailSheet />
+            <ConfigHistorySheet
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+            />
+            <RestartingOverlay />
+            <UpgradeOverlay />
+          </>
+        )}
       </SidebarProvider>
     </TooltipProvider>
   );

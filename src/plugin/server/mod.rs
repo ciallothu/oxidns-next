@@ -337,7 +337,7 @@ impl RequestHandle {
     /// This runs after the plugin chain and normalizes two fields that
     /// synthetic plugins (hosts, arbitrary, redirect, etc.) leave unset:
     ///
-    /// - RA=true: OxiDNS acts as a recursive forwarder; all responses must
+    /// - RA=true: OxiDNS Next acts as a recursive forwarder; all responses must
     ///   advertise that recursion is available (RFC 1035 §4.1.1).
     ///
     /// - OPT echo: RFC 6891 §7 requires that a response to an EDNS query

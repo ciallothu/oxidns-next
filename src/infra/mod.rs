@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Sven Shi
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Infrastructure services used across OxiDNS runtime surfaces.
+//! Infrastructure services used across OxiDNS Next runtime surfaces.
 
 pub mod build_info;
 pub mod cache;
@@ -17,5 +17,5 @@ pub mod task;
 #[cfg(feature = "plugin-upgrade")]
 pub mod upgrade;
 
-/// OxiDNS version shared by CLI and management APIs.
+/// OxiDNS Next version shared by CLI and management APIs.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -1,20 +1,27 @@
-![OxiDNS Banner](.github/img/logo-banner.png)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/static/img/logo-next-dark.png">
+    <img src="docs/static/img/logo-next-light.png" alt="OxiDNS Next" width="128">
+  </picture>
+</p>
 
-[![oxidns downloads](https://img.shields.io/github/downloads/SvenShi/oxidns/total)](https://github.com/SvenShi/oxidns/releases)
-[![Rust CI](https://github.com/svenshi/oxidns/actions/workflows/rust-ci.yml/badge.svg?branch=main)](https://github.com/svenshi/oxidns/actions/workflows/rust-ci.yml)
-[![WebUI CI](https://github.com/svenshi/oxidns/actions/workflows/webui-ci.yml/badge.svg)](https://github.com/svenshi/oxidns/actions/workflows/webui-ci.yml)
+[![oxidns-next downloads](https://img.shields.io/github/downloads/ciallothu/oxidns-next/total)](https://github.com/ciallothu/oxidns-next/releases)
+[![Rust CI](https://github.com/ciallothu/oxidns-next/actions/workflows/rust-ci.yml/badge.svg?branch=main)](https://github.com/ciallothu/oxidns-next/actions/workflows/rust-ci.yml)
+[![WebUI CI](https://github.com/ciallothu/oxidns-next/actions/workflows/webui-ci.yml/badge.svg)](https://github.com/ciallothu/oxidns-next/actions/workflows/webui-ci.yml)
 
-[中文](README.md) | [English](README_EN.md) · [Documentation](https://oxidns.org/en/) · [Quick Start](https://oxidns.org/en/quickstart) · [Plugin Reference](https://oxidns.org/en/plugin-reference/overview)
+[中文](README.md) | [English](README_EN.md) · [Documentation](docs/i18n/en/docusaurus-plugin-content-docs/current/intro.mdx) · [Quick Start](docs/i18n/en/docusaurus-plugin-content-docs/current/quickstart.mdx) · [Plugin Reference](docs/i18n/en/docusaurus-plugin-content-docs/current/plugin-reference/overview.md)
 
-# OxiDNS
+# OxiDNS Next
 
 **A high-performance DNS policy orchestration engine for complex networks.**
 
-OxiDNS is a modern DNS engine built with Rust. It is inspired by [mosdns](https://github.com/IrineSistiana/mosdns), but it is not merely another rule-based DNS forwarder.
+> OxiDNS Next is an independently maintained derivative of [upstream OxiDNS](https://github.com/svenshi/oxidns), maintained by `ciallothu`. It retains Sven Shi's upstream copyright and remains licensed under GPL-3.0-or-later. OxiDNS Next and upstream OxiDNS use separate release channels.
+
+OxiDNS Next is a modern DNS engine built with Rust. It is inspired by [mosdns](https://github.com/IrineSistiana/mosdns), but it is not merely another rule-based DNS forwarder.
 
 It focuses on the full lifecycle of DNS queries in real-world network environments: ingress, matching, caching, forwarding, fallback, rewriting, local answers, and system integrations, with built-in query recording, Prometheus metrics collection, and real-time logging.
 
-The core idea of OxiDNS is not to expose more switches. It is to provide a clear, composable, and debuggable policy pipeline that lets you describe complex DNS behavior through declarative configuration.
+The core idea of OxiDNS Next is not to expose more switches. It is to provide a clear, composable, and debuggable policy pipeline that lets you describe complex DNS behavior through declarative configuration.
 
 ```text
 server -> DnsContext -> matcher / executor / provider -> upstream
@@ -22,9 +29,11 @@ server -> DnsContext -> matcher / executor / provider -> upstream
 
 The project is under active development. It is designed for users who need fine-grained control over DNS behavior and are willing to understand its policy model.
 
+The first `v0.1.0` release inherits the upstream DNS engine and adds local login, OIDC, passkeys, and TOTP; separates searchable query logs; and combines the dashboard and plugin center into one workspace. See [FEATURE_AUDIT.md](FEATURE_AUDIT.md) for the implementation audit behind the capability claims.
+
 ---
 
-## Why OxiDNS
+## Why OxiDNS Next
 
 In complex networks, DNS is often more than “resolve this domain”.
 
@@ -36,9 +45,9 @@ You may need to:
 - Adjust TTL, handle ECS, rewrite responses, or return local answers
 - Sync DNS results into `ipset`, `nftset`, or MikroTik RouterOS
 - Record query behavior and understand system state through logs, query records, and Prometheus plugin metrics
-- Reload configuration, rules, and providers without interrupting the service
+- Reload the complete application configuration and reload provider rules in place
 
-OxiDNS provides a unified orchestration model for these scenarios instead of a collection of isolated feature switches.
+OxiDNS Next provides a unified orchestration model for these scenarios instead of a collection of isolated feature switches.
 
 ---
 
@@ -46,7 +55,7 @@ OxiDNS provides a unified orchestration model for these scenarios instead of a c
 
 ### Composable
 
-OxiDNS decomposes DNS processing into `matcher`, `executor`, `provider`, and `sequence`.
+OxiDNS Next decomposes DNS processing into `matcher`, `executor`, `provider`, and `sequence`.
 
 Each component has a focused responsibility, and complete policies are built by composing them into pipelines.
 
@@ -54,17 +63,17 @@ Each component has a focused responsibility, and complete policies are built by 
 
 Once DNS policies become complex, the most important question is not just “does it run”, but “why did it behave this way”.
 
-OxiDNS provides query recording (`query_recorder`), query summary statistics (`query_summary`), Prometheus plugin metrics (`metrics_collector`), real-time structured logging, and configuration validation. Users can clearly understand which matchers were evaluated, which executors ran, which upstream was selected, and why a fallback path was taken for any given query.
+OxiDNS Next provides query recording (`query_recorder`), query summary statistics (`query_summary`), Prometheus plugin metrics (`metrics_collector`), real-time structured logging, and configuration validation. The WebUI keeps searchable structured query history separate from runtime system logs: query history can be filtered by domain or client-address keywords and date range, while system logs show runtime events only. Query records show the matchers, executors, and outcomes observed in a `sequence`; they do not currently identify the winning upstream or explain an internal `fallback` branch decision.
 
 ### Evolvable
 
-OxiDNS is designed for long-running self-hosted network environments.
+OxiDNS Next is designed for long-running self-hosted network environments.
 
-It supports full hot reload, provider-scoped hot reload, separately built WebUI hosting, and keeps room for future plugin and operations-oriented improvements.
+It supports application-level configuration reloads (which rebuild and restart runtime components), in-place provider reloads, separately built WebUI hosting, and keeps room for future plugin and operations-oriented improvements.
 
 ### Explicit
 
-OxiDNS does not try to hide complexity from you.
+OxiDNS Next does not try to hide complexity from you.
 
 It is better suited for users who want explicit control over DNS behavior, rather than users who only want a one-click DNS dashboard.
 
@@ -81,14 +90,14 @@ It is better suited for users who want explicit control over DNS behavior, rathe
 | Data sets | `domain_set`, `dynamic_domain_set`, `ip_set`, `geoip`, `geosite`, `adguard_rule` |
 | Outbound networking | `network.outbound` centralizes nameservers and SOCKS5 settings for HTTP downloads, upgrade checks, webhooks, and upstreams |
 | System integrations | `ipset`, `nftset`, `ros_address_list`, `reverse_lookup` |
-| Debugging and operations | Health checks, config validation, hot reload, query records, Prometheus plugin metrics, real-time logs |
-| Deployment | Multi-platform builds, Debian packages, OpenWrt LuCI app, standalone WebUI hosting, service installation |
+| Debugging and operations | Health checks, config validation, application-level config reload, in-place provider reload, query records, Prometheus plugin metrics, real-time logs |
+| Deployment | Multi-platform builds, Debian packages, portable OpenWrt deployment, standalone WebUI hosting, service installation |
 
 ---
 
 ## Good Fits
 
-OxiDNS is a good fit for DNS environments that need to be long-running, debuggable, and extensible.
+OxiDNS Next is a good fit for DNS environments that need to be long-running, debuggable, and extensible.
 
 Typical use cases include:
 
@@ -105,7 +114,7 @@ Typical use cases include:
 
 ## Non-Goals
 
-OxiDNS is not a one-click DNS dashboard for everyone.
+OxiDNS Next is not a one-click DNS dashboard for everyone.
 
 If you primarily need:
 
@@ -117,13 +126,13 @@ If you primarily need:
 
 Then AdGuard Home, Pi-hole, Technitium DNS Server, or CoreDNS may be a better fit.
 
-OxiDNS is for users who want to describe DNS behavior explicitly through configuration and are willing to accept some complexity in exchange for control.
+OxiDNS Next is for users who want to describe DNS behavior explicitly through configuration and are willing to accept some complexity in exchange for control.
 
 ---
 
 ## Relationship to Other Projects
 
-OxiDNS does not try to replace every DNS tool:
+OxiDNS Next does not try to replace every DNS tool:
 
 | Project | Best suited for |
 | --- | --- |
@@ -132,74 +141,74 @@ OxiDNS does not try to replace every DNS tool:
 | CoreDNS | Cloud-native DNS and service discovery plugin framework |
 | Technitium DNS Server | Full-featured general-purpose DNS server |
 | mosdns | Flexible DNS routing and policy processing |
-| OxiDNS | High-performance, debuggable, extensible DNS policy orchestration |
+| OxiDNS Next | High-performance, debuggable, extensible DNS policy orchestration |
 
 ---
 
 ## Download
 
-Install the latest release with one command. By default this installs and starts OxiDNS as a system service:
+Install the latest release with one command. By default this installs and starts OxiDNS Next as a system service:
 
 ```bash
-curl -fsSL https://oxidns.org/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sudo sh
 ```
 
 Elevated Windows PowerShell:
 
 ```powershell
-irm https://oxidns.org/install.ps1 | iex
+irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.ps1 | iex
 ```
 
-By default, Linux / macOS installs into `/opt/oxidns`, creates `/usr/local/bin/oxidns`, and installs and starts the system service. Windows installs into `%ProgramFiles%\OxiDNS`, adds it to the Machine PATH, and installs and starts the service. For a portable user install, set `OXIDNS_INSTALL_SERVICE=0`; see Quick Start for details.
+By default, Linux / macOS installs into `/opt/oxidns-next`, creates `/usr/local/bin/oxidns-next`, and installs and starts the system service. Windows installs into `%ProgramFiles%\OxiDNS Next`, adds it to the Machine PATH, and installs and starts the service. For a portable user install, set `OXIDNS_NEXT_INSTALL_SERVICE=0`; see Quick Start for details.
 
-OpenWrt users can use the same installer script to install the [luci-app-oxidns](https://github.com/svenshi/luci-app-oxidns) LuCI app:
+OpenWrt can use the same script for a portable install. The script does not register a generic service or install a dedicated LuCI app:
 
 ```sh
-curl -fsSL https://oxidns.org/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
 # or:
-wget -O- https://oxidns.org/install.sh | sh
+wget -O- https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/install.sh | sh
 ```
 
-When the script detects OpenWrt, it downloads and installs the LuCI app package. LuCI then adds `Services -> OxiDNS` pages for installing the OxiDNS core, managing the init service, editing configuration, and viewing logs. The LuCI app does not embed the OxiDNS core; during first core install it downloads and verifies the matching Linux musl archive from the official OxiDNS GitHub Releases.
+Upstream [`luci-app-oxidns`](https://github.com/svenshi/luci-app-oxidns) targets the original OxiDNS distribution and is not an OxiDNS Next installer. For this release, OpenWrt service management or LuCI pages require your own platform integration.
 
 Uninstall while keeping `config.yaml`:
 
 ```bash
-curl -fsSL https://oxidns.org/uninstall.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | sudo sh
 ```
 
 OpenWrt:
 
 ```sh
-curl -fsSL https://oxidns.org/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.sh | sh
 ```
 
 Elevated Windows PowerShell:
 
 ```powershell
-irm https://oxidns.org/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/uninstall.ps1 | iex
 ```
 
-If you installed with `sudo` or a custom `OXIDNS_INSTALL_DIR`, use the same privilege level and directory variable when uninstalling.
+If you installed with `sudo` or a custom `OXIDNS_NEXT_INSTALL_DIR`, use the same privilege level and directory variable when uninstalling.
 
 If you want to download a GitHub release directly, use this platform guide:
 
 | System / Environment | Recommended release asset |
 | --- | --- |
-| Linux x86_64 | `oxidns-x86_64-unknown-linux-musl.tar.gz` |
-| Linux ARM64 | `oxidns-aarch64-unknown-linux-musl.tar.gz` |
+| Linux x86_64 | `oxidns-next-x86_64-unknown-linux-musl.tar.gz` |
+| Linux ARM64 | `oxidns-next-aarch64-unknown-linux-musl.tar.gz` |
 | Debian / Ubuntu x86_64 service install | `*_amd64.deb` |
 | Debian / Ubuntu ARM64 service install | `*_arm64.deb` |
-| OpenWrt / LuCI | OxiDNS installer script, or `.ipk` / `.apk` packages from [`luci-app-oxidns`](https://github.com/svenshi/luci-app-oxidns) |
-| Alpine Linux x86_64 | `oxidns-x86_64-unknown-linux-musl.tar.gz` |
-| Alpine Linux ARM64 | `oxidns-aarch64-unknown-linux-musl.tar.gz` |
-| 32-bit ARM Linux, including some Raspberry Pi installs | `oxidns-arm-unknown-linux-musleabihf.tar.gz` |
-| macOS Intel | `oxidns-x86_64-apple-darwin.tar.gz` |
-| macOS Apple Silicon | `oxidns-aarch64-apple-darwin.tar.gz` |
-| Windows x64 | `oxidns-x86_64-pc-windows-msvc.zip` |
-| Windows 32-bit | `oxidns-i686-pc-windows-msvc.zip` |
-| Windows ARM64 | `oxidns-aarch64-pc-windows-msvc.zip` |
-| FreeBSD x86_64 | `oxidns-x86_64-unknown-freebsd.tar.gz` |
+| OpenWrt | A Linux musl archive matching the device architecture; the installer deploys it portably without dedicated LuCI pages |
+| Alpine Linux x86_64 | `oxidns-next-x86_64-unknown-linux-musl.tar.gz` |
+| Alpine Linux ARM64 | `oxidns-next-aarch64-unknown-linux-musl.tar.gz` |
+| 32-bit ARM Linux, including some Raspberry Pi installs | `oxidns-next-arm-unknown-linux-musleabihf.tar.gz` |
+| macOS Intel | `oxidns-next-x86_64-apple-darwin.tar.gz` |
+| macOS Apple Silicon | `oxidns-next-aarch64-apple-darwin.tar.gz` |
+| Windows x64 | `oxidns-next-x86_64-pc-windows-msvc.zip` |
+| Windows 32-bit | `oxidns-next-i686-pc-windows-msvc.zip` |
+| Windows ARM64 | `oxidns-next-aarch64-pc-windows-msvc.zip` |
+| FreeBSD x86_64 | `oxidns-next-x86_64-unknown-freebsd.tar.gz` |
 
 On Linux, prefer the `musl` build if you are unsure about compatibility.
 
@@ -215,11 +224,11 @@ On Windows PowerShell, run:
 (Get-CimInstance Win32_OperatingSystem).OSArchitecture
 ```
 
-For the full installation flow, see [Quick Start](https://oxidns.org/en/quickstart).
+For the full installation flow, see [Quick Start](docs/i18n/en/docusaurus-plugin-content-docs/current/quickstart.mdx).
 
 ### Slim builds
 
-OxiDNS lets you strip optional protocols and plugins via Cargo features. When building from source:
+OxiDNS Next lets you strip optional protocols and plugins via Cargo features. When building from source:
 
 ```bash
 cargo build --release                                                  # default = full
@@ -229,34 +238,34 @@ cargo build --release --no-default-features --features standard        # home / 
 
 Public protocol features are grouped by product capability: `resolver-*` enables `network.outbound.resolver.nameservers`, `upstream-*` enables DNS upstream forwarding, and `server-*` enables inbound serving protocols. `standard` includes the common DoT/DoH/DoQ resolver and upstream capabilities; `full` adds DoH3.
 
-See [Custom Build](https://oxidns.org/en/custom-build) for details.
+See [Custom Build](docs/i18n/en/docusaurus-plugin-content-docs/current/custom-build.mdx) for details.
 
 ---
 
 ## Documentation
 
-- [Configuration](https://oxidns.org/en/configuration)
-- [Quick Start](https://oxidns.org/en/quickstart)
-- [OpenWrt LuCI App](https://oxidns.org/en/openwrt)
-- [Plugin Overview](https://oxidns.org/en/plugin-reference/overview)
-- [Management API](https://oxidns.org/en/api)
-- [MikroTik Policy Routing](https://oxidns.org/en/mikrotik-policy-routing)
-- [Common Scenarios](https://oxidns.org/en/scenarios)
-- [Architecture and Design](https://oxidns.org/en/architecture-and-design)
-- [Performance and Benchmarks](https://oxidns.org/en/benchmarks)
-- [Roadmap](https://oxidns.org/en/roadmap)
+- [Configuration](docs/i18n/en/docusaurus-plugin-content-docs/current/configuration.md)
+- [Quick Start](docs/i18n/en/docusaurus-plugin-content-docs/current/quickstart.mdx)
+- [OpenWrt deployment](docs/i18n/en/docusaurus-plugin-content-docs/current/openwrt.mdx)
+- [Plugin Overview](docs/i18n/en/docusaurus-plugin-content-docs/current/plugin-reference/overview.md)
+- [Management API](docs/i18n/en/docusaurus-plugin-content-docs/current/api.mdx)
+- [MikroTik Policy Routing](docs/i18n/en/docusaurus-plugin-content-docs/current/mikrotik-policy-routing.md)
+- [Common Scenarios](docs/i18n/en/docusaurus-plugin-content-docs/current/scenarios.md)
+- [Architecture and Design](docs/i18n/en/docusaurus-plugin-content-docs/current/architecture-and-design.md)
+- [Performance and Benchmarks](docs/i18n/en/docusaurus-plugin-content-docs/current/benchmarks.md)
+- [Roadmap](docs/i18n/en/docusaurus-plugin-content-docs/current/roadmap.md)
 
 ---
 
 ## Roadmap
 
-The following outlines planned directions and recently delivered platform work in delivery order. See the [documentation roadmap](https://oxidns.org/en/roadmap) for full details.
+The following items remain planned. See the [documentation roadmap](docs/i18n/en/docusaurus-plugin-content-docs/current/roadmap.md) for full details and completed upstream milestones.
 
-1. **Custom builds**: Split compilation by plugin module so users can fork, select only the plugins they need, and auto-update from a custom repository
-2. **IP optimization**: Probe multiple A/AAAA addresses from a DNS response in parallel and return the lowest-latency IP to the client
-3. **OpenWrt LuCI app**: Use `luci-app-oxidns` to install the core, manage the service, edit config, and view logs from LuCI
-4. **MikroTik deep integration**: Add the ability to pull RouterOS address lists as a data source and to actively push local IP sets to RouterOS
-5. **WebUI and metrics improvements**: Add management interfaces for new plugins and expand Prometheus metric coverage
+OxiDNS Next `v0.1.0` established the independent identity and release channel, multiple console authentication methods, separate query logs, and the combined dashboard and plugin workspace.
+
+1. **Bidirectional MikroTik integration**: Build on the existing one-way DNS-result push with RouterOS address-list imports and two-way local IP-set synchronization
+2. **Plugin APIs, WebUI, and metrics**: Complete runtime management APIs, detail panels, and Prometheus coverage for more plugins
+3. **Simple-mode WebUI**: Use scenario templates and forms to lower the setup barrier for common home DNS configurations
 
 Looking further ahead, two plugin extension mechanisms are planned: WebAssembly plugins and dynamic library plugins, enabling third-party developers to build and distribute plugins independently.
 
@@ -264,7 +273,7 @@ Looking further ahead, two plugin extension mechanisms are planned: WebAssembly 
 
 ## Project Status
 
-OxiDNS is under active development.
+OxiDNS Next is under active development.
 
 The current version is suitable for advanced users, testing environments, and self-hosted network setups. For production use, make sure you understand the configuration, logs, and fallback behavior before deploying it.
 
@@ -282,16 +291,12 @@ The maintainers are not responsible for any service disruption, data loss, or se
 
 ---
 
-## Community
+## Contributing and Upstream
 
-Join the Telegram group to chat with the author and other users: [**@OXIDNS** · https://t.me/oxidns](https://t.me/oxidns)
-
-<a href="https://t.me/oxidns">
-  <img src=".github/img/telegram-qr.png" alt="OxiDNS Telegram group QR code" width="220" />
-</a>
+Please report OxiDNS Next issues and proposals in [this project's issue tracker](https://github.com/ciallothu/oxidns-next/issues). For the original implementation, upstream release history, and upstream community, visit [SvenShi/oxidns](https://github.com/svenshi/oxidns). Do not report OxiDNS Next-specific problems to upstream.
 
 ---
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0 or later](LICENSE).
+As a derivative of OxiDNS, this project is licensed under the [GNU General Public License v3.0 or later](LICENSE). The original copyright notices and license text are retained.

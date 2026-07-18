@@ -23,4 +23,4 @@ for (const file of installerFiles) {
   await copyFile(source, join(targetDir, file));
 }
 
-console.log(`Synced OxiDNS installer scripts to ${staticDir} and ${targetDir}`);
+console.log(`Synced OxiDNS Next installer scripts to ${staticDir} and ${targetDir}`);

@@ -5,7 +5,7 @@ sidebar_position: 2
 
 ## 写在最前
 
-OxiDNS 的配置文件是 YAML。日常修改配置时，可以先把它理解为六个顶层部分：
+OxiDNS Next 的配置文件是 YAML。日常修改配置时，可以先把它理解为六个顶层部分：
 
 ```yaml
 runtime:
@@ -16,7 +16,7 @@ api:
 
 log:
   level: info
-  file: ./oxidns.log
+  file: ./oxidns-next.log
 
 network:
   outbound:
@@ -48,27 +48,27 @@ plugins:
 - `include`
   - 从其他配置文件载入插件定义。
 - `plugins`
-  - 所有插件实例定义。OxiDNS 通过插件组合完成完整 DNS 流程。
+  - 所有插件实例定义。OxiDNS Next 通过插件组合完成完整 DNS 流程。
 
 修改完成后，建议先校验再启动：
 
 ```bash
-oxidns check -c config.yaml
+oxidns-next check -c config.yaml
 ```
 
-如果配置中使用了相对路径，并且实际工作目录不是配置文件所在目录，可以配合 `-d` 指定工作目录。`-d` 是日志、SQLite、规则文件、`api.http.webui.root` 等所有运行期相对路径的统一基准，不会因为配置文件位于 `/etc/oxidns` 而自动改到配置目录：
+如果配置中使用了相对路径，并且实际工作目录不是配置文件所在目录，可以配合 `-d` 指定工作目录。`-d` 是日志、SQLite、规则文件、`api.http.webui.root` 等所有运行期相对路径的统一基准，不会因为配置文件位于 `/etc/oxidns-next` 而自动改到配置目录：
 
 ```bash
-oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
-Debian 默认布局中，配置文件放在 `/etc/oxidns/config.yaml`，运行期相对路径资源放在 `/var/lib/oxidns`。
+Debian 默认布局中，配置文件放在 `/etc/oxidns-next/config.yaml`，运行期相对路径资源放在 `/var/lib/oxidns-next`。
 
 尚未确定插件组合方式时，建议先阅读《[常见策略场景](scenarios.md)》，再回到本页查询字段含义。
 
 ## 环境变量替换
 
-OxiDNS 在启动、`oxidns check`、管理 API 配置校验和保存前校验时，先把 YAML **解析成数据结构**，再在字符串标量内部展开 `${VAR}` 占位符。`config.yaml` 文件本身不会被改写；WebUI 读取和保存配置时看到的仍然是原始占位符。
+OxiDNS Next 在启动、`oxidns-next check`、管理 API 配置校验和保存前校验时，先把 YAML **解析成数据结构**，再在字符串标量内部展开 `${VAR}` 占位符。`config.yaml` 文件本身不会被改写；WebUI 读取和保存配置时看到的仍然是原始占位符。
 
 支持的写法：
 
@@ -94,16 +94,16 @@ api:
       cert: ${API_TLS_CERT}
       key: ${API_TLS_KEY}
     auth:
-      type: basic
-      username: ${ADMIN_USER}
-      password: ${ADMIN_PASS}
+      type: accounts
+      database: ${OXIDNS_NEXT_AUTH_DB:-./data/oxidns-next-auth.db}
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
 ```
 
 因为替换发生在 YAML 解析之后，环境变量值可以包含任意字符——`*`、`&`、`:`、`#`、`'`、`"`、`\`、换行甚至二进制字节——都不会破坏配置文件的语法。不需要为含特殊字符的值手动加引号。当整段标量恰好等于一个占位符时（例如 `timeout: ${CACHE_TTL}`），展开结果会按 YAML 1.2 标量规则做一次类型恢复，所以数字、布尔、`null` 形态的环境变量仍能匹配数字 / 布尔 / 空类型字段；其他位置一律按字符串处理。`include` 路径同样支持占位符，例如：
 
 ```yaml
 include:
-  - ${OXIDNS_CONF_DIR}/plugins/common.yaml
+  - ${OXIDNS_NEXT_CONF_DIR}/plugins/common.yaml
 ```
 
 ## 顶层字段
@@ -145,7 +145,8 @@ runtime:
 ```yaml
 log:
   level: info
-  file: ./oxidns.log
+  file: ./oxidns-next.log
+  query_file: ./data/query-events.log
   rotation:
     type: daily
     max_files: 7
@@ -159,8 +160,13 @@ log:
 - `file`
   - 含义：可选日志文件路径。
   - 不配置时仅输出到标准输出。
-  - 配置后，OxiDNS 会同时输出到标准输出和日志文件。
+  - 配置后，OxiDNS Next 会同时输出到标准输出和日志文件。
   - 日志文件内容为 UTF-8 纯文本格式，不写入终端 ANSI 颜色控制码。
+- `query_file`
+  - 含义：可选的 DNS 查询事件日志文件；仅接收 `debug_print` 与 `query_summary` 等查询诊断事件。
+  - 不配置时不写入查询事件文本文件；结构化、可检索的查询历史仍由 `query_recorder` 独立保存在其 SQLite 数据库中。
+  - 如需使用 `debug_print` 或 `query_summary` 的文本输出，应配置此字段；省略时这些查询诊断事件不会进入系统日志。可检索历史不受影响。
+  - 查询事件可能包含客户端地址和域名，必须限制文件访问权限并按隐私策略设置保留期。
 - `rotation`
   - 含义：日志文件轮转策略。
   - 默认：`never`
@@ -245,16 +251,22 @@ api:
   http:
     listen: "127.0.0.1:9443"
     ssl:
-      cert: "/etc/oxidns/api.crt"
-      key: "/etc/oxidns/api.key"
-      client_ca: "/etc/oxidns/client-ca.crt"
+      cert: "/etc/oxidns-next/api.crt"
+      key: "/etc/oxidns-next/api.key"
+      client_ca: "/etc/oxidns-next/client-ca.crt"
       require_client_cert: true
     auth:
-      type: basic
-      username: "admin"
-      password: "secret"
+      type: accounts
+      database: "./data/oxidns-next-auth.db"
+      bootstrap_token_env: OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      session_ttl_seconds: 43200
+      cookie_same_site: lax
+      public_url: "https://dns.example.com"
+      passkey:
+        rp_id: "dns.example.com"
+        origins: ["https://dns.example.com"]
     webui:
-      root: "/etc/oxidns/webui"
+      root: "/etc/oxidns-next/webui"
       index: "index.html"
 ```
 
@@ -272,16 +284,35 @@ api:
 - `http.ssl.require_client_cert`
   - 是否要求双向 TLS。
 - `http.auth`
-  - 当前支持 `basic`。
-  - Basic Auth 的请求头编码方式见《管理 API》章节。
+  - 新部署使用 `type: accounts`，以 SQLite 保存本地账户、TOTP、通行密钥、OIDC 绑定与会话。
+  - `type: basic` 仅保留为上游配置的一次性迁移入口；导入账户库后应删除 YAML 明文密码。
+- `http.auth.database`
+  - 账户数据库路径，默认 `./data/oxidns-next-auth.db`，相对路径以工作目录为基准。数据库及其备份包含密码哈希、TOTP secret、通行密钥和会话安全信息，必须按敏感凭据保护；Unix 上运行时会把数据库权限收紧为 `0600`。
+- `http.auth.bootstrap_token` / `bootstrap_token_env`
+  - 非直接 loopback（包括通过本机反向代理）创建首个管理员所需的一次性 token；二者只能配置一个。反向代理和远程引导应使用 `bootstrap_token_env`，完成后移除该环境变量，不要把 token 保留在 YAML 中。
+- `http.auth.session_ttl_seconds`
+  - 会话有效期，范围 300 到 604800 秒，默认 43200。
+- `http.auth.cookie_secure`
+  - 可选覆盖 Secure Cookie 自动判断；HTTPS 生产部署通常保持未设置。
+- `http.auth.cookie_same_site`
+  - 支持 `lax`（默认）、`strict` 与 `none`；跨站点 WebUI 使用 `none` 时必须同时启用 Secure Cookie 和精确 CORS origin。
+- `http.auth.public_url`
+  - 浏览器可见的绝对 HTTP(S) 地址，用于通行密钥与回调 origin 推导；在反向代理终止 TLS 时，它也是公共认证接口接受的精确可信 origin。应配置为浏览器实际访问 API 的地址，不依赖 `X-Forwarded-*` 请求头。
+- `http.auth.passkey`
+  - `rp_id` 与 `origins` 可显式配置；未提供时必须能从 `public_url` 推导。
+- `http.auth.oidc`
+  - 配置 `issuer_url`、`client_id`、client secret、`redirect_url` 和 `allowed_users`。
+  - `allowed_users` 将身份提供方 claim 显式映射到已有本地账户；OIDC 不自动创建管理员。
+  - client secret 应通过 `client_secret_env` 注入，不要写入 YAML；`client_secret` 仅作为兼容配置保留，二者不能同时设置。
 - `http.cors.allowed_origins`
-  - 可选的 WebUI/API 跨域白名单；未配置时会根据 `http.listen` 自动推导。
-  - `0.0.0.0` 和 `[::]` 自动允许任意 origin；具体 IP 自动允许同一 host 的任意 WebUI 端口。
+  - 可选的 WebUI/API 跨域白名单。
+  - 认证关闭时，未配置的规则会根据 `http.listen` 自动推导：`0.0.0.0` 和 `[::]` 允许任意 origin，具体 IP 允许同一 host 的任意 WebUI 端口。
+  - 启用账户认证后不会使用上述宽松推导；同源 WebUI 无需配置 CORS，跨源且携带会话 Cookie 的 WebUI 必须显式列出每个精确 origin。
   - 显式配置时按浏览器 `Origin` 精确匹配。
   - 使用 `"*"` 可允许任意 origin，但不能与浏览器凭据跨域一起使用。
 - `http.webui.root`
   - 可选的 WebUI 静态文件目录。启用后 WebUI 挂载在 `/`，管理 API 位于 `/api/*`。
-  - 相对路径以 `-d/--working-dir` 为基准；例如 Debian service 默认 `-d /var/lib/oxidns`，因此 `root: "./webui"` 表示 `/var/lib/oxidns/webui`。
+  - 相对路径以 `-d/--working-dir` 为基准；例如 Debian service 默认 `-d /var/lib/oxidns-next`，因此 `root: "./webui"` 表示 `/var/lib/oxidns-next/webui`。
   - WebUI 构建、发布目录和 nginx 独立部署方式见《[WebUI 部署](webui.md)》。
 - `http.webui.index`
   - 可选首页文件名，默认 `index.html`。
@@ -291,7 +322,11 @@ api:
 - `listen` 不能为空。
 - `cert` 和 `key` 必须成对出现。
 - `require_client_cert: true` 时必须提供 `client_ca`。
-- `basic.username` 和 `basic.password` 都不能为空。
+- `accounts.database` 不能为空；`bootstrap_token` 与 `bootstrap_token_env` 不能同时配置。
+- `session_ttl_seconds` 必须在 300 到 604800 之间。
+- `cookie_same_site: none` 不能与 `cookie_secure: false` 组合，且运行时必须能确定 Cookie 为 Secure。
+- 启用 OIDC 时必须提供合法的 issuer、client ID、redirect URL、包含 `openid` 的 scopes，以及至少一条 `allowed_users` 映射。
+- 启用通行密钥时必须通过 `public_url` 或 `rp_id` + `origins` 提供浏览器作用域。
 - `webui.root` 不能为空。
 - `webui.index` 配置后不能为空。
 
@@ -373,7 +408,7 @@ api:
 
 ## sequence 编排模型
 
-`sequence` 是 OxiDNS 的策略中枢。绝大多数非平凡配置都会以它作为总入口。
+`sequence` 是 OxiDNS Next 的策略中枢。绝大多数非平凡配置都会以它作为总入口。
 
 示例：
 
@@ -414,7 +449,7 @@ api:
 
 ### quick setup
 
-如果 `sequence` 中写的不是 `$tag`，而是 `type + 参数` 形式，OxiDNS 会即时构造临时插件。
+如果 `sequence` 中写的不是 `$tag`，而是 `type + 参数` 形式，OxiDNS Next 会即时构造临时插件。
 
 示例：
 
@@ -611,5 +646,5 @@ api:
 args:
   - "domain:example.com"
   - "$core_domains"
-  - "&/etc/oxidns/domains.txt"
+  - "&/etc/oxidns-next/domains.txt"
 ```
