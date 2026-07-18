@@ -205,11 +205,16 @@ jobs:
         run: cargo install cargo-deb --locked
 
       - name: Build release binary with cargo
-        if: matrix.build_tool == 'cargo'
+        if: matrix.build_tool == 'cargo' && matrix.os != 'windows-latest'
         shell: bash
         run: |
           set -euo pipefail
           cargo build --locked --release --target "${{ matrix.target }}" --no-default-features --features full
+
+      - name: Build release binary with cargo (Windows)
+        if: matrix.build_tool == 'cargo' && matrix.os == 'windows-latest'
+        shell: pwsh
+        run: cargo build --locked --release --target '${{ matrix.target }}' --no-default-features --features full
 
       - name: Build release binary with cross
         if: matrix.build_tool == 'cross'

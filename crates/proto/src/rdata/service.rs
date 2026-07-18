@@ -252,8 +252,8 @@ impl SvcParamValue {
                     return Self::Unknown;
                 }
                 let mut mandatory = Vec::with_capacity(value.len() / 2);
-                for chunk in value.chunks_exact(2) {
-                    mandatory.push(u16::from_be_bytes([chunk[0], chunk[1]]));
+                for chunk in value.as_chunks::<2>().0 {
+                    mandatory.push(u16::from_be_bytes(*chunk));
                 }
                 Self::Mandatory(mandatory)
             }
@@ -290,8 +290,10 @@ impl SvcParamValue {
                     return Self::Unknown;
                 }
                 let hints = value
-                    .chunks_exact(4)
-                    .map(|c| Ipv4Addr::new(c[0], c[1], c[2], c[3]))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| Ipv4Addr::from(*c))
                     .collect();
                 Self::Ipv4Hint(hints)
             }
@@ -301,12 +303,10 @@ impl SvcParamValue {
                     return Self::Unknown;
                 }
                 let hints = value
-                    .chunks_exact(16)
-                    .map(|c| {
-                        let mut octets = [0u8; 16];
-                        octets.copy_from_slice(c);
-                        Ipv6Addr::from(octets)
-                    })
+                    .as_chunks::<16>()
+                    .0
+                    .iter()
+                    .map(|c| Ipv6Addr::from(*c))
                     .collect();
                 Self::Ipv6Hint(hints)
             }

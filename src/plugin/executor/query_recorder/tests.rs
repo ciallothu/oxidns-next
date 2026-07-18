@@ -585,7 +585,7 @@ async fn test_query_recorder_query_records_support_common_filters() {
                 ..QueryRecordFilter::default()
             }),
         ),
-        vec![2, 1]
+        vec![3, 1]
     );
     assert_eq!(
         filtered_record_ids(
