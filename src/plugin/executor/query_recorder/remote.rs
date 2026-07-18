@@ -1583,7 +1583,7 @@ trait DecodeRemoteRow {
 }
 
 macro_rules! impl_remote_row_decoder {
-    ($row:ty) => {
+    ($row:ty, $string_at:path, $optional_string_at:path) => {
         impl DecodeRemoteRow for $row {
             fn decode_summary(&self) -> Result<RecordSummaryRow> {
                 Ok(RecordSummaryRow {
@@ -1594,15 +1594,15 @@ macro_rules! impl_remote_row_decoder {
                         i64::from(self.try_get::<i32, _>(3)?),
                         "request_id",
                     )?,
-                    client_ip: self.try_get(4)?,
-                    questions_json: parse_json(self.try_get::<String, _>(5)?)?,
-                    error: self.try_get(6)?,
+                    client_ip: self.string_at(4)?,
+                    questions_json: parse_json(self.string_at(5)?)?,
+                    error: self.optional_string_at(6)?,
                     has_response: self.try_get::<i32, _>(7)? != 0,
-                    rcode: self.try_get(8)?,
+                    rcode: self.optional_string_at(8)?,
                     answer_count: non_negative_u32(self.try_get(9)?, "answer_count")?,
                     authority_count: non_negative_u32(self.try_get(10)?, "authority_count")?,
                     additional_count: non_negative_u32(self.try_get(11)?, "additional_count")?,
-                    answer_preview: parse_json(self.try_get::<String, _>(12)?)?,
+                    answer_preview: parse_json(self.string_at(12)?)?,
                 })
             }
 
@@ -1615,16 +1615,16 @@ macro_rules! impl_remote_row_decoder {
                         i64::from(self.try_get::<i32, _>(3)?),
                         "request_id",
                     )?,
-                    client_ip: self.try_get(4)?,
-                    questions_json: parse_json(self.try_get::<String, _>(5)?)?,
+                    client_ip: self.string_at(4)?,
+                    questions_json: parse_json(self.string_at(5)?)?,
                     req_rd: self.try_get::<i32, _>(6)? != 0,
                     req_cd: self.try_get::<i32, _>(7)? != 0,
                     req_ad: self.try_get::<i32, _>(8)? != 0,
-                    req_opcode: self.try_get(9)?,
-                    req_edns_json: parse_optional_json(self.try_get(10)?)?,
-                    error: self.try_get(11)?,
+                    req_opcode: self.string_at(9)?,
+                    req_edns_json: parse_optional_json(self.optional_string_at(10)?)?,
+                    error: self.optional_string_at(11)?,
                     has_response: self.try_get::<i32, _>(12)? != 0,
-                    rcode: self.try_get(13)?,
+                    rcode: self.optional_string_at(13)?,
                     resp_aa: self.try_get::<Option<i32>, _>(14)?.map(|value| value != 0),
                     resp_tc: self.try_get::<Option<i32>, _>(15)?.map(|value| value != 0),
                     resp_ra: self.try_get::<Option<i32>, _>(16)?.map(|value| value != 0),
@@ -1633,26 +1633,26 @@ macro_rules! impl_remote_row_decoder {
                     answer_count: non_negative_u32(self.try_get(19)?, "answer_count")?,
                     authority_count: non_negative_u32(self.try_get(20)?, "authority_count")?,
                     additional_count: non_negative_u32(self.try_get(21)?, "additional_count")?,
-                    answer_preview: parse_json(self.try_get::<String, _>(22)?)?,
-                    answers_json: parse_json(self.try_get::<String, _>(23)?)?,
-                    authorities_json: parse_json(self.try_get::<String, _>(24)?)?,
-                    additionals_json: parse_json(self.try_get::<String, _>(25)?)?,
-                    signature_json: parse_json(self.try_get::<String, _>(26)?)?,
-                    resp_edns_json: parse_optional_json(self.try_get(27)?)?,
+                    answer_preview: parse_json(self.string_at(22)?)?,
+                    answers_json: parse_json(self.string_at(23)?)?,
+                    authorities_json: parse_json(self.string_at(24)?)?,
+                    additionals_json: parse_json(self.string_at(25)?)?,
+                    signature_json: parse_json(self.string_at(26)?)?,
+                    resp_edns_json: parse_optional_json(self.optional_string_at(27)?)?,
                 })
             }
 
             fn decode_step(&self) -> Result<StepJson> {
                 Ok(StepJson {
                     event_index: non_negative_usize(self.try_get(0)?, "event_index")?,
-                    sequence_tag: self.try_get(1)?,
+                    sequence_tag: self.string_at(1)?,
                     node_index: self
                         .try_get::<Option<i64>, _>(2)?
                         .map(|value| non_negative_usize(value, "node_index"))
                         .transpose()?,
-                    kind: self.try_get(3)?,
-                    tag: self.try_get(4)?,
-                    outcome: self.try_get(5)?,
+                    kind: self.string_at(3)?,
+                    tag: self.optional_string_at(4)?,
+                    outcome: self.string_at(5)?,
                 })
             }
 
@@ -1665,18 +1665,62 @@ macro_rules! impl_remote_row_decoder {
             }
 
             fn string_at(&self, index: usize) -> Result<String> {
-                Ok(self.try_get(index)?)
+                $string_at(self, index)
             }
 
             fn optional_string_at(&self, index: usize) -> Result<Option<String>> {
-                Ok(self.try_get(index)?)
+                $optional_string_at(self, index)
             }
         }
     };
 }
 
-impl_remote_row_decoder!(PgRow);
-impl_remote_row_decoder!(MySqlRow);
+fn postgres_string_at(row: &PgRow, index: usize) -> Result<String> {
+    Ok(row.try_get(index)?)
+}
+
+fn postgres_optional_string_at(row: &PgRow, index: usize) -> Result<Option<String>> {
+    Ok(row.try_get(index)?)
+}
+
+fn mysql_string_at(row: &MySqlRow, index: usize) -> Result<String> {
+    match row.try_get::<String, _>(index) {
+        Ok(value) => Ok(value),
+        Err(string_error) => {
+            let bytes = row
+                .try_get::<Vec<u8>, _>(index)
+                .map_err(|_| string_error)?;
+            String::from_utf8(bytes).map_err(|_| {
+                DnsError::runtime(format!(
+                    "query_recorder MySQL column {index} contains invalid UTF-8"
+                ))
+            })
+        }
+    }
+}
+
+fn mysql_optional_string_at(row: &MySqlRow, index: usize) -> Result<Option<String>> {
+    match row.try_get::<Option<String>, _>(index) {
+        Ok(value) => Ok(value),
+        Err(string_error) => {
+            let bytes = row
+                .try_get::<Option<Vec<u8>>, _>(index)
+                .map_err(|_| string_error)?;
+            bytes
+                .map(|value| {
+                    String::from_utf8(value).map_err(|_| {
+                        DnsError::runtime(format!(
+                            "query_recorder MySQL column {index} contains invalid UTF-8"
+                        ))
+                    })
+                })
+                .transpose()
+        }
+    }
+}
+
+impl_remote_row_decoder!(PgRow, postgres_string_at, postgres_optional_string_at);
+impl_remote_row_decoder!(MySqlRow, mysql_string_at, mysql_optional_string_at);
 
 fn decode_summary_row<R: DecodeRemoteRow>(row: &R) -> Result<RecordSummaryRow> {
     row.decode_summary()
