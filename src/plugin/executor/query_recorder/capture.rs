@@ -9,8 +9,8 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 
 use super::model::{
-    AnswerPreviewJson, EdnsJson, EdnsOptionJson, PendingRecord, QuestionJson, RecordJson, RecordRow,
-    StepJson,
+    AnswerPreviewJson, EdnsJson, EdnsOptionJson, PendingRecord, QuestionJson, RecordJson,
+    RecordRow, StepJson,
 };
 use crate::core::context::{ExecutionPath, ExecutionPathEvent};
 use crate::plugin::executor::rdata_json::{RDataPayloadMode, rdata_payload};

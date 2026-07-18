@@ -291,12 +291,7 @@ fn test_record_capture_bounds_answer_preview() {
         DNSClass::IN,
     ));
     let mut response = request.response(Rcode::NoError);
-    let long_target = format!(
-        "{}.{}.{}.",
-        "a".repeat(60),
-        "b".repeat(60),
-        "c".repeat(60),
-    );
+    let long_target = format!("{}.{}.{}.", "a".repeat(60), "b".repeat(60), "c".repeat(60),);
     response.add_answer(Record::from_rdata(
         Name::from_ascii("preview.example.").unwrap(),
         300,

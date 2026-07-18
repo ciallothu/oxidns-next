@@ -1812,7 +1812,11 @@ mod tests {
             tables.records
         );
         let summary = conn
-            .query_row(&summary_sql, params![detail.record.id], read_record_summary_row)
+            .query_row(
+                &summary_sql,
+                params![detail.record.id],
+                read_record_summary_row,
+            )
             .unwrap();
         assert_eq!(&summary.answer_preview, &expected.answer_preview);
 
