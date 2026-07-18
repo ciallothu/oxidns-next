@@ -16,9 +16,7 @@ use crate::config::types::Config;
 #[cfg(feature = "storage-redis")]
 use crate::infra::cache::redis as redis_cache;
 use crate::infra::control::{AppController, ControlRequestError};
-#[cfg(not(feature = "storage-redis"))]
-use crate::infra::error::DnsError;
-use crate::infra::error::Result;
+use crate::infra::error::{DnsError, Result};
 use crate::infra::network::outbound;
 
 #[cfg(debug_assertions)]

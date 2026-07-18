@@ -224,17 +224,28 @@ plugins:
     fn validate_text_expands_env_vars() {
         let expected_path =
             crate::infra::env::var_lossy("PATH").expect("PATH should exist in test environment");
-        let summary = validate_text(
-            r#"
+        let yaml = r#"
 plugins:
-  - tag: '${PATH}'
+  - tag: env_expansion
     type: debug_print
-"#,
-        )
-        .expect("PATH placeholder should expand");
+    args:
+      msg: '${PATH}'
+"#;
+        let parsed = parse_config_text(yaml).expect("PATH placeholder should expand");
+        let expanded = parsed.plugins[0]
+            .args
+            .as_ref()
+            .and_then(|args| args.get("msg"))
+            .and_then(|msg| msg.as_str());
+        assert_eq!(expanded, Some(expected_path.as_str()));
+
+        let summary = validate_text(yaml).expect("expanded config should validate");
 
         assert_eq!(summary.plugin_count, 1);
-        assert_eq!(summary.dependency_graph.init_order, vec![expected_path]);
+        assert_eq!(
+            summary.dependency_graph.init_order,
+            vec!["env_expansion".to_string()]
+        );
     }
 
     #[test]

@@ -688,7 +688,7 @@ fn decode_entry(
 
 fn redis_type_error(error: impl std::fmt::Display) -> ::redis::RedisError {
     ::redis::RedisError::from((
-        ::redis::ErrorKind::TypeError,
+        ::redis::ErrorKind::UnexpectedReturnType,
         "failed to encode Redis DNS cache entry",
         error.to_string(),
     ))
