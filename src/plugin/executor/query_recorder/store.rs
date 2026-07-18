@@ -750,15 +750,6 @@ pub(super) fn query_records_on_connection(
     Ok((records, next_cursor))
 }
 
-#[cfg(test)]
-pub(super) fn load_record_detail(
-    backend: Arc<RecorderBackend>,
-    record_id: i64,
-) -> std::result::Result<Option<RecordDetail>, DnsError> {
-    let conn = open_reader_database(backend.sqlite_path()?)?;
-    load_record_detail_on_connection(&backend, &conn, record_id)
-}
-
 pub(super) fn load_record_detail_on_connection(
     backend: &RecorderBackend,
     conn: &Connection,

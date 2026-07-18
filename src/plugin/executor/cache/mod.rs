@@ -1507,7 +1507,9 @@ impl Executor for Cache {
         let finalize_l1_miss = self.redis_cache.is_none();
         #[cfg(not(feature = "storage-redis"))]
         let finalize_l1_miss = true;
-        let mut cache_lookup = self.try_cache_hit(context, cache_map, true, finalize_l1_miss);
+        let cache_lookup = self.try_cache_hit(context, cache_map, true, finalize_l1_miss);
+        #[cfg(feature = "storage-redis")]
+        let mut cache_lookup = cache_lookup;
 
         #[cfg(feature = "storage-redis")]
         if let Some(redis_cache) = self.redis_cache.as_ref()

@@ -136,6 +136,7 @@ impl RedisService {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) async fn increment(&self, key: &str) -> ::redis::RedisResult<u64> {
         let mut connection = self.manager.clone();
         ::redis::cmd("INCR")
