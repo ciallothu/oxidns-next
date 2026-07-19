@@ -49,10 +49,14 @@ Docker：
 ```bash
 git clone https://github.com/ciallothu/oxidns-next.git
 cd oxidns-next
-docker compose up -d
+cp .env.example .env
+chmod 600 .env
+# 编辑 .env，把两个占位密码替换成 `openssl rand -hex 32` 生成的值。
+export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+docker compose --env-file .env up -d
 ```
 
-默认配置监听 DNS `:5335` 和管理台 `:9199`；仓库 Compose 会把宿主机 DNS `53/udp`、`53/tcp` 映射到容器 `5335`。安装完成后访问 `http://127.0.0.1:9199`；远程首次创建管理员时，请先通过 `OXIDNS_NEXT_BOOTSTRAP_TOKEN` 配置引导令牌。完整安装、服务管理和反向代理说明见[快速开始](docs/docs/quickstart.mdx)。
+仓库 Compose 会同时启动 OxiDNS Next、PostgreSQL 和 Redis：查询历史持久化到 PostgreSQL，Redis 只保存可丢弃的 DNS 与查询 API 缓存，本地账户数据库继续保存在 `./data`。默认配置监听 DNS `:5335` 和管理台 `:9199`，Compose 会把宿主机 DNS `53/udp`、`53/tcp` 映射到容器 `5335`。首次打开管理台时使用刚生成的临时引导令牌创建管理员；完成后执行 `unset OXIDNS_NEXT_BOOTSTRAP_TOKEN`，再运行 `docker compose --env-file .env up -d --force-recreate oxidns-next` 从容器中移除令牌。完整安装、服务管理和反向代理说明见[快速开始](docs/docs/quickstart.mdx)。
 
 ## 配置怎么写
 
@@ -111,7 +115,7 @@ plugins:
 
 ## 查询日志存储
 
-SQLite 是无需额外服务的默认选项，适合单机快速开始；生产环境首选 PostgreSQL，MySQL 也完整支持：
+SQLite 是无需额外服务的轻量选项，适合自定义的单机配置；仓库根目录的 Compose 生产部署默认使用 PostgreSQL，MySQL 也完整支持：
 
 ```yaml
 database:

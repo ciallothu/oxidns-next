@@ -441,26 +441,13 @@ The Docker workflow builds:
 - `linux/amd64`
 - `linux/arm64`
 
-Pull and run:
+Pull the image:
 
 ```bash
 docker pull ghcr.io/ciallothu/oxidns-next:latest
-
-# Browser requests into a container are not loopback. Use a temporary token
-# for the first administrator bootstrap.
-export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
-
-docker run -d \
-  --name oxidns-next \
-  --restart unless-stopped \
-  -p 53:5335/udp \
-  -p 53:5335/tcp \
-  -p 9199:9199/tcp \
-  -e OXIDNS_NEXT_BOOTSTRAP_TOKEN \
-  -v "$(pwd)/config.yaml:/etc/oxidns-next/config.yaml:ro" \
-  -v "$(pwd)/data:/etc/oxidns-next/data" \
-  ghcr.io/ciallothu/oxidns-next:latest
 ```
+
+The production configuration at the repository root depends on PostgreSQL and Redis, so use the Compose stack below. To run a single container directly, provide reachable PostgreSQL and Redis services plus both connection environment variables, or use a custom SQLite configuration. Running the image alone with the repository-root configuration does not create those dependencies.
 
 <Admonition type="note" title="Port binding">
 
@@ -482,52 +469,40 @@ The image metadata declares:
 - `53/tcp`
 - `9199/tcp`
 
-The repository-root `config.yaml` listens for DNS on `:5335` so it can also be run locally without root privileges. The `docker run` command above and Compose example below map host port `53` to container port `5335`. If you change the in-container listener to `:53`, change the mapping back to `53:53` too.
+The repository-root `config.yaml` listens for DNS on `:5335` so it can also be run locally without root privileges. The Compose stack below maps host port `53` to container port `5335`. If you change the in-container listener to `:53`, change the mapping back to `53:53` too.
 
-### Docker Compose Example
+### Docker Compose (recommended)
 
-For Compose-based port mapping and config management, use this `docker-compose.yml`:
-
-```yaml
-services:
-  oxidns-next:
-    image: ghcr.io/ciallothu/oxidns-next:latest
-    container_name: oxidns-next
-    restart: unless-stopped
-    ports:
-      - "53:5335/udp"
-      - "53:5335/tcp"
-      - "9199:9199/tcp"
-    environment:
-      - OXIDNS_NEXT_BOOTSTRAP_TOKEN
-    volumes:
-      - ./config.yaml:/etc/oxidns-next/config.yaml:ro
-      - ./data:/etc/oxidns-next/data
-```
+The repository Compose stack starts OxiDNS Next, PostgreSQL, and Redis. Query history is durable only in PostgreSQL; Redis stores disposable DNS and query-API caches. Neither data service publishes a host port.
 
 Start it with:
 
 ```bash
+git clone https://github.com/ciallothu/oxidns-next.git
+cd oxidns-next
+cp .env.example .env
+chmod 600 .env
+# Edit .env and replace both password placeholders with values from `openssl rand -hex 32`.
 export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
-docker compose up -d
+docker compose --env-file .env up -d
 ```
 
 On the first WebUI visit, enter this token in the setup form and create the administrator. Then immediately remove the temporary token from the container:
 
 ```bash
 unset OXIDNS_NEXT_BOOTSTRAP_TOKEN
-docker compose up -d --force-recreate
+docker compose --env-file .env up -d --force-recreate oxidns-next
 ```
 
-With a direct `docker run`, remove and recreate the container after setup with the same arguments but without `-e OXIDNS_NEXT_BOOTSTRAP_TOKEN`. Do not place the token in `config.yaml`, the Compose file, or shell history. If OpenSSL is unavailable, use a password manager to generate at least 32 random bytes.
+Do not place the token in `config.yaml`, the Compose file, or `.env`. If OpenSSL is unavailable, use a password manager to generate at least 32 random bytes. `.env` contains only URL-safe PostgreSQL and Redis passwords and is ignored by Git. Changing `.env` after the database volume is initialized does not automatically change PostgreSQL's internal password.
 
 Follow logs with:
 
 ```bash
-docker compose logs -f oxidns-next
+docker compose --env-file .env logs -f oxidns-next
 ```
 
-The default single-container deployment keeps query history in SQLite. For PostgreSQL, MySQL, or Redis-backed DNS/API caching alongside SQLite, use the Compose examples under [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage). They include health checks, environment placeholders, and persistent volumes. Redis is not durable query-history storage.
+The root Compose stack uses PostgreSQL. For MySQL, SQLite, or other combinations, see [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage). Redis is never durable query-history storage.
 
 ## 7. Selection Guide
 

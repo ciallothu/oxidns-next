@@ -441,25 +441,13 @@ wget -O- https://raw.githubusercontent.com/ciallothu/oxidns-next/main/scripts/in
 - `linux/amd64`
 - `linux/arm64`
 
-拉取并运行：
+拉取镜像：
 
 ```bash
 docker pull ghcr.io/ciallothu/oxidns-next:latest
-
-# 容器中的浏览器请求不是 loopback，首次初始化必须使用临时引导 token。
-export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
-
-docker run -d \
-  --name oxidns-next \
-  --restart unless-stopped \
-  -p 53:5335/udp \
-  -p 53:5335/tcp \
-  -p 9199:9199/tcp \
-  -e OXIDNS_NEXT_BOOTSTRAP_TOKEN \
-  -v "$(pwd)/config.yaml:/etc/oxidns-next/config.yaml:ro" \
-  -v "$(pwd)/data:/etc/oxidns-next/data" \
-  ghcr.io/ciallothu/oxidns-next:latest
 ```
+
+仓库根目录的生产配置依赖 PostgreSQL 与 Redis，因此推荐使用下方 Compose 栈。若要直接运行单个容器，需要自行提供可访问的 PostgreSQL/Redis 与两个连接环境变量，或者改用自定义 SQLite 配置；单独运行镜像并挂载仓库根配置不会自动创建这些依赖。
 
 <Admonition type="note" title="端口绑定">
 
@@ -481,52 +469,40 @@ oxidns-next start -c /etc/oxidns-next/config.yaml -d /etc/oxidns-next
 - `53/tcp`
 - `9199/tcp`
 
-仓库根目录的 `config.yaml` 为了便于非 root 本地运行，DNS 监听使用 `:5335`。上面的 `docker run` 和下面的 Compose 示例把宿主机 `53` 映射到容器 `5335`；如果你改成容器内监听 `:53`，端口映射也应改回 `53:53`。
+仓库根目录的 `config.yaml` 为了便于非 root 本地运行，DNS 监听使用 `:5335`。下面的 Compose 栈把宿主机 `53` 映射到容器 `5335`；如果你改成容器内监听 `:53`，端口映射也应改回 `53:53`。
 
-### Docker Compose 示例
+### Docker Compose（推荐）
 
-使用 Compose 管理配置和端口映射时，可参考下面的 `docker-compose.yml`：
-
-```yaml
-services:
-  oxidns-next:
-    image: ghcr.io/ciallothu/oxidns-next:latest
-    container_name: oxidns-next
-    restart: unless-stopped
-    ports:
-      - "53:5335/udp"
-      - "53:5335/tcp"
-      - "9199:9199/tcp"
-    environment:
-      - OXIDNS_NEXT_BOOTSTRAP_TOKEN
-    volumes:
-      - ./config.yaml:/etc/oxidns-next/config.yaml:ro
-      - ./data:/etc/oxidns-next/data
-```
+仓库 Compose 会启动 OxiDNS Next、PostgreSQL 和 Redis。查询历史只持久化到 PostgreSQL，Redis 只保存可丢弃的 DNS 与查询 API 缓存，并且两个数据服务都不会向宿主机公开端口。
 
 启动：
 
 ```bash
+git clone https://github.com/ciallothu/oxidns-next.git
+cd oxidns-next
+cp .env.example .env
+chmod 600 .env
+# 编辑 .env，将两个密码占位符替换成 `openssl rand -hex 32` 生成的值。
 export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
-docker compose up -d
+docker compose --env-file .env up -d
 ```
 
 首次打开 WebUI 时，在初始化表单中填入这个 token 并创建管理员。完成后立即移除容器中的临时 token：
 
 ```bash
 unset OXIDNS_NEXT_BOOTSTRAP_TOKEN
-docker compose up -d --force-recreate
+docker compose --env-file .env up -d --force-recreate oxidns-next
 ```
 
-直接使用 `docker run` 时也应在管理员创建后删除并按原参数重新创建容器，但不再传入 `-e OXIDNS_NEXT_BOOTSTRAP_TOKEN`。不要把 token 写入 `config.yaml`、Compose 文件或 shell 历史；若不使用 OpenSSL，请通过密码管理器生成至少 32 字节的随机值。
+不要把 token 写入 `config.yaml`、Compose 文件或 `.env`；若不使用 OpenSSL，请通过密码管理器生成至少 32 字节的随机值。`.env` 只保存 PostgreSQL 与 Redis 的 URL-safe 密码并已被 Git 忽略；已初始化的数据卷不会因为修改 `.env` 自动更改 PostgreSQL 内部密码。
 
 查看日志：
 
 ```bash
-docker compose logs -f oxidns-next
+docker compose --env-file .env logs -f oxidns-next
 ```
 
-默认单容器部署使用 SQLite 查询历史。需要 PostgreSQL、MySQL，或在 SQLite 之外启用 Redis DNS/API 缓存时，请使用仓库 [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage) 中带健康检查、环境变量占位符和持久卷的 Compose 示例。Redis 不是查询日志的持久化数据源。
+根 Compose 使用 PostgreSQL。若需要 MySQL、SQLite 或其他组合，请参考仓库 [`examples/storage`](https://github.com/ciallothu/oxidns-next/tree/main/examples/storage)；Redis 始终不是查询日志的持久化数据源。
 
 ## 7. 选择建议
 

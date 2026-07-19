@@ -90,4 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Validate Compose file
+        env:
+          OXIDNS_NEXT_POSTGRES_PASSWORD: ci-postgres-password
+          OXIDNS_NEXT_REDIS_PASSWORD: ci-redis-password
         run: docker compose config --quiet

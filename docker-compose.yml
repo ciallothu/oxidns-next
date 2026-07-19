@@ -1,8 +1,57 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: oxidns
+      POSTGRES_USER: oxidns
+      POSTGRES_PASSWORD: "${OXIDNS_NEXT_POSTGRES_PASSWORD:?copy .env.example to .env and replace its placeholders}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oxidns -d oxidns"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - oxidns_postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    user: redis
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        {
+          printf 'save ""\n'
+          printf 'appendonly no\n'
+          printf 'maxmemory 256mb\n'
+          printf 'maxmemory-policy volatile-lru\n'
+          printf 'requirepass %s\n' "$${REDIS_PASSWORD}"
+        } > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf
+    environment:
+      REDIS_PASSWORD: "${OXIDNS_NEXT_REDIS_PASSWORD:?copy .env.example to .env and replace its placeholders}"
+      REDISCLI_AUTH: "${OXIDNS_NEXT_REDIS_PASSWORD:?copy .env.example to .env and replace its placeholders}"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+
   oxidns-next:
     image: ghcr.io/ciallothu/oxidns-next:latest
-    container_name: oxidns-next
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "53:5335/udp"
       - "53:5335/tcp"
@@ -11,6 +60,18 @@ services:
       # Export this variable only for the first start. After creating the
       # administrator, unset it and recreate the container.
       - OXIDNS_NEXT_BOOTSTRAP_TOKEN
+      - "OXIDNS_NEXT_QUERY_DATABASE_URL=postgres://oxidns:${OXIDNS_NEXT_POSTGRES_PASSWORD}@postgres:5432/oxidns"
+      - "OXIDNS_NEXT_REDIS_URL=redis://:${OXIDNS_NEXT_REDIS_PASSWORD}@redis:6379/0"
     volumes:
       - ./config.yaml:/etc/oxidns-next/config.yaml
       - ./data:/etc/oxidns-next/data
+    networks:
+      - default
+      - backend
+
+volumes:
+  oxidns_postgres_data:
+
+networks:
+  backend:
+    internal: true

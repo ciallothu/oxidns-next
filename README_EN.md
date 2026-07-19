@@ -49,10 +49,14 @@ Docker:
 ```bash
 git clone https://github.com/ciallothu/oxidns-next.git
 cd oxidns-next
-docker compose up -d
+cp .env.example .env
+chmod 600 .env
+# Edit .env and replace both password placeholders with values from `openssl rand -hex 32`.
+export OXIDNS_NEXT_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+docker compose --env-file .env up -d
 ```
 
-The default configuration listens for DNS on `:5335` and serves the console on `:9199`; the repository Compose file maps host `53/udp` and `53/tcp` to container port `5335`. Open `http://127.0.0.1:9199` after installation. For remote administrator bootstrap, configure `OXIDNS_NEXT_BOOTSTRAP_TOKEN` first. See [Quick Start](docs/i18n/en/docusaurus-plugin-content-docs/current/quickstart.mdx) for installation, service, and reverse-proxy details.
+The repository Compose stack starts OxiDNS Next, PostgreSQL, and Redis. Query history is durable in PostgreSQL, Redis holds only disposable DNS and query-API caches, and the local account database remains under `./data`. The default configuration listens for DNS on `:5335` and serves the console on `:9199`; Compose maps host `53/udp` and `53/tcp` to container port `5335`. Use the temporary bootstrap token to create the first administrator. Then run `unset OXIDNS_NEXT_BOOTSTRAP_TOKEN` followed by `docker compose --env-file .env up -d --force-recreate oxidns-next` to remove it from the container. See [Quick Start](docs/i18n/en/docusaurus-plugin-content-docs/current/quickstart.mdx) for installation, service, and reverse-proxy details.
 
 ## Configuration Basics
 
@@ -111,7 +115,7 @@ Top-level fields configure the application. Every item under `plugins` has a uni
 
 ## Query-History Storage
 
-SQLite is the zero-dependency default for a quick single-node start. PostgreSQL is the preferred production database, with MySQL fully supported as well:
+SQLite is a lightweight, zero-dependency option for a custom single-node configuration. The repository-root production Compose stack uses PostgreSQL by default, with MySQL fully supported as well:
 
 ```yaml
 database:
