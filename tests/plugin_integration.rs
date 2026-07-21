@@ -615,6 +615,9 @@ async fn wait_for_command_output_contains(
     )))
 }
 
+// The repository example enables query recording and Redis, so it targets the
+// standard/full bundles rather than the intentionally lean minimal bundle.
+#[cfg(feature = "standard")]
 #[test]
 fn test_load_example_config_and_validate() -> Result<()> {
     let config = parse_config(include_str!("../config.yaml"))?;
