@@ -11,7 +11,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 
-use rustls::pki_types::CertificateDer;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 use tracing::info;
@@ -118,8 +119,8 @@ fn load_certificates(cert_path: &str) -> crate::infra::error::Result<Vec<Certifi
             cert_path, e
         ))
     })?;
-    let mut cert_reader = BufReader::new(cert_file);
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_reader)
+    let cert_reader = BufReader::new(cert_file);
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_reader_iter(cert_reader)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| {
             DnsError::plugin(format!(
@@ -137,24 +138,23 @@ fn load_certificates(cert_path: &str) -> crate::infra::error::Result<Vec<Certifi
     Ok(certs)
 }
 
-fn load_private_key(
-    key_path: &str,
-) -> crate::infra::error::Result<rustls::pki_types::PrivateKeyDer<'static>> {
+fn load_private_key(key_path: &str) -> crate::infra::error::Result<PrivateKeyDer<'static>> {
     let key_file = File::open(key_path).map_err(|e| {
         DnsError::plugin(format!(
             "Failed to open private key file {}: {}",
             key_path, e
         ))
     })?;
-    let mut key_reader = BufReader::new(key_file);
-    rustls_pemfile::private_key(&mut key_reader)
-        .map_err(|e| {
-            DnsError::plugin(format!(
-                "Failed to parse private key file {}: {}",
-                key_path, e
-            ))
-        })?
-        .ok_or_else(|| DnsError::plugin(format!("No private key found in {}", key_path)))
+    let key_reader = BufReader::new(key_file);
+    PrivateKeyDer::from_pem_reader(key_reader).map_err(|e| match e {
+        rustls::pki_types::pem::Error::NoItemsFound => {
+            DnsError::plugin(format!("No private key found in {}", key_path))
+        }
+        _ => DnsError::plugin(format!(
+            "Failed to parse private key file {}: {}",
+            key_path, e
+        )),
+    })
 }
 
 fn load_root_store(ca_path: &str) -> crate::infra::error::Result<RootCertStore> {

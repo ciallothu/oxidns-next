@@ -1,0 +1,90 @@
+name: Security Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 20 * * 0"
+  push:
+    branches:
+      - main
+      - "release/*"
+    paths:
+      - ".github/workflows/security-audit.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**/Cargo.toml"
+      - "webui/package.json"
+      - "webui/pnpm-lock.yaml"
+      - "docs/package.json"
+      - "docs/package-lock.json"
+  pull_request:
+    branches:
+      - main
+      - "release/*"
+    paths:
+      - ".github/workflows/security-audit.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**/Cargo.toml"
+      - "webui/package.json"
+      - "webui/pnpm-lock.yaml"
+      - "docs/package.json"
+      - "docs/package-lock.json"
+
+permissions:
+  contents: read
+  checks: write
+  issues: write
+
+jobs:
+  rust:
+    name: RustSec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Audit Cargo.lock
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # rsa is only used for public-key verification/encryption by the
+          # OIDC and MySQL clients. The advisory affects private-key timing,
+          # and no patched rsa release is available.
+          ignore: RUSTSEC-2023-0071
+
+  webui:
+    name: WebUI dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Audit dependencies
+        working-directory: webui
+        run: pnpm audit --audit-level low
+
+  docs:
+    name: Documentation dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Audit dependencies
+        working-directory: docs
+        run: npm audit --audit-level low

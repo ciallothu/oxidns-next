@@ -9,7 +9,7 @@ members = [
 
 [package]
 name = "oxidns-next"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Sven Shi <isvenshi@gmail.com>", "ciallothu <ciallothu@users.noreply.github.com>"]
 description = "A high-performance, plugin-driven DNS server with a secure management console."
@@ -89,7 +89,6 @@ quinn = { version = "0.11.9", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
 rustls = { version = "0.23.40", features = ["ring"], optional = true }
-rustls-pemfile = { version = "2.2.0", optional = true }
 tokio-rustls = { version = "0.26.4", optional = true }
 webpki-roots = { version = "1.0.2", optional = true }
 
@@ -339,7 +338,7 @@ provider-adguard-rule = []
 # These are pulled in by the public features above and should not be
 # enabled directly. They exist so each crate group is declared once.
 
-_tls-base = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
+_tls-base = ["dep:rustls", "dep:tokio-rustls"]
 _tls-client = ["_tls-base", "dep:webpki-roots"]
 _tls-server = ["_tls-base"]
 _http-server = [

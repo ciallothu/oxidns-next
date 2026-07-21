@@ -21,7 +21,7 @@
     "class-variance-authority": "latest",
     "clsx": "^2.1.1",
     "lucide-react": "latest",
-    "next": "16.2.4",
+    "next": "16.2.10",
     "next-themes": "latest",
     "radix-ui": "latest",
     "react": "^19.2.5",
@@ -47,5 +47,12 @@
     "prettier-plugin-tailwindcss": "^0.7.4",
     "tailwindcss": "^4.2.4",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "dompurify": "3.4.12",
+      "js-yaml": "4.3.0",
+      "postcss": "8.5.21"
+    }
   }
 }

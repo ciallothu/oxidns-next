@@ -6,6 +6,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTheme } from "next-themes";
 import {
   Background,
   Controls,
@@ -664,6 +665,9 @@ function SequenceCanvas({
   onDeleteRule,
   onAddRule,
 }: SequenceCanvasProps) {
+  const { resolvedTheme } = useTheme();
+  const colorMode = resolvedTheme === "dark" ? "dark" : "light";
+
   // Derive flow nodes/edges from props. Memoised on the actual data inputs so
   // the reference is stable across renders that don't affect graph contents.
   const built = useMemo(
@@ -728,6 +732,7 @@ function SequenceCanvas({
       )}
     >
       <ReactFlow<SequenceFlowNode, Edge>
+        colorMode={colorMode}
         nodes={nodes}
         edges={built.edges}
         onNodesChange={onNodesChange}

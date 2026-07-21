@@ -12,7 +12,31 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 ## 2026-07
 
 <div className="release-stack">
-  <ReleaseCard version="v0.1.0" badge="OxiDNS Next 首发" date="2026-07-19" defaultOpen>
+  <ReleaseCard version="v0.1.1" badge="Patch Release" date="2026-07-21" defaultOpen>
+      **版本定位**
+
+      - Patch Release。v0.1.1 重点修复 WebUI 深色模式下图表提示框不可读，以及切换图表或快速悬停时动画反复追赶、倒放和抖动的问题。
+      - 本版本同时让插件拓扑与 Sequence 画布正确跟随主题，完善默认 PostgreSQL / Redis 部署栈，并新增持续依赖安全审计。
+
+      **主要变更**
+
+      - `fix(webui)`：查询统计 Tooltip 显式使用当前主题的 popover 前景、背景和边框色，覆盖 Recharts 的黑色项目默认值，恢复深色模式可读性。
+      - `fix(webui)`：关闭查询统计 Tooltip、Bar、Pie 和 Line 的过渡动画，避免切换标签、时间范围、刷新数据或快速前后移动鼠标时动画重复播放、反向追赶或闪动。
+      - `fix(webui)`：插件拓扑和 Sequence 编辑画布把 `next-themes` 的实际主题传给 React Flow，使节点、控件和画布在深浅色模式下保持一致。
+      - `config` / `docker`：仓库根配置默认使用 PostgreSQL 保存查询历史，并启用 Redis DNS 二级缓存和查询 API 缓存；根 Compose 新增 PostgreSQL 17、Redis 7.4、健康检查、PostgreSQL 持久卷、内部后端网络和 `.env.example` 密码模板。
+      - `deps` / `security`：升级 Next.js、Docusaurus 及受公告影响的依赖解析；新增 Security Audit workflow，在相关 push / pull request、每周计划任务和手动触发时执行完整 WebUI / 文档依赖审计与 RustSec。
+      - `refactor(tls)`：TLS PEM 证书与私钥加载改为直接使用 `rustls-pki-types`，移除不再维护的 `rustls-pemfile` 直接依赖；证书、私钥路径和 PEM 配置格式保持不变。
+
+      **配置与升级说明**
+
+      - 根 crate 版本升级为 `0.1.1`，release tag 使用 `v0.1.1`；本周期没有 `crates/` 子 crate 代码变更，无需同步升版。
+      - 现有运行配置可以直接升级，未新增必填 schema 字段，TLS 证书与私钥配置也无需迁移。
+      - 仓库根 `config.yaml` 的部署默认值已改变：现在需要 `OXIDNS_NEXT_QUERY_DATABASE_URL` 与 `OXIDNS_NEXT_REDIS_URL`。使用根 Compose 时，应先复制 `.env.example` 为 `.env`，设置 PostgreSQL / Redis 密码，再启动完整栈。
+      - SQLite、MySQL 和自定义单容器部署仍受支持；请保留自己的配置，不要直接用新的根配置覆盖。查询历史只持久化到 SQL 数据库，Redis 仍是可丢弃缓存。
+      - RustSec 对 `RUSTSEC-2023-0071` 保留一项经过评估的例外：当前 OIDC / MySQL 依赖路径只执行 RSA 公钥操作，该公告影响私钥计时，且暂无已修复版本。
+  </ReleaseCard>
+
+  <ReleaseCard version="v0.1.0" badge="OxiDNS Next 首发" date="2026-07-19">
       **版本定位**
 
       - OxiDNS Next 首个公开版本，建立独立品牌、发布渠道与管理控制台。本次重新发布的 `v0.1.0` 重点修复大型查询日志数据库下 WebUI 长时间加载或 HTTP 504，并新增 PostgreSQL、MySQL 与 Redis 支持。
