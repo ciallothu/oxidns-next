@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useTheme } from "next-themes";
 import {
   Background,
   Controls,
@@ -273,11 +274,13 @@ export function TopologyView({
   onSelect: (plugin: PluginInstance) => void;
 }) {
   const { t } = useI18n();
+  const { resolvedTheme } = useTheme();
+  const colorMode = resolvedTheme === "dark" ? "dark" : "light";
   const storageScope = useAuthenticatedStorageScope();
   const topologyStorageKey = `${TOPOLOGY_STORAGE_KEY}:${storageScope}`;
   const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
-  const [savedPositions, setSavedPositions] = useState<NodePositions>(
-    () => loadTopologyPositions(topologyStorageKey),
+  const [savedPositions, setSavedPositions] = useState<NodePositions>(() =>
+    loadTopologyPositions(topologyStorageKey),
   );
 
   useEffect(() => {
@@ -480,6 +483,7 @@ export function TopologyView({
       <div className="h-[660px] overflow-hidden rounded-xl border bg-muted/10 shadow-sm">
         <ReactFlow
           key={activeRoot ?? "empty"}
+          colorMode={colorMode}
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}

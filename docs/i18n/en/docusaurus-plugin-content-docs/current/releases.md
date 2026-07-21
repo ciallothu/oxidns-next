@@ -12,7 +12,31 @@ This page lists OxiDNS Next releases first. The remaining entries are retained a
 ## 2026-07
 
 <div className="release-stack">
-  <ReleaseCard version="v0.1.0" badge="First OxiDNS Next Release" date="2026-07-19" defaultOpen>
+  <ReleaseCard version="v0.1.1" badge="Patch Release" date="2026-07-21" defaultOpen>
+      **Release Scope**
+
+      - Patch Release. v0.1.1 fixes unreadable chart tooltips in dark mode and removes repeated, reversing, or jittery animations during chart changes and rapid pointer movement.
+      - It also synchronizes plugin-topology and Sequence canvases with the active theme, completes the default PostgreSQL / Redis deployment stack, and adds continuous dependency security auditing.
+
+      **Changes**
+
+      - `fix(webui)`: use explicit popover foreground, background, and border colors for query-statistics tooltips, overriding Recharts' black item default and restoring dark-mode readability.
+      - `fix(webui)`: disable transitions for query-statistics tooltips, bars, pie slices, and lines so tab or time-range changes, refreshes, and rapid movement between data points no longer replay, reverse, or chase animations.
+      - `fix(webui)`: pass the resolved `next-themes` mode to React Flow in the plugin topology and Sequence editor, keeping nodes, controls, and canvases consistent in light and dark modes.
+      - `config` / `docker`: make the repository-root configuration use PostgreSQL for query history and enable Redis-backed DNS L2 and query-API caching. The root Compose stack now includes PostgreSQL 17, Redis 7.4, health checks, a persistent PostgreSQL volume, an internal backend network, and an `.env.example` password template.
+      - `deps` / `security`: update Next.js, Docusaurus, and dependency resolutions affected by security advisories. Add a Security Audit workflow that runs complete WebUI and documentation dependency audits plus RustSec on relevant pushes and pull requests, weekly, and on demand.
+      - `refactor(tls)`: decode TLS certificate and private-key PEM files directly through `rustls-pki-types`, removing the unmaintained direct `rustls-pemfile` dependency without changing certificate paths, key paths, or PEM configuration formats.
+
+      **Compatibility and Upgrade Notes**
+
+      - The root crate version is updated to `0.1.1`, and the release tag is `v0.1.1`. No workspace crate under `crates/` changed, so no child-crate version bump is required.
+      - Existing runtime configurations can upgrade directly. There are no new required schema fields, and TLS certificate or private-key configuration does not require migration.
+      - The repository-root `config.yaml` deployment defaults have changed and now require `OXIDNS_NEXT_QUERY_DATABASE_URL` and `OXIDNS_NEXT_REDIS_URL`. When using the root Compose stack, copy `.env.example` to `.env`, set the PostgreSQL and Redis passwords, and start the complete stack.
+      - SQLite, MySQL, and custom single-container deployments remain supported. Keep the existing deployment configuration instead of replacing it with the new root default. Query history is durable only in SQL; Redis remains disposable cache storage.
+      - RustSec retains one assessed exception for `RUSTSEC-2023-0071`: the current OIDC / MySQL dependency paths perform RSA public-key operations, while the advisory concerns private-key timing and no patched release is available.
+  </ReleaseCard>
+
+  <ReleaseCard version="v0.1.0" badge="First OxiDNS Next Release" date="2026-07-19">
       **Release Scope**
 
       - The first public OxiDNS Next release establishes the independent product, release channel, and management console. This rebuilt `v0.1.0` focuses on fixing query-log WebUI stalls and HTTP 504 responses on large databases, while adding PostgreSQL, MySQL, and Redis support.

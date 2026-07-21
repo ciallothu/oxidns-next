@@ -58,12 +58,12 @@ pub struct QuicServerConfig {
     /// Path to TLS certificate file (PEM format).
     ///
     /// - DoQ requires TLS; both `cert` and `key` must be provided.
-    /// - Certificate chain supported via `rustls-pemfile::certs`.
+    /// - Certificate chains are decoded through `rustls-pki-types`.
     cert: String,
 
     /// Path to TLS private key file (PEM format).
     ///
-    /// - Supports common key formats (PKCS#8/RSA/EC) via `rustls-pemfile`.
+    /// - Supports common key formats (PKCS#8/RSA/EC) via `rustls-pki-types`.
     key: String,
 
     /// QUIC transport-level idle timeout in seconds (optional).

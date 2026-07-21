@@ -77,7 +77,7 @@ pub struct TcpServerConfig {
 
     /// Path to TLS private key file (PEM format, optional).
     ///
-    /// - Supports common key formats (PKCS#8/RSA/EC) via `rustls-pemfile`.
+    /// - Supports common key formats (PKCS#8/RSA/EC) via `rustls-pki-types`.
     key: Option<String>,
 
     /// TCP connection idle timeout in seconds.

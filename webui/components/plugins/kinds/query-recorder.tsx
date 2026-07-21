@@ -116,7 +116,9 @@ function QueryRecorderDetail(props: PluginDetailComponentProps) {
   const { t } = useI18n();
   const rawDatabase = props.plugin.config.database;
   const database =
-    rawDatabase && typeof rawDatabase === "object" && !Array.isArray(rawDatabase)
+    rawDatabase &&
+    typeof rawDatabase === "object" &&
+    !Array.isArray(rawDatabase)
       ? (rawDatabase as Record<string, unknown>)
       : undefined;
   const databaseType = String(database?.type ?? "sqlite").toLowerCase();
@@ -127,9 +129,7 @@ function QueryRecorderDetail(props: PluginDetailComponentProps) {
         ? { label: "MySQL", value: t(WEBUI.common.configured) }
         : {
             label: "SQLite",
-            value: String(
-              database?.path ?? props.plugin.config.path ?? "-",
-            ),
+            value: String(database?.path ?? props.plugin.config.path ?? "-"),
           };
   return (
     <PluginDetailTemplate
@@ -217,6 +217,18 @@ const CHART_COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
 ];
+const CHART_TOOLTIP_PROPS = {
+  isAnimationActive: false,
+  contentStyle: {
+    backgroundColor: "var(--popover)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--popover-foreground)",
+    fontSize: 12,
+  },
+  itemStyle: { color: "var(--popover-foreground)" },
+  labelStyle: { color: "var(--popover-foreground)" },
+} as const;
 const TOP_PAGE_SIZE = 20;
 // Per-row height for the horizontal Top-N bar charts. Recharts' category axis
 // drops tick labels when bars are packed too tightly, so the chart container
@@ -1448,14 +1460,8 @@ function TopBucketsCard({
                     tickFormatter={(value: string) => truncateMiddle(value, 28)}
                   />
                   <RechartsTooltip
+                    {...CHART_TOOLTIP_PROPS}
                     cursor={{ fill: "var(--muted)", opacity: 0.3 }}
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      color: "var(--foreground)",
-                      fontSize: 12,
-                    }}
                     formatter={(value: number, _name, props) => [
                       t(WEBUI.queryRecorder.timesWithPercent, {
                         count: value,
@@ -1469,6 +1475,7 @@ function TopBucketsCard({
                   <Bar
                     dataKey="count"
                     fill="var(--chart-1)"
+                    isAnimationActive={false}
                     radius={[0, 4, 4, 0]}
                   />
                 </BarChart>
@@ -1656,14 +1663,8 @@ function DistributionCard({
                     allowDecimals={false}
                   />
                   <RechartsTooltip
+                    {...CHART_TOOLTIP_PROPS}
                     cursor={{ fill: "var(--muted)", opacity: 0.3 }}
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      color: "var(--foreground)",
-                      fontSize: 12,
-                    }}
                     formatter={(value: number, _name, props) => [
                       t(WEBUI.queryRecorder.timesWithPercent, {
                         count: value,
@@ -1677,19 +1678,14 @@ function DistributionCard({
                   <Bar
                     dataKey="count"
                     fill="var(--chart-1)"
+                    isAnimationActive={false}
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>
               ) : (
                 <PieChart>
                   <RechartsTooltip
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      color: "var(--foreground)",
-                      fontSize: 12,
-                    }}
+                    {...CHART_TOOLTIP_PROPS}
                     formatter={(value: number, _name, props) => [
                       t(WEBUI.queryRecorder.timesWithPercent, {
                         count: value,
@@ -1708,6 +1704,7 @@ function DistributionCard({
                     outerRadius={90}
                     innerRadius={42}
                     paddingAngle={2}
+                    isAnimationActive={false}
                   >
                     {rows.map((entry, index) => (
                       <Cell
@@ -1913,16 +1910,14 @@ function LatencyCard({
                   allowDecimals={false}
                 />
                 <RechartsTooltip
+                  {...CHART_TOOLTIP_PROPS}
                   cursor={{ fill: "var(--muted)", opacity: 0.3 }}
-                  contentStyle={{
-                    background: "var(--popover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    color: "var(--foreground)",
-                    fontSize: 12,
-                  }}
                 />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                <Bar
+                  dataKey="count"
+                  isAnimationActive={false}
+                  radius={[4, 4, 0, 0]}
+                >
                   {histogram.map((entry) => (
                     <Cell key={entry.label} fill={entry.fill} />
                   ))}
@@ -2152,15 +2147,7 @@ function TimeseriesCard({
                   fontSize={11}
                   allowDecimals={false}
                 />
-                <RechartsTooltip
-                  contentStyle={{
-                    background: "var(--popover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    color: "var(--foreground)",
-                    fontSize: 12,
-                  }}
-                />
+                <RechartsTooltip {...CHART_TOOLTIP_PROPS} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line
                   yAxisId="left"
@@ -2170,6 +2157,7 @@ function TimeseriesCard({
                   stroke="var(--chart-1)"
                   dot={false}
                   strokeWidth={2}
+                  isAnimationActive={false}
                 />
                 <Line
                   yAxisId="left"
@@ -2179,6 +2167,7 @@ function TimeseriesCard({
                   stroke="var(--chart-5)"
                   dot={false}
                   strokeWidth={2}
+                  isAnimationActive={false}
                 />
                 <Line
                   yAxisId="right"
@@ -2189,6 +2178,7 @@ function TimeseriesCard({
                   dot={false}
                   strokeWidth={1.5}
                   strokeDasharray="4 2"
+                  isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
