@@ -464,6 +464,19 @@ The maintainers are not responsible for any service disruption, data loss, or se
 
 ---
 
+## Upstream Maintainer
+
+Upstream OxiDNS is created and primarily maintained by [Sven Shi](https://github.com/svenshi).
+
+Sven is currently exploring new opportunities in **backend engineering, infrastructure,
+networking**, and engineering roles involving **Rust**.
+
+If your team is working on systems, networking, or infrastructure problems similar
+to those explored in OxiDNS and you think his experience could be a good fit,
+feel free to reach out to him via [email](mailto:isvenshi@gmail.com).
+
+---
+
 ## Contributing and Upstream
 
 Please report OxiDNS Next issues and proposals in [this project's issue tracker](https://github.com/ciallothu/oxidns-next/issues). For the original implementation, upstream release history, and upstream community, visit [SvenShi/oxidns](https://github.com/svenshi/oxidns). Do not report OxiDNS Next-specific problems to upstream.
