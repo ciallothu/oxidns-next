@@ -1,27 +1,37 @@
-FROM debian:bookworm-slim
+# syntax=docker/dockerfile:1
 
-ARG OXIDNS_NEXT_VERSION=dev
+FROM alpine:3.22 AS runtime-files
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /etc/oxidns-next
 
-COPY .docker-dist/oxidns-next /usr/local/bin/oxidns-next
 COPY .docker-dist/config.yaml /etc/oxidns-next/config.yaml
+
+RUN sed -i 's/:5335/:53/' /etc/oxidns-next/config.yaml || true
+
+FROM busybox:musl
+
+ARG OXIDNS_NEXT_VERSION=dev
+
+WORKDIR /etc/oxidns-next
+
+COPY --from=runtime-files /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=runtime-files /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=runtime-files /usr/share/zoneinfo/UTC /etc/localtime
+COPY --from=runtime-files /tmp /tmp
+COPY --from=runtime-files /etc/oxidns-next/config.yaml /etc/oxidns-next/config.yaml
+COPY --chmod=0755 .docker-dist/oxidns-next /usr/local/bin/oxidns-next
 COPY .docker-dist/webui /etc/oxidns-next/webui
 COPY .docker-dist/LICENSE /usr/share/licenses/oxidns-next/LICENSE
 
-RUN chmod +x /usr/local/bin/oxidns-next \
-    && sed -i 's/:5335/:53/' /etc/oxidns-next/config.yaml || true
-
 ENV OXIDNS_NEXT_VERSION=${OXIDNS_NEXT_VERSION}
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV TZ=UTC
 
 EXPOSE 53/udp
 EXPOSE 53/tcp
 EXPOSE 9199/tcp
 
-ENTRYPOINT ["oxidns-next"]
+ENTRYPOINT ["/usr/local/bin/oxidns-next"]
 CMD ["start", "-c", "/etc/oxidns-next/config.yaml", "-d", "/etc/oxidns-next"]

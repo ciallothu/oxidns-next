@@ -4,8 +4,10 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::Ordering;
 
+use rusqlite::Connection;
 use tempfile::NamedTempFile;
 
+use super::backend::WriterCommand;
 use super::model::{
     DistributionQuery, LatencyQuery, ListQuery, PendingRecord, PluginStatsKind, PluginsStatsQuery,
     QueryRecordFilter, QueryRecordStatus, QueryRecorderConfig, RecorderDatabaseConfig,
@@ -33,6 +35,22 @@ fn recorder_config(path: &str) -> serde_yaml_ng::Value {
         api_cache: None,
         queue_size: Some(32),
         batch_size: Some(1),
+        flush_interval_ms: Some(10),
+        memory_tail: Some(16),
+        retention_days: Some(7),
+        cleanup_interval_hours: Some(1),
+        reader_concurrency: Some(2),
+    })
+    .unwrap()
+}
+
+fn recorder_space_config(path: &str) -> serde_yaml_ng::Value {
+    serde_yaml_ng::to_value(QueryRecorderConfig {
+        path: Some(path.to_string()),
+        database: None,
+        api_cache: None,
+        queue_size: Some(4_096),
+        batch_size: Some(256),
         flush_interval_ms: Some(10),
         memory_tail: Some(16),
         retention_days: Some(7),
@@ -70,6 +88,38 @@ async fn flush_backend(backend: &std::sync::Arc<super::backend::RecorderBackend>
         .await
         .unwrap()
         .unwrap();
+}
+
+async fn seed_bulk_records(
+    backend: &std::sync::Arc<super::backend::RecorderBackend>,
+    count: usize,
+) {
+    for index in 0..count {
+        backend.enqueue(pending_record(
+            index as i64,
+            index as u16,
+            "space-reclaim.example.com.",
+            RecordType::A,
+            Ipv4Addr::new(192, 0, 2, 1),
+            Some(Rcode::NoError),
+            None,
+            &[("matcher_for_space_reclaim", "matched")],
+        ));
+    }
+    flush_backend(backend).await;
+}
+
+fn prepare_legacy_database(path: &std::path::Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY);",
+    )
+    .unwrap();
+    let mode: i64 = conn
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mode, 0);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -530,6 +580,545 @@ async fn test_query_recorder_clear_history_does_not_wait_for_reader_permits() {
     plugin.destroy().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_query_recorder_periodic_cleanup_reclaims_database_and_wal_space() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_space_config(
+        &temp.path().display().to_string(),
+    )))
+    .unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    seed_bulk_records(&backend, 2_000).await;
+    let cleanup_backend = backend.clone();
+    let result = tokio::task::spawn_blocking(move || cleanup_backend.cleanup(i64::MAX))
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(result.deleted_records, 2_000);
+    assert!(!result.space.as_ref().expect("SQLite space stats").migrated);
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .auto_vacuum,
+        2
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .freelist_count,
+        0
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .wal_bytes,
+        0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .peak_wal_bytes
+            > 0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .reclaimable
+            .freelist_count
+            > 0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .page_count
+            < result
+                .space
+                .as_ref()
+                .expect("SQLite space stats")
+                .reclaimable
+                .page_count
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .total_bytes()
+            < result
+                .space
+                .as_ref()
+                .expect("SQLite space stats")
+                .before
+                .total_bytes()
+    );
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_manual_clear_reclaims_database_and_wal_space() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_space_config(
+        &temp.path().display().to_string(),
+    )))
+    .unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    seed_bulk_records(&backend, 2_000).await;
+    let clear_backend = backend.clone();
+    let result = tokio::task::spawn_blocking(move || clear_backend.clear_history())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(result.cleared_records, 2_000);
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .freelist_count,
+        0
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .wal_bytes,
+        0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .peak_wal_bytes
+            > 0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .reclaimable
+            .freelist_count
+            > 0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .page_count
+            < result
+                .space
+                .as_ref()
+                .expect("SQLite space stats")
+                .reclaimable
+                .page_count
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .total_bytes()
+            < result
+                .space
+                .as_ref()
+                .expect("SQLite space stats")
+                .before
+                .total_bytes()
+    );
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_periodic_cleanup_migrates_legacy_database() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    prepare_legacy_database(temp.path());
+    let config = resolve_config(Some(recorder_space_config(
+        &temp.path().display().to_string(),
+    )))
+    .unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    seed_bulk_records(&backend, 1_000).await;
+    let cleanup_backend = backend.clone();
+    let result = tokio::task::spawn_blocking(move || cleanup_backend.cleanup(i64::MAX))
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(result.deleted_records, 1_000);
+    assert!(result.space.as_ref().expect("SQLite space stats").migrated);
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .reclaimable
+            .auto_vacuum,
+        0
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .auto_vacuum,
+        2
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .freelist_count,
+        0
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .wal_bytes,
+        0
+    );
+    assert!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .page_count
+            < result
+                .space
+                .as_ref()
+                .expect("SQLite space stats")
+                .reclaimable
+                .page_count
+    );
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_manual_clear_migrates_legacy_database() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    prepare_legacy_database(temp.path());
+    let config = resolve_config(Some(recorder_space_config(
+        &temp.path().display().to_string(),
+    )))
+    .unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    seed_bulk_records(&backend, 1_000).await;
+    let clear_backend = backend.clone();
+    let result = tokio::task::spawn_blocking(move || clear_backend.clear_history())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(result.cleared_records, 1_000);
+    assert!(result.space.as_ref().expect("SQLite space stats").migrated);
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .auto_vacuum,
+        2
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .freelist_count,
+        0
+    );
+    assert_eq!(
+        result
+            .space
+            .as_ref()
+            .expect("SQLite space stats")
+            .after
+            .wal_bytes,
+        0
+    );
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_clear_waits_for_active_database_reader() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_config(&temp.path().display().to_string()))).unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+    seed_demo_records(&backend).await;
+
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let coordinator = backend.database_coordinator.clone();
+    let reader = std::thread::spawn(move || {
+        let _access = coordinator.read_access().unwrap();
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+    ready_rx.recv().unwrap();
+
+    let clear_backend = backend.clone();
+    let mut clear_task = tokio::task::spawn_blocking(move || clear_backend.clear_history());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut clear_task)
+            .await
+            .is_err()
+    );
+
+    release_tx.send(()).unwrap();
+    reader.join().unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), clear_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.cleared_records, 5);
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_shared_database_clear_preserves_other_recorder() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_config(&temp.path().display().to_string()))).unwrap();
+    let mut plugin_a = QueryRecorder::new("rec-a".to_string(), config.clone());
+    let mut plugin_b = QueryRecorder::new("rec-b".to_string(), config);
+    plugin_a.init_for_test().await.unwrap();
+    plugin_b.init_for_test().await.unwrap();
+    let backend_a = plugin_a.backend.as_ref().unwrap().clone();
+    let backend_b = plugin_b.backend.as_ref().unwrap().clone();
+
+    backend_a.enqueue(pending_record(
+        1_000,
+        1,
+        "a.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 1),
+        Some(Rcode::NoError),
+        None,
+        &[],
+    ));
+    backend_b.enqueue(pending_record(
+        2_000,
+        2,
+        "b.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 2),
+        Some(Rcode::NoError),
+        None,
+        &[],
+    ));
+    flush_backend(&backend_a).await;
+    flush_backend(&backend_b).await;
+
+    let clear_backend = backend_a.clone();
+    tokio::task::spawn_blocking(move || clear_backend.clear_history())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        query_records(backend_a, list_query(QueryRecordFilter::default()))
+            .unwrap()
+            .0
+            .is_empty()
+    );
+    let records = query_records(backend_b, list_query(QueryRecordFilter::default()))
+        .unwrap()
+        .0;
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].request_id, 2);
+
+    plugin_b.destroy().await.unwrap();
+    plugin_a.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_cleanup_failure_does_not_stop_writer() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_config(&temp.path().display().to_string()))).unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+    seed_demo_records(&backend).await;
+
+    let blocker = Connection::open(temp.path()).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let cleanup_backend = backend.clone();
+    let result = tokio::task::spawn_blocking(move || cleanup_backend.cleanup(i64::MAX))
+        .await
+        .unwrap();
+    assert!(result.is_err());
+    blocker.execute_batch("ROLLBACK;").unwrap();
+
+    backend.enqueue(pending_record(
+        10_000,
+        10,
+        "after-error.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 10),
+        Some(Rcode::NoError),
+        None,
+        &[],
+    ));
+    flush_backend(&backend).await;
+    let records = query_records(backend.clone(), list_query(QueryRecordFilter::default()))
+        .unwrap()
+        .0;
+    assert_eq!(records.len(), 6);
+    assert!(records.iter().any(|record| record.request_id == 10));
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_cleanup_is_not_skipped_when_record_queue_is_full() {
+    AppClock::start();
+
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(
+        serde_yaml_ng::to_value(QueryRecorderConfig {
+            path: Some(temp.path().display().to_string()),
+            database: None,
+            api_cache: None,
+            queue_size: Some(1),
+            batch_size: Some(1),
+            flush_interval_ms: Some(10),
+            memory_tail: Some(8),
+            retention_days: Some(7),
+            cleanup_interval_hours: Some(1),
+            reader_concurrency: Some(2),
+        })
+        .unwrap(),
+    ))
+    .unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let coordinator = backend.database_coordinator.clone();
+    let maintenance_holder = std::thread::spawn(move || {
+        let _access = coordinator.write_access().unwrap();
+        ready_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+    ready_rx.recv().unwrap();
+
+    let mut queue_was_full = false;
+    for request_id in 1..=16 {
+        let record = pending_record(
+            i64::from(request_id),
+            request_id,
+            "queue-full.example.com.",
+            RecordType::A,
+            Ipv4Addr::new(192, 0, 2, 1),
+            Some(Rcode::NoError),
+            None,
+            &[],
+        );
+        let super::backend::WriterQueue::Blocking(queue) = &backend.queue_tx else {
+            panic!("expected SQLite queue")
+        };
+        match queue.try_send(WriterCommand::Insert(Box::new(record))) {
+            Ok(()) => std::thread::yield_now(),
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                queue_was_full = true;
+                break;
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                panic!("query_recorder writer unexpectedly disconnected")
+            }
+        }
+    }
+    assert!(queue_was_full);
+
+    let cleanup_backend = backend.clone();
+    let mut cleanup_task = tokio::task::spawn_blocking(move || cleanup_backend.cleanup(i64::MAX));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut cleanup_task)
+            .await
+            .is_err()
+    );
+
+    release_tx.send(()).unwrap();
+    maintenance_holder.join().unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), cleanup_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(result.deleted_records > 0);
+
+    plugin.destroy().await.unwrap();
+}
+
 #[test]
 fn test_query_recorder_query_parsers_accept_common_filters() {
     let query = super::api::parse_list_query(Some(
@@ -830,6 +1419,87 @@ async fn test_query_recorder_matcher_stats_use_record_filters() {
     assert_eq!(cn.matched, 0);
     assert_eq!(cn.query_total, 1);
     assert_eq!(cn.query_share, 0.5);
+
+    plugin.destroy().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_query_recorder_tracks_fixed_values_and_effective_match_results() {
+    let temp = NamedTempFile::new().unwrap();
+    let config = resolve_config(Some(recorder_config(&temp.path().display().to_string()))).unwrap();
+    let mut plugin = QueryRecorder::new("rec".to_string(), config);
+    plugin.init_for_test().await.unwrap();
+    let backend = plugin.backend.as_ref().unwrap().clone();
+
+    backend.enqueue(pending_record(
+        1_000,
+        1,
+        "hit.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 1),
+        Some(Rcode::NoError),
+        None,
+        &[("controlled", "always_true_matched")],
+    ));
+    backend.enqueue(pending_record(
+        2_000,
+        2,
+        "miss.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 2),
+        Some(Rcode::NoError),
+        None,
+        &[("controlled", "always_true_not_matched")],
+    ));
+    backend.enqueue(pending_record(
+        3_000,
+        3,
+        "false-negated.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 3),
+        Some(Rcode::NoError),
+        None,
+        &[("controlled", "always_false_matched")],
+    ));
+    backend.enqueue(pending_record(
+        4_000,
+        4,
+        "false-positive.example.com.",
+        RecordType::A,
+        Ipv4Addr::new(192, 0, 2, 4),
+        Some(Rcode::NoError),
+        None,
+        &[("controlled", "always_false_not_matched")],
+    ));
+    flush_backend(&backend).await;
+
+    assert_eq!(
+        filtered_record_ids(
+            backend.clone(),
+            list_query(QueryRecordFilter {
+                matcher_tag: Some("controlled".to_string()),
+                ..QueryRecordFilter::default()
+            }),
+        ),
+        vec![3, 1]
+    );
+
+    let (_, stats) = load_plugin_stats(
+        backend,
+        PluginsStatsQuery {
+            since_ms: None,
+            until_ms: None,
+            kind: PluginStatsKind::Matcher,
+            filter: QueryRecordFilter::default(),
+        },
+    )
+    .unwrap();
+    let controlled = stats
+        .iter()
+        .find(|row| row.tag.as_deref() == Some("controlled"))
+        .unwrap();
+    assert_eq!(controlled.checked, 4);
+    assert_eq!(controlled.matched, 2);
 
     plugin.destroy().await.unwrap();
 }
@@ -1204,8 +1874,8 @@ async fn test_timeseries_buckets_records_by_minute() {
     let response = load_timeseries(
         backend,
         TimeseriesQuery {
-            since_ms: None,
-            until_ms: None,
+            since_ms: Some(0),
+            until_ms: Some(179_999),
             filter: QueryRecordFilter::default(),
             bucket: TimeseriesBucket::Minute,
             max_buckets: 60,
@@ -1214,7 +1884,7 @@ async fn test_timeseries_buckets_records_by_minute() {
     .unwrap();
     assert_eq!(response.bucket_ms, minute_ms);
     assert_eq!(response.sample_size, 3);
-    assert_eq!(response.points.len(), 2);
+    assert_eq!(response.points.len(), 3);
     let first = &response.points[0];
     assert_eq!(first.bucket_ms, 0);
     assert_eq!(first.total, 2);
@@ -1223,6 +1893,7 @@ async fn test_timeseries_buckets_records_by_minute() {
     assert_eq!(second.bucket_ms, minute_ms);
     assert_eq!(second.total, 1);
 
+    assert_eq!(response.points[2].total, 0);
     plugin.destroy().await.unwrap();
 }
 
@@ -1495,8 +2166,8 @@ async fn exercise_remote_backend(tag: &str, database: RecorderDatabaseConfig) {
         .load_timeseries(
             &backend.tables,
             TimeseriesQuery {
-                since_ms: None,
-                until_ms: None,
+                since_ms: Some(0),
+                until_ms: Some(59_999),
                 filter: QueryRecordFilter::default(),
                 bucket: TimeseriesBucket::Minute,
                 max_buckets: 10,
@@ -1507,6 +2178,34 @@ async fn exercise_remote_backend(tag: &str, database: RecorderDatabaseConfig) {
     assert_eq!(timeseries.sample_size, 2);
     assert_eq!(timeseries.points.len(), 1);
     assert_eq!(backend.tail.lock().unwrap().len(), 2);
+
+    // Exercise fixed day and calendar month SQL on the actual remote dialect.
+    for bucket in [TimeseriesBucket::Day, TimeseriesBucket::Month] {
+        let series = remote
+            .load_timeseries(
+                &backend.tables,
+                TimeseriesQuery {
+                    since_ms: Some(0),
+                    until_ms: Some(5_097_600_000), // March 1, 1970 UTC.
+                    filter: QueryRecordFilter::default(),
+                    bucket,
+                    max_buckets: 720,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(series.sample_size, 2);
+        assert_eq!(series.points[0].total, 2);
+        assert_eq!(series.points.last().unwrap().total, 0);
+        assert_eq!(
+            series.points.len(),
+            if bucket == TimeseriesBucket::Day {
+                60
+            } else {
+                3
+            }
+        );
+    }
 
     remote.cleanup(&backend.tables, 1_500).await.unwrap();
     let (records, _) = remote

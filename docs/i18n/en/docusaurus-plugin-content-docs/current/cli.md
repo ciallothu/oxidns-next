@@ -1,54 +1,31 @@
 ---
-title: CLI Tools
+title: Command-Line Tools
 sidebar_position: 3
 ---
 
-This page explains the OxiDNS Next CLI by day-to-day task. For normal deployment, the most common flow is to run `check` first and then `start`.
+OxiDNS Next ships as a single `oxidns-next` binary. This page maps tasks to commands; complete options and behavior are split across three topic guides.
 
-OxiDNS Next ships a single executable: `oxidns-next`.
+## Common tasks
 
-Available top-level commands:
+| Goal | Command | Reference |
+| --- | --- | --- |
+| Validate configuration | `oxidns-next check -c config.yaml` | [Configuration and Data Tools](cli/tools.md) |
+| Run in the foreground | `oxidns-next start -c config.yaml` | [Runtime, Probes, and Services](cli/runtime.md) |
+| Temporarily enable debug logging | `oxidns-next start -c config.yaml -l debug` | [Runtime, Probes, and Services](cli/runtime.md) |
+| Probe an upstream | `oxidns-next probe upstream tcp://1.1.1.1:53` | [Runtime, Probes, and Services](cli/runtime.md) |
+| Install a system service | `sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml` | [Runtime, Probes, and Services](cli/runtime.md) |
+| Inspect compiled capabilities | `oxidns-next build-info` | [Configuration and Data Tools](cli/tools.md) |
+| Export dat rules | `oxidns-next export-dat ...` | [Configuration and Data Tools](cli/tools.md) |
+| Check or apply an upgrade | `oxidns-next upgrade check` / `oxidns-next upgrade apply` | [Upgrade Command](cli/upgrade.md) |
 
-- `start`
-- `check`
-- `build-info`
-- `export-dat`
-- `probe`
-- `service`
-- `upgrade`
+## Help and exit status
 
-## Common Tasks
-
-| Goal | Command |
-| --- | --- |
-| Validate a config | `oxidns-next check -c config.yaml` |
-| Start in the foreground | `oxidns-next start -c config.yaml` |
-| Temporarily enable debug logging | `oxidns-next start -c config.yaml -l debug` |
-| Print the plugin dependency graph | `oxidns-next check -c config.yaml --graph` |
-| Inspect compiled binary capabilities | `oxidns-next build-info` |
-| Probe upstream reachability and concurrency behavior | `oxidns-next probe upstream tcp://1.1.1.1:53` |
-| Install as a system service | `sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml` |
-| Check for a new release | `oxidns-next upgrade check` |
-| Export rules from a dat file | `oxidns-next export-dat --file ./rules/geosite.dat --kind geosite --selector cn --out-dir ./rules/exported` |
-
-## Help
-
-Show top-level help:
+Use `oxidns-next --help` for top-level commands and `oxidns-next <subcommand> --help` for the complete options supported by the current binary. Automation should check process status: success returns `0`; argument, validation, and runtime failures return a non-zero value.
 
 ```bash
 oxidns-next --help
-```
-
-Show help for a specific subcommand:
-
-```bash
-oxidns-next start --help
 oxidns-next check --help
-oxidns-next build-info --help
-oxidns-next export-dat --help
-oxidns-next probe --help
 oxidns-next probe upstream --help
-oxidns-next service --help
 oxidns-next upgrade --help
 ```
 
@@ -466,4 +443,4 @@ Behavior:
 
 ## Page Scope
 
-This page covers the commands above. To confirm every argument supported by the local binary, run `oxidns-next <subcommand> --help`.
+Older section bookmarks land on this entry page; use the task map above to open the extracted command guide.

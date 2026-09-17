@@ -21,6 +21,73 @@ use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep_until};
 use tracing::{error, warn};
 
+use crate::infra::error::{DnsError, Result as DnsResult};
+
+/// Run CPU- or blocking-I/O-heavy construction away from the async runtime.
+///
+/// Snapshot owners intentionally perform publication themselves after this
+/// helper succeeds, so cancellation, panic, and build failure all leave the
+/// currently published state untouched.
+///
+/// Dropping this future does not stop an already-running blocking closure.
+/// Repeatable callers must therefore run it under a lifecycle task or permit
+/// that remains owned until the closure exits.
+#[allow(dead_code)]
+pub(crate) async fn spawn_blocking_result<T, F>(task_name: &str, task: F) -> DnsResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> DnsResult<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(task)
+        .await
+        .map_err(|error| DnsError::runtime(format!("{task_name} blocking task failed: {error}")))?
+}
+
+/// Build a large snapshot on a one-shot OS thread.
+///
+/// Tokio's blocking worker only owns thread creation and joining. Matcher
+/// construction happens on the child thread, so allocator thread-local caches
+/// are released when that thread exits. Callers still publish snapshots only
+/// after this helper succeeds.
+///
+/// Dropping this future cannot cancel the OS thread. Provider reloads and
+/// runtime initialization keep their serialization ownership in detached
+/// lifecycle tasks until this function returns.
+pub(crate) async fn spawn_isolated_build<T, F>(task_name: &str, task: F) -> DnsResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> DnsResult<T> + Send + 'static,
+{
+    let thread_name = task_name.to_owned();
+    tokio::task::spawn_blocking(move || {
+        std::thread::Builder::new()
+            .name(thread_name.clone())
+            .spawn(task)
+            .map_err(|error| {
+                DnsError::runtime(format!(
+                    "failed to start isolated build thread '{thread_name}': {error}"
+                ))
+            })?
+            .join()
+            .map_err(|panic| {
+                let detail = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                    .unwrap_or("unknown panic payload");
+                DnsError::runtime(format!(
+                    "isolated build thread '{thread_name}' panicked: {detail}"
+                ))
+            })?
+    })
+    .await
+    .map_err(|error| {
+        DnsError::runtime(format!(
+            "{task_name} blocking thread coordinator failed: {error}"
+        ))
+    })?
+}
+
 type TaskFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 type TaskFn = Arc<dyn Fn() -> TaskFuture + Send + Sync + 'static>;
 
@@ -405,6 +472,32 @@ mod tests {
     async fn advance_and_flush(duration: Duration) {
         tokio::time::advance(duration).await;
         flush_tasks().await;
+    }
+
+    #[tokio::test]
+    async fn isolated_build_runs_on_named_one_shot_thread() {
+        let thread_name = spawn_isolated_build("snapshot-test", || {
+            Ok(std::thread::current().name().map(str::to_owned))
+        })
+        .await
+        .unwrap();
+        assert_eq!(thread_name.as_deref(), Some("snapshot-test"));
+    }
+
+    #[tokio::test]
+    async fn isolated_build_preserves_build_errors_and_maps_panics() {
+        let error = spawn_isolated_build::<(), _>("error-test", || {
+            Err(DnsError::plugin("expected build failure"))
+        })
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("expected build failure"));
+
+        let panic =
+            spawn_isolated_build::<(), _>("panic-test", || panic!("expected isolated panic"))
+                .await
+                .unwrap_err();
+        assert!(panic.to_string().contains("expected isolated panic"));
     }
 
     #[tokio::test]

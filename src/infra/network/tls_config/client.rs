@@ -66,6 +66,23 @@ pub(crate) fn secure_client_config() -> ClientConfig {
     SECURE_CONFIG.clone()
 }
 
+/// Build a secure client configuration with extra trust anchors in addition
+/// to the bundled WebPKI roots.
+#[cfg(any(feature = "plugin-ros-address-list", feature = "plugin-ros-route"))]
+pub(crate) fn secure_client_config_with_additional_roots(
+    additional_roots: impl IntoIterator<Item = CertificateDer<'static>>,
+) -> Result<ClientConfig, rustls::Error> {
+    install_default_provider();
+    let mut root_store = RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for certificate in additional_roots {
+        root_store.add(certificate)?;
+    }
+    Ok(ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth())
+}
+
 /// Get insecure TLS configuration (no certificate validation)
 ///
 /// **WARNING**: Only use for testing/development!

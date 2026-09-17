@@ -331,7 +331,7 @@ function OutboundRuntimeMetricsPanel({
 }
 
 export default function SettingsPage() {
-  const { t } = useI18n();
+  const { t, formatDateTime } = useI18n();
   const serverConfig = useAuthStore((s) => s.serverConfig);
   const setServerConfig = useAuthStore((s) => s.setServerConfig);
   const connect = useAuthStore((s) => s.connect);
@@ -493,6 +493,9 @@ export default function SettingsPage() {
     if (upgradeConfig.allowPrerelease) {
       parts.push("--allow-prerelease");
     }
+    if (upgradeConfig.force) {
+      parts.push("--force");
+    }
     return parts.join(" ");
   };
 
@@ -600,6 +603,7 @@ export default function SettingsPage() {
     const outboundConfig = buildNetworkOutboundConfig(
       outboundDefault,
       outboundProfiles,
+      t,
     );
     if (outboundConfig) {
       nextNetwork.outbound = outboundConfig;
@@ -1612,7 +1616,9 @@ export default function SettingsPage() {
                         label={t(WEBUI.settings.lastCheckedLabel)}
                         value={
                           lastCheckedAt
-                            ? new Date(lastCheckedAt).toLocaleTimeString()
+                            ? formatDateTime(lastCheckedAt, {
+                                timeStyle: "medium",
+                              })
                             : "-"
                         }
                       />
@@ -1701,21 +1707,27 @@ export default function SettingsPage() {
                           ? t(WEBUI.settings.checkingUpdates)
                           : t(WEBUI.settings.checkUpdates)}
                       </Button>
-                      {updateInfo?.updateAvailable && (
-                        <Button
-                          onClick={() => void triggerUpgrade()}
-                          disabled={isApplying || isRestarting}
-                        >
-                          {isApplying ? (
-                            <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                          ) : (
-                            <ArrowUpCircle className="h-4 w-4 mr-1.5" />
-                          )}
-                          {isApplying
-                            ? t(WEBUI.settings.upgrading)
-                            : t(WEBUI.settings.upgradeNow)}
-                        </Button>
-                      )}
+                      {updateInfo &&
+                        (updateInfo.updateAvailable || upgradeConfig.force) && (
+                          <Button
+                            variant={
+                              upgradeConfig.force ? "warning" : "default"
+                            }
+                            onClick={() => void triggerUpgrade()}
+                            disabled={isApplying || isRestarting}
+                          >
+                            {isApplying ? (
+                              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                            ) : (
+                              <ArrowUpCircle className="h-4 w-4 mr-1.5" />
+                            )}
+                            {isApplying
+                              ? t(WEBUI.settings.upgrading)
+                              : upgradeConfig.force
+                                ? t(WEBUI.settings.forceUpgradeNow)
+                                : t(WEBUI.settings.upgradeNow)}
+                          </Button>
+                        )}
                     </div>
                   )}
 
@@ -1839,7 +1851,7 @@ export default function SettingsPage() {
                         />
                       </Field>
                     </div>
-                    <div className="flex flex-wrap gap-6">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-sm font-medium">
@@ -1853,6 +1865,40 @@ export default function SettingsPage() {
                           checked={upgradeConfig.allowPrerelease}
                           onCheckedChange={(v) =>
                             setUpgradeConfig({ allowPrerelease: v })
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t(WEBUI.settings.cleanupAfterUpgrade)}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {t(WEBUI.settings.cleanupAfterUpgradeDesc)}
+                          </p>
+                        </div>
+                        <Switch
+                          aria-label={t(WEBUI.settings.cleanupAfterUpgrade)}
+                          checked={upgradeConfig.cleanupAfterUpgrade}
+                          onCheckedChange={(v) =>
+                            setUpgradeConfig({ cleanupAfterUpgrade: v })
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t(WEBUI.settings.forceUpgrade)}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {t(WEBUI.settings.forceUpgradeDesc)}
+                          </p>
+                        </div>
+                        <Switch
+                          aria-label={t(WEBUI.settings.forceUpgrade)}
+                          checked={upgradeConfig.force}
+                          onCheckedChange={(v) =>
+                            setUpgradeConfig({ force: v })
                           }
                         />
                       </div>
@@ -1969,6 +2015,7 @@ function parseOutboundProfiles(
 function buildNetworkOutboundConfig(
   defaultProfile: string,
   profiles: OutboundProfileForm[],
+  t: ReturnType<typeof useI18n>["t"],
 ): Record<string, unknown> | undefined {
   if (profiles.length === 0) return undefined;
   const namedProfiles = profiles.map((profile) => ({
@@ -1978,10 +2025,14 @@ function buildNetworkOutboundConfig(
   const seenProfileNames = new Set<string>();
   for (const profile of namedProfiles) {
     if (!profile.name) {
-      throw new Error("outbound profile name cannot be empty");
+      throw new Error(t(WEBUI.settings.outboundProfileNameRequired));
     }
     if (seenProfileNames.has(profile.name)) {
-      throw new Error(`duplicate outbound profile name '${profile.name}'`);
+      throw new Error(
+        t(WEBUI.settings.outboundProfileNameDuplicate, {
+          name: profile.name,
+        }),
+      );
     }
     seenProfileNames.add(profile.name);
   }

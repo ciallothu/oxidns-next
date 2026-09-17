@@ -1,0 +1,22 @@
+log:
+  level: error
+
+plugins:
+  - tag: hosts_main
+    type: hosts
+    args:
+      entries:
+        - "full:bench.test 192.0.2.10"
+      short_circuit: true
+
+  - tag: seq_main
+    type: sequence
+    args:
+      - exec: $hosts_main
+      - exec: reject 3
+
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: "seq_main"
+      listen: "127.0.0.1:5347"

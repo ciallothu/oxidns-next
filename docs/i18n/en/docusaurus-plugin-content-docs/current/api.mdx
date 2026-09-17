@@ -3,26 +3,32 @@ title: Management API
 sidebar_position: 4
 ---
 
-import Admonition from "@theme/Admonition";
+import Admonition from '@theme/Admonition';
 
-OxiDNS Next exposes a standalone control plane for:
 
-* Process and startup health checks
-* Config checks and raw config text validation
-* Reload and shutdown control
-* Plugin extension APIs
-* Prometheus metrics export
+The OxiDNS Next management API is a separate control plane for health checks, configuration validation and persistence, process control, logs, upgrades, plugin extension APIs, and Prometheus metrics. This page is the interface map; detailed request formats, response fields, and examples live in topic pages.
 
-This chapter covers management API enablement, authentication and transport, core endpoints, and metrics export.
+## Recommended workflow
 
-## How to Enable It
+1. Configure listening, TLS, Basic Auth, CORS, and the WebUI through [Conventions and Security](api/conventions.mdx).
+2. Check the listener with `GET /api/healthz`, then use `GET /api/readyz` for DNS service readiness.
+3. Validate configuration before saving it; apply it through reload and poll the reload status.
+4. Expose control, logs, upgrades, and plugin data only to trusted networks.
+5. Keep `/api/metrics` within the same access-control boundary as the management plane.
 
-### Shorthand
+## Interface map
 
-```yaml
-api:
-  http: "127.0.0.1:9088"
-```
+| Topic | Main routes |
+| --- | --- |
+| [Conventions and Security](api/conventions.mdx) | Listening, HTTPS/mTLS, Basic Auth, WebUI, CORS, route layout, configuration templates |
+| [Health, Control, Logs, and Upgrades](api/control.mdx) | `/api/health*`, `/api/build`, `/api/control`, reload, logs/SSE, and upgrade |
+| [Configuration API](api/configuration.mdx) | Read, write, check, and validate configuration |
+| [Plugin Extension APIs](api/plugins.mdx) | Cache, matcher, provider, reverse lookup, and query recorder |
+| [Prometheus Metrics](api/metrics.mdx) | `/api/metrics` and the metric catalog |
+
+## Compatibility
+
+The management API reflects capabilities compiled into the current binary. Automation should inspect `/api/build` for bundle and plugin support and tolerate absent routes for optional plugins. Repeat readiness, configuration validation, and critical API smoke tests after an upgrade.
 
 Listen addresses support `ip:port`, `[ipv6]:port`, and `:port`. `http: ":9088"` binds as dual-stack `[::]:9088`; use `0.0.0.0:9088` for IPv4-only.
 
@@ -690,10 +696,14 @@ Aggregates query trends into time buckets.
 
 Query parameters:
 
-* `bucket=minute|hour`
+* `bucket=minute|hour|day|month`
 * `buckets=<n>`
   * Number of buckets to return. Defaults to `60`, maximum `720`.
 * Same as `/records`, supports time range and filter parameters.
+
+Buckets are aligned to UTC. Month buckets follow calendar months, including leap years; response `bucket_ms=0` denotes variable month lengths. Each point's `bucket_ms` is always its start Unix timestamp in milliseconds. Response `since_ms` / `until_ms` report the effective query bounds. The default end is now; `buckets` bounds the most recent bucket count and empty buckets are zero-filled. Trends aggregate all retained records in the selected range, without the 10,000-record sampling cap. Mean latency is weighted and P95 uses the nearest rank.
+
+The WebUI defaults to 24 hours and supports 1 hour / 24 hours / 7 days / 30 days / 12 calendar months, using minute / hour / day / day / month buckets. Use the slider or Ctrl + wheel to zoom and drag to pan. Empty latency buckets remain gaps; counts are zero. History depends on retention: set `retention_days` to at least 366 in advance for a full year. Already deleted records cannot be reconstructed.
 
 #### `GET /api/plugins/<tag>/stream`
 

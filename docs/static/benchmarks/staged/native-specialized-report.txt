@@ -1,0 +1,80 @@
+# OxiDNS vs mosdns native-path benchmark report
+
+Generated: `2026-07-24T16:47:08.506963+08:00`
+
+## Method
+
+- repeats per point: `3`; measured duration: `12s`; warmup: `3s`
+- outstanding-query levels: `1,4,16,64,256,1024`
+- aggregation: median across repeats; stable capacity excludes points with loss above 0.1%
+- server CPU is aggregate process CPU (100% = one fully occupied logical CPU); memory is sampled RSS
+- engines run one at a time and their order alternates by repeat/load point
+
+## Environment
+
+- `timestamp=2026-07-24T16:47:08.506963+08:00`
+- `hostname=oxidns`
+- `kernel=Linux-7.0.14-4-pve-x86_64-with-glibc2.36`
+- `cpu=Model name:                              Intel(R) N100`
+- `logical_cpus=4`
+- `memory=Mem:           512Mi        54Mi        67Mi        80Ki       389Mi       457Mi`
+- `git_head=n/a (release artifact benchmark)`
+- `git_describe=n/a (release artifact benchmark)`
+- `dnsperf_version=2.15.1`
+- `oxidns_version=oxidns 1.5.1 (full)`
+- `oxidns_sha256=8cff1b81a6518f4436308750fb24700fd1389d747d171adaca809d1110e73518`
+- `mosdns_version=v5.3.4-0-gb732318`
+- `mosdns_sha256=5357fbb83c89f0a7acad275b72c33aa70d4c720cb5590525660132b10cee8af9`
+
+## Semantic equivalence checks
+
+- OxiDNS and mosdns load the same native domain-set files, including plain, `full:`, and `regexp:` rules. The timed workload mixes ten hits with eight misses.
+- The same CIDR response-IP set, local redirect/answer/TTL chain, and combined provider chain are exercised in both engines.
+- Each engine must pass 39 exact A/AAAA/RCODE assertions (78 total), including explicit `full:`, plain suffix, `regexp:`, CIDR hit/miss, and rewritten TTL probes. Packet-level evidence is saved in [native-specialized-semantic-validation.json](/benchmarks/staged/native-specialized-semantic-validation.json).
+- This suite is intentionally separate from the four-engine normalized matrix; these native paths are not claimed to be equivalent to AdGuard Home or SmartDNS.
+
+## How to read the metrics
+
+- **QPS / throughput: higher is better**, provided loss and tail latency remain acceptable.
+- **p50/p95/p99/max latency: lower is better**. p99 is the response time that 99% of completed requests do not exceed; it is more useful than the average for spotting queueing and long-tail stalls.
+- **Packet loss: lower is better**. This report only treats a point as stable when median loss is at most 0.1%.
+- **CPU: lower is better at the same throughput**. CPU alone is not a speed score: higher CPU can be reasonable when it produces substantially more QPS. Here, 100% means one fully occupied logical CPU.
+- **RSS memory: lower is better for the same workload**. RSS is the process's resident physical memory during the measured run.
+- On scaling charts, the preferred curve rises with concurrency while latency and loss stay controlled. A flat QPS curve combined with rising p99 means the engine has reached saturation.
+
+## Charts
+
+![Throughput](/img/benchmarks/staged/native-specialized-throughput.svg)
+
+![p99 at maximum stable throughput](/img/benchmarks/staged/native-specialized-stable-tail-latency.svg)
+
+![Scaling](/img/benchmarks/staged/native-specialized-domain-scaling.svg)
+
+![Tail latency](/img/benchmarks/staged/native-specialized-domain-tail-latency.svg)
+
+![CPU](/img/benchmarks/staged/native-specialized-cpu.svg)
+
+![Memory](/img/benchmarks/staged/native-specialized-memory.svg)
+
+## Maximum stable point by scenario
+
+| Scenario | Engine | Outstanding | QPS | p99 | CPU | RSS | Loss |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 08-domain-set | OxiDNS | 256 | 142,929.5 | 1.663 ms | 194.2% | 34.6 MiB | 0.0268% |
+| 08-domain-set | mosdns | 64 | 36,361.0 | 4.735 ms | 329.4% | 43.4 MiB | 0.0000% |
+| 09-ip-set | OxiDNS | 256 | 117,380.3 | 2.111 ms | 201.8% | 14.2 MiB | 0.0327% |
+| 09-ip-set | mosdns | 256 | 112,325.5 | 2.495 ms | 159.5% | 22.6 MiB | 0.0336% |
+| 42-composite-local-rewrite | OxiDNS | 256 | 98,005.1 | 2.303 ms | 219.3% | 13.8 MiB | 0.0391% |
+| 42-composite-local-rewrite | mosdns | 256 | 109,458.2 | 2.431 ms | 163.7% | 22.6 MiB | 0.0348% |
+| 43-composite-provider-chain | OxiDNS | 256 | 136,728.5 | 1.823 ms | 194.4% | 35.1 MiB | 0.0280% |
+| 43-composite-provider-chain | mosdns | 64 | 26,063.1 | 6.271 ms | 344.2% | 43.6 MiB | 0.0000% |
+
+## Representativeness assessment
+
+This suite represents the two engines' native domain and response-IP rules, local policy chain, and combined provider/matcher pipeline under equivalent configuration and response semantics. It complements, but must not be merged with, the four-engine common matrix.
+
+It does not represent cold loading/reload time, upstream forwarding, encrypted transports, cross-host traffic, or products without the same native paths.
+
+## Interpretation limits
+
+This is a same-host loopback comparison. It is representative of local request-path cost and concurrency scaling on the recorded machine, not public-upstream quality or production capacity on other hardware.

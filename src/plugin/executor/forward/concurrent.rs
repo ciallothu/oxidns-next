@@ -10,8 +10,9 @@ use tracing::{Level, debug, event_enabled, info, warn};
 
 use super::is_timeout_error;
 use super::metrics::ForwardMetrics;
-use super::selection::{ResponseSelectionMode, select_response};
+use super::selection::{ResponseSelectionMode, SelectedResponse, select_response};
 use crate::core::context::DnsContext;
+use crate::core::response::ResponseDisposition;
 use crate::infra::error::{DnsError, Result};
 use crate::infra::network::upstream::Upstream;
 use crate::infra::observability::metrics::{register_metric_source, unregister_metric_source};
@@ -60,8 +61,11 @@ impl Executor for ConcurrentForwarder {
     async fn execute(&self, context: &mut DnsContext) -> Result<ExecStep> {
         let start_ms = self.metrics.record_query_start();
         let (response, last_error, timed_out) = self.query_upstreams(context.request.clone()).await;
-        if let Some(response) = response {
-            context.set_response(response);
+        if let Some(selected) = response {
+            if selected.disposition == Some(ResponseDisposition::IncompleteAlias) {
+                self.metrics.record_incomplete_alias_selected();
+            }
+            context.set_response(selected.message);
             self.metrics.record_success(start_ms);
             return Ok(self.completion_step());
         }
@@ -89,7 +93,10 @@ impl ConcurrentForwarder {
         }
     }
 
-    async fn query_upstreams(&self, request: Message) -> (Option<Message>, Option<String>, bool) {
+    async fn query_upstreams(
+        &self,
+        request: Message,
+    ) -> (Option<SelectedResponse>, Option<String>, bool) {
         let total_upstreams = self.upstreams.len();
         if total_upstreams == 0 {
             return (None, Some("no upstream configured".to_string()), false);
@@ -123,9 +130,14 @@ impl ConcurrentForwarder {
             });
         }
 
+        let question = match self.response_selection {
+            ResponseSelectionMode::Fastest => None,
+            _ => request.first_question(),
+        };
         select_response(
             &mut join_set,
             self.active_concurrent,
+            question,
             self.response_selection,
         )
         .await

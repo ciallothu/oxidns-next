@@ -21,7 +21,7 @@ export interface PluginMetricsDef {
   metricLabels?: Record<string, string>;
   /** Prometheus metric name → Chinese description shown in the detail panel (overrides backend HELP). */
   metricHelp?: Record<string, string>;
-  /** Ordered metric names surfaced on the plugin card (first 4 shown). */
+  /** Ordered metric names surfaced on the plugin card (up to 6 shown). */
   cardPriority?: string[];
   /** Derived metrics prepended to card display before raw metric values. */
   derivedCard?: DerivedMetricSpec[];
@@ -65,6 +65,8 @@ export interface PluginKindDefinition {
 }
 export type ConfigFieldType =
   | "text"
+  | "password"
+  | "time"
   | "number"
   | "select"
   | "textarea"
@@ -75,6 +77,13 @@ export type ConfigFieldType =
   | "json"
   | "record"
   | "reference";
+
+export interface ConfigTimeRangeGroup {
+  id: string;
+  role: "start" | "end";
+  defaultValue: string;
+}
+
 export interface ConfigField {
   key: string;
   label: string;
@@ -84,9 +93,13 @@ export interface ConfigField {
   docs?: string;
   required?: boolean;
   default?: unknown;
+  /** Render this field inside the collapsed advanced-settings section. */
+  advanced?: boolean;
   options?: {
     label: string;
     value: string | number;
+    /** Additional legacy values accepted when loading form data. */
+    aliases?: (string | number)[];
   }[];
   dynamicOptions?: "outboundProfiles";
   referenceTypes?: PluginType[];
@@ -98,7 +111,13 @@ export interface ConfigField {
   valuePlaceholder?: string;
   item?: ConfigFieldChild;
   itemOptions?: ConfigFieldChild[];
+  /** Render a finite array as direct multi-choice controls instead of add/remove rows. */
+  arrayPresentation?: "checklist" | "weekday-chips" | "calendar-grid";
+  /** Group two sibling time fields into one optional start/end range editor. */
+  timeRange?: ConfigTimeRangeGroup;
   fields?: ConfigField[];
+  /** Preserve an enabled optional object even when all of its child fields are empty. */
+  preserveEmptyObject?: boolean;
   summaryFields?: string[];
   // Force the field to span both columns in the 2-col config grid. Use this
   // for inherently long single-line values (file paths, URLs) so they do not
@@ -251,5 +270,11 @@ export const nftSetTargetFields: ConfigField[] = [
     placeholder: "dns_v4",
     required: true,
   },
-  { key: "mask", label: "前缀长度", type: "number", placeholder: "24" },
+  {
+    key: "mask",
+    label: "前缀长度",
+    type: "number",
+    placeholder: "24",
+    advanced: true,
+  },
 ];

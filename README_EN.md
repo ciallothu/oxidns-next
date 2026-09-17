@@ -473,3 +473,7 @@ Please report OxiDNS Next issues and proposals in [this project's issue tracker]
 ## License
 
 As a derivative of OxiDNS, this project is licensed under the [GNU General Public License v3.0 or later](LICENSE). The original copyright notices and license text are retained.
+
+## Query trends and charts
+
+Query analytics defaults to 24 hours and supports 1 hour, 24 hours, 7 days, 30 days and 12 calendar months. SQLite, PostgreSQL and MySQL aggregate all retained records into time buckets. ECharts provides pan, zoom, theme switching and responsive sizing. Empty counts are zero-filled; empty latency remains a gap. Full-year history requires configuring `query_recorder.args.retention_days` to at least 366 in advance. Existing retention defaults are preserved; deleted history cannot be restored.

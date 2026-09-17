@@ -2,18 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use regex::Regex;
-use serde::Deserialize;
 
 use crate::core::rule_matcher::DomainRuleMatcher;
 use crate::proto::{Name, RecordType};
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub(super) struct AdGuardRuleConfig {
-    #[serde(default)]
-    pub(super) rules: Vec<String>,
-    #[serde(default)]
-    pub(super) files: Vec<String>,
-}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct BuildStats {
@@ -22,25 +13,7 @@ pub(super) struct BuildStats {
     pub(super) skipped_rules: usize,
     pub(super) exception_rules: usize,
     pub(super) important_rules: usize,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct RuleInput {
-    pub(super) raw: String,
-    pub(super) source: String,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct ParsedRule {
-    pub(super) source: String,
-    pub(super) expression: String,
-    pub(super) matcher: PatternMatcher,
-    pub(super) matcher_key: String,
-    pub(super) is_exception: bool,
-    pub(super) important: bool,
-    pub(super) badfilter: bool,
-    pub(super) dnstype: Option<DnsTypeConstraint>,
-    pub(super) denyallow: Vec<String>,
+    pub(super) disabled_rules: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +38,7 @@ pub(super) enum PatternMatcher {
     Regex(Regex),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) enum DnsTypeConstraint {
     Allow(Vec<RecordType>),
     Deny(Vec<RecordType>),

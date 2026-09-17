@@ -3,12 +3,14 @@
 
 //! Infrastructure services used across OxiDNS Next runtime surfaces.
 
-pub mod build_info;
+#[doc(hidden)]
+pub use crate::build_info;
 pub mod cache;
 pub mod clock;
 pub mod control;
 pub mod env;
 pub mod error;
+pub(crate) mod io;
 pub mod network;
 pub mod observability;
 pub mod service;

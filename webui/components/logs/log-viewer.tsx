@@ -1,10 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pause, Play, Trash2, WifiOff, WrapText } from "lucide-react";
+import { Clock3, Pause, Play, Trash2, WifiOff, WrapText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -12,8 +21,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
+import {
+  DEFAULT_LOG_TIME_FORMAT,
+  LOG_TIME_FORMAT_PRESETS,
+  compactLogTarget,
+  formatLogElapsed,
+  formatLogTimestamp,
+} from "@/lib/log-display";
 import { streamLogs, type LogEntry } from "@/lib/oxidns-next-api";
 
 const LEVEL_COLORS: Record<
@@ -48,6 +65,36 @@ const LEVEL_COLORS: Record<
 };
 
 const MAX_ENTRIES = 2000;
+const LOG_DISPLAY_STORAGE_KEY = "oxidns-next:log-display";
+
+interface LogDisplaySettings {
+  timeFormat: string;
+  showElapsed: boolean;
+}
+
+const DEFAULT_LOG_DISPLAY_SETTINGS: LogDisplaySettings = {
+  timeFormat: DEFAULT_LOG_TIME_FORMAT,
+  showElapsed: false,
+};
+
+function loadLogDisplaySettings(): LogDisplaySettings {
+  if (typeof window === "undefined") return DEFAULT_LOG_DISPLAY_SETTINGS;
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(LOG_DISPLAY_STORAGE_KEY) ?? "null",
+    ) as Partial<LogDisplaySettings> | null;
+    return {
+      timeFormat:
+        typeof parsed?.timeFormat === "string" && parsed.timeFormat.trim()
+          ? parsed.timeFormat.slice(0, 64)
+          : DEFAULT_LOG_TIME_FORMAT,
+      showElapsed:
+        typeof parsed?.showElapsed === "boolean" ? parsed.showElapsed : false,
+    };
+  } catch {
+    return DEFAULT_LOG_DISPLAY_SETTINGS;
+  }
+}
 
 function LevelBadge({ level }: { level: string }) {
   const colors = LEVEL_COLORS[level] ?? LEVEL_COLORS.INFO;
@@ -61,26 +108,20 @@ function LevelBadge({ level }: { level: string }) {
   );
 }
 
-// Render the backend's ISO-8601 timestamp as `YYYY-MM-DD HH:MM:SS.mmm`,
-// stripping the timezone offset. Slicing avoids JS Date timezone conversion
-// surprises — the backend already formats in the server's local TZ.
-function formatLogTime(iso: string): string {
-  const tIdx = iso.indexOf("T");
-  if (tIdx < 0) return iso;
-  const date = iso.slice(0, tIdx);
-  const rest = iso.slice(tIdx + 1);
-  const tzMatch = rest.match(/[Z+-]/);
-  const time =
-    tzMatch && tzMatch.index !== undefined
-      ? rest.slice(0, tzMatch.index)
-      : rest;
-  return `${date} ${time}`;
-}
-
-function LogLine({ entry, wrap }: { entry: LogEntry; wrap: boolean }) {
+function LogLine({
+  entry,
+  wrap,
+  timeFormat,
+  showElapsed,
+}: {
+  entry: LogEntry;
+  wrap: boolean;
+  timeFormat: string;
+  showElapsed: boolean;
+}) {
   const colors = LEVEL_COLORS[entry.level] ?? LEVEL_COLORS.INFO;
-  const elapsed = (entry.elapsed_ms / 1000).toFixed(3);
-  const wallClock = formatLogTime(entry.timestamp);
+  const wallClock = formatLogTimestamp(entry.timestamp, timeFormat);
+  const target = compactLogTarget(entry.target);
   // When wrap is on: row fills the viewport width, message wraps inside the
   // remaining flex space. When off: row grows to its content width and the
   // viewport scrolls horizontally — preserves the prior dense layout.
@@ -93,10 +134,17 @@ function LogLine({ entry, wrap }: { entry: LogEntry; wrap: boolean }) {
   return (
     <div className={rowClass}>
       <span className="shrink-0 text-zinc-500 tabular-nums">{wallClock}</span>
-      <span className="shrink-0 text-zinc-600 tabular-nums">T+{elapsed}</span>
+      {showElapsed ? (
+        <span className="shrink-0 text-zinc-600 tabular-nums">
+          T+{formatLogElapsed(entry.elapsed_ms)}
+        </span>
+      ) : null}
       <LevelBadge level={entry.level} />
-      <span className="shrink-0 max-w-[28ch] truncate text-zinc-500">
-        {entry.target}
+      <span
+        className="max-w-[36ch] shrink-0 truncate text-zinc-500"
+        title={entry.target}
+      >
+        {target}
       </span>
       <span className={messageClass}>{entry.message}</span>
     </div>
@@ -112,10 +160,24 @@ export function LogViewer() {
   const [connected, setConnected] = useState(false);
   const [backlog, setBacklog] = useState(0);
   const [wrap, setWrap] = useState(true);
+  const [displaySettings, setDisplaySettings] = useState(
+    loadLogDisplaySettings,
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(false);
   const pendingRef = useRef<LogEntry[]>([]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        LOG_DISPLAY_STORAGE_KEY,
+        JSON.stringify(displaySettings),
+      );
+    } catch {
+      // Display preferences remain active for this session when storage fails.
+    }
+  }, [displaySettings]);
 
   // keep pausedRef in sync so the streaming callback sees current value
   useEffect(() => {
@@ -260,6 +322,88 @@ export function LogViewer() {
           onChange={(e) => setSearch(e.target.value)}
         />
 
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs">
+              <Clock3 className="mr-1 size-3" />
+              {t(WEBUI.logs.timeFormat)}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[22rem] gap-2">
+            <PopoverHeader className="gap-0.5">
+              <PopoverTitle className="text-[13px] leading-5">
+                {t(WEBUI.logs.timeFormat)}
+              </PopoverTitle>
+              <PopoverDescription className="text-xs leading-[1.45]">
+                {t(WEBUI.logs.timeFormatDescription)}
+              </PopoverDescription>
+            </PopoverHeader>
+            <div className="grid grid-cols-2 gap-1.5">
+              {LOG_TIME_FORMAT_PRESETS.map((preset) => (
+                <Button
+                  key={preset}
+                  variant={
+                    displaySettings.timeFormat === preset
+                      ? "secondary"
+                      : "outline"
+                  }
+                  size="xs"
+                  className="justify-start px-2 font-mono text-[11px]"
+                  onClick={() =>
+                    setDisplaySettings((current) => ({
+                      ...current,
+                      timeFormat: preset,
+                    }))
+                  }
+                >
+                  {preset}
+                </Button>
+              ))}
+            </div>
+            <Input
+              className="h-7 font-mono text-[11px]"
+              aria-label={t(WEBUI.logs.timeFormat)}
+              maxLength={64}
+              value={displaySettings.timeFormat}
+              onChange={(event) =>
+                setDisplaySettings((current) => ({
+                  ...current,
+                  timeFormat: event.target.value,
+                }))
+              }
+            />
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {t(WEBUI.logs.timeFormatPreview, {
+                value: formatLogTimestamp(
+                  "2026-07-22T14:08:09.123+08:00",
+                  displaySettings.timeFormat,
+                ),
+              })}
+            </p>
+            <div className="flex items-start justify-between gap-3 rounded-md bg-muted/35 px-2.5 py-2">
+              <div className="min-w-0 space-y-1">
+                <Label htmlFor="log-show-elapsed" className="text-xs">
+                  {t(WEBUI.logs.showElapsed)}
+                </Label>
+                <p className="text-[11px] leading-4 text-muted-foreground">
+                  {t(WEBUI.logs.showElapsedDescription)}
+                </p>
+              </div>
+              <Switch
+                id="log-show-elapsed"
+                size="sm"
+                checked={displaySettings.showElapsed}
+                onCheckedChange={(checked) =>
+                  setDisplaySettings((current) => ({
+                    ...current,
+                    showElapsed: checked,
+                  }))
+                }
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+
         <div className="flex-1" />
 
         {/* Entry count */}
@@ -333,6 +477,8 @@ export function LogViewer() {
               key={`${entry.id}-${entry.elapsed_ms}-${index}`}
               entry={entry}
               wrap={wrap}
+              timeFormat={displaySettings.timeFormat}
+              showElapsed={displaySettings.showElapsed}
             />
           ))
         )}

@@ -1,0 +1,23 @@
+[
+  { "tag": "cache", "error": null },
+  { "tag": "cache_main", "error": null },
+  { "tag": "cache-main", "error": null },
+  { "tag": "cache.cn", "error": null },
+  { "tag": "prod.cache-01", "error": null },
+  { "tag": "A1", "error": null },
+  { "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "error": null },
+  { "tag": "", "error": "empty" },
+  { "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "error": "too_long" },
+  { "tag": "中文", "error": "non_ascii" },
+  { "tag": "has space", "error": "invalid_character" },
+  { "tag": "tag/slash", "error": "invalid_character" },
+  { "tag": "tag\\backslash", "error": "invalid_character" },
+  { "tag": "tag%20", "error": "invalid_character" },
+  { "tag": ".cache", "error": "empty_segment" },
+  { "tag": "cache.", "error": "empty_segment" },
+  { "tag": "cache..cn", "error": "empty_segment" },
+  { "tag": ".", "error": "empty_segment" },
+  { "tag": "..", "error": "empty_segment" },
+  { "tag": "_cache", "error": "invalid_segment_boundary" },
+  { "tag": "cache-", "error": "invalid_segment_boundary" }
+]

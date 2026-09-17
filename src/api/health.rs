@@ -12,8 +12,8 @@ use http::{Request, StatusCode};
 use serde::Serialize;
 
 use crate::api::{ApiHandler, ApiRegister, json_ok, simple_response};
+use crate::build_info::PRIMARY_BUNDLE;
 use crate::infra::VERSION;
-use crate::infra::build_info::PRIMARY_BUNDLE;
 use crate::infra::clock::AppClock;
 use crate::infra::error::Result;
 
@@ -153,13 +153,11 @@ struct HealthHandler {
 impl ApiHandler for HealthHandler {
     async fn handle(&self, _request: Request<Bytes>) -> crate::api::ApiResponse {
         let snapshot = self.health.snapshot();
-        let status =
-            if snapshot.checks.plugin_init == "ok" && snapshot.checks.server_startup == "ok" {
-                StatusCode::OK
-            } else {
-                StatusCode::SERVICE_UNAVAILABLE
-            };
-        json_ok(status, &snapshot)
+        // `/health` is also the management API's status document. Once the
+        // plugin runtime has initialized, return it successfully even if no
+        // DNS server listener is configured; callers can inspect `status` and
+        // `checks.server_startup` for DNS readiness.
+        json_ok(StatusCode::OK, &snapshot)
     }
 }
 
@@ -230,6 +228,20 @@ mod tests {
 
         let response = readyz.handle(test_request("/readyz")).await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        health.mark_plugins_initialized(0, 0);
+        let response = readyz.handle(test_request("/readyz")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let response = details.handle(test_request("/health")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body = std::str::from_utf8(&body).expect("utf8 json");
+        assert!(body.contains("\"status\":\"not_ready\""));
+        assert!(body.contains("\"plugin_init\":\"ok\""));
+        assert!(body.contains("\"server_startup\":\"not_ready\""));
+        assert!(body.contains("\"total\":0"));
+        assert!(body.contains("\"servers\":0"));
 
         health.mark_plugins_initialized(4, 1);
         let response = readyz.handle(test_request("/readyz")).await;

@@ -94,7 +94,7 @@ const COPY = {
         icon: 'plug',
         title: '系统联动',
         desc: 'ipset / nftset / MikroTik address-list / Prometheus，DNS 解析驱动网络行为。',
-        href: '/mikrotik-policy-routing',
+        href: '/plugin-reference/executor/integrations#ros_address_list',
       },
     ] satisfies Feature[],
     nextSteps: [
@@ -142,7 +142,7 @@ const COPY = {
         icon: 'plug',
         title: 'System integration',
         desc: 'ipset, nftset, MikroTik address lists, and Prometheus let DNS results drive network behavior.',
-        href: '/mikrotik-policy-routing',
+        href: '/plugin-reference/executor/integrations#ros_address_list',
       },
     ] satisfies Feature[],
     nextSteps: [

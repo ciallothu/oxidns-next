@@ -1,0 +1,276 @@
+---
+title: 健康、控制、日志与升级
+---
+
+
+本页汇总进程与 DNS 就绪状态、编译能力、运行控制、日志流和可选升级接口。执行变更类操作前应启用认证并限制网络来源。
+
+## 内置健康检查接口
+
+### `GET /api/healthz`
+
+作用：
+
+* 只检查 API 监听是否已建立。
+
+返回：
+
+* `200 OK`：`ok`
+* `503 Service Unavailable`：`not_listening`
+
+### `GET /api/readyz`
+
+作用：
+
+* 检查插件初始化和 server 启动是否已完成。
+
+返回：
+
+* `200 OK`：`ready`
+* `503 Service Unavailable`：`not_ready`
+
+### `GET /api/health`
+
+作用：
+
+* 返回 JSON 形式的健康详情。
+
+示例结构：
+
+```json
+{
+  "status": "ok",
+  "version": "x.y.z",
+  "build_bundle": "full",
+  "uptime_ms": 12345,
+  "checks": {
+    "api": "ok",
+    "plugin_init": "ok",
+    "server_startup": "ok"
+  },
+  "plugins": {
+    "total": 12,
+    "servers": 4
+ }
+}
+```
+
+`/api/health` 在插件初始化完成后返回 `200`，即使尚未配置 server 插件；此时响应中的 `status` 和 `checks.server_startup` 为 `not_ready`，用于区分管理 API 可用与 DNS 服务就绪。
+
+`build_bundle` 是当前二进制的主编译组合包，可能为 `minimal`、`standard`、`full` 或 `custom`。如果需要完整的 feature 和插件支持清单，请使用 `GET /api/build`。
+
+## 编译能力接口
+
+### `GET /api/build`
+
+作用：
+
+* 返回当前运行中二进制的包版本、编译组合包、启用的公开 Cargo features 和已编译支持的插件类型。
+* WebUI 使用该接口判断当前编译版本是否支持某个插件，并禁用未编译进二进制的插件入口。
+
+返回示例：
+
+```json
+{
+  "ok": true,
+  "build": {
+    "version": "1.1.4",
+    "bundle": "standard",
+    "enabled_bundles": ["standard"],
+    "enabled_features": [
+      "standard",
+      "api",
+      "metrics",
+      "server-dot",
+      "server-doh"
+    ],
+    "supported_plugins": {
+      "servers": ["tcp_server", "udp_server"],
+      "executors": ["cache", "fallback", "forward", "sequence"],
+      "matchers": ["has_resp", "qname", "qtype"],
+      "providers": ["domain_set", "ip_set"]
+    }
+  }
+}
+```
+
+字段说明：
+
+* `version`
+  * Cargo 包版本。
+* `bundle`
+  * 当前二进制的主组合包：`minimal`、`standard`、`full` 或 `custom`。
+* `enabled_bundles`
+  * 编译时显式启用的组合包 feature。默认 `full` 构建通常同时包含 `standard` 和 `full`。
+* `enabled_features`
+  * 启用的公开 Cargo features；内部 `_` features 不会出现在这里。
+* `supported_plugins`
+  * 已注册进当前二进制的插件类型，按 `servers`、`executors`、`matchers`、`providers` 分类。
+
+## 内置控制接口
+
+### `GET /api/control`
+
+作用：
+
+* 返回当前进程控制面状态。
+
+返回内容包括：
+
+* 运行状态
+* 运行时长
+* 当前配置路径
+* 是否请求过 shutdown
+* reload 状态快照
+
+### `GET /api/system`
+
+作用：
+
+* 返回当前进程、运行平台、配置路径、reload 状态、资源使用和编译能力摘要。
+
+返回内容包括：
+
+* `version`
+  * Cargo 包版本。
+* `build`
+  * 与 `GET /api/build` 中 `build` 字段相同的编译能力对象。
+* `os` / `arch`
+  * 当前运行平台。
+* `uptime_ms`
+  * 进程运行时长。
+* `config_path`
+  * 当前配置文件路径。
+* `reload`
+  * reload 状态快照。
+* `process_cpu_percent` / `process_memory_mb` / `system_memory_total_mb`
+  * 进程与系统资源使用信息。
+
+### `POST /api/shutdown`
+
+作用：
+
+* 请求优雅关闭。
+
+返回：
+
+* `202 Accepted`
+
+### `POST /api/restart`
+
+作用：
+
+* 请求应用优雅关闭当前运行实例，并使用原始命令行参数重新执行 OxiDNS。
+* Unix 平台会替换当前进程映像并保持 PID；非 Unix 平台会启动替代进程后退出当前进程。
+
+返回：
+
+* `202 Accepted`
+  * 重启请求已受理。
+* `500 Internal Server Error`
+  * 应用控制通道已关闭，无法提交重启请求。
+
+### `POST /api/reload`
+
+作用：
+
+* 请求重载配置，重新加载所有插件。
+
+返回：
+
+* `202 Accepted`
+  * 已受理。
+* `409 Conflict`
+  * 已有 reload 在 pending / in\_progress。
+
+### `GET /api/reload/status`
+
+作用：
+
+* 查询最近一次重载状态。
+
+返回字段包括：
+
+* `status`
+  * `idle`
+  * `pending`
+  * `in_progress`
+  * `ok`
+  * `failed`
+* `pending`
+* `in_progress`
+* `last_started_ms`
+* `last_completed_ms`
+* `last_success_ms`
+* `last_error`
+
+## 运行日志接口
+
+日志接口仅在进程日志缓冲区可用时注册。
+
+### `GET /api/logs`
+
+读取内存环形缓冲区中的最近日志。
+
+查询参数：
+
+* `limit`
+  * 返回条数，默认 `200`，范围 `1..=1000`。
+* `level`
+  * 可选最低日志级别：`trace`、`debug`、`info`、`warn` 或 `error`。
+
+响应包含 `ok`、实际返回数量 `total` 和 `entries` 数组。该接口读取的是内存尾部，不替代持久化日志文件。
+
+### `GET /api/logs/stream`
+
+通过 SSE 推送新日志。
+
+查询参数：
+
+* `tail`
+  * 建立连接时先回放的最近日志条数，默认 `0`，最大 `500`。
+* `level`
+  * 可选最低日志级别。
+
+每条日志使用 `event: log`，`data` 为日志 JSON；连接每 15 秒发送 heartbeat。客户端应使用 `Accept: text/event-stream`，并处理断线重连和消费落后时的日志缺口。
+
+## 升级接口
+
+这些路由仅在编译时启用 `plugin-upgrade` 时存在，官方 `standard` 和 `full` bundle 默认包含该 feature。
+
+`POST /api/upgrade/check` 和 `POST /api/upgrade/apply` 接受可选 JSON 请求体：
+
+```json
+{
+  "repository": "svenshi/oxidns",
+  "bundle": "auto",
+  "outbound": "remote",
+  "socks5": null,
+  "allow_prerelease": false,
+  "target": "latest",
+  "github_token": null
+}
+```
+
+所有字段均可省略。`github_token` 属于敏感信息，不应写入日志、截图或长期保存的请求记录。
+
+### `POST /api/upgrade/check`
+
+检查目标 release，返回当前版本、最新版本、是否存在更新、选中的 asset 名和 release URL。该操作不会下载或替换文件。
+
+### `POST /api/upgrade/apply`
+
+异步执行下载、digest 校验、备份、二进制与 WebUI 替换，并在需要时请求应用重启。
+
+返回：
+
+* `202 Accepted`
+  * 升级任务已启动；后续状态通过 `/api/upgrade/status` 查询。
+* `409 Conflict`
+  * 已有升级任务正在执行。
+
+### `GET /api/upgrade/status`
+
+返回最近一次 API 升级任务状态。`state` 可能为 `idle`、`running`、`restarting`、`completed`、`skipped` 或 `failed`，并包含开始/完成时间、错误、已安装版本和是否需要重启。
+
+升级会替换运行文件并可能重启服务。远程调用前应确认认证、备份、工作目录、WebUI 路径和回滚方式；不要把该接口暴露给不受信任的网络。

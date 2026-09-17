@@ -19,9 +19,11 @@ use serde::Deserialize;
 use tracing::{debug, info};
 
 use crate::config::types::PluginConfig;
-use crate::core::rule_matcher::IpPrefixMatcher;
+use crate::core::rule_matcher::{IpPrefixMatcher, IpRuleFamily};
 use crate::infra::clock::AppClock;
 use crate::infra::error::{DnsError, Result as DnsResult};
+use crate::infra::io::{LineClassifier, TextLine, TextLocation, TextSource};
+use crate::infra::task::spawn_isolated_build;
 use crate::plugin::dependency::DependencySpec;
 use crate::plugin::provider::Provider;
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
@@ -51,22 +53,20 @@ struct IpSetSnapshot {
 #[derive(Debug)]
 pub struct IpSet {
     tag: String,
-    args: IpSetArgs,
+    args: Arc<IpSetArgs>,
     referenced_sets: Vec<Arc<dyn Provider>>,
     snapshot: ArcSwap<IpSetSnapshot>,
 }
 
 impl IpSet {
-    #[hotpath::measure]
-    fn build_local_snapshot(&self) -> DnsResult<IpSetSnapshot> {
+    fn build_local_snapshot(tag: &str, args: &IpSetArgs) -> DnsResult<IpSetSnapshot> {
         let start_ms = AppClock::elapsed_millis();
-        let mut rules = self.args.ips.clone();
-        for file in &self.args.files {
-            append_rules_from_file(&mut rules, file)?;
-        }
-
+        let (local_rules, v4_capacity, v6_capacity) = count_ip_rules(args)?;
         let mut matcher = IpPrefixMatcher::default();
-        load_ip_rules(&mut matcher, &rules)?;
+        matcher.reserve_rules(v4_capacity, v6_capacity);
+        scan_ip_rules(args, |raw, source| {
+            add_ip_rule_from_source(&mut matcher, raw, source)
+        })?;
         matcher.finalize_compact();
 
         let has_v4_rules = matcher.has_v4_rules();
@@ -75,9 +75,9 @@ impl IpSet {
         let total_v6_rules = matcher.v6_rule_count();
         let elapsed_ms = AppClock::elapsed_millis().saturating_sub(start_ms);
         info!(
-            tag = %self.tag,
-            local_rules = rules.len(),
-            referenced_sets = self.args.sets.len(),
+            tag = %tag,
+            local_rules,
+            referenced_sets = args.sets.len(),
             v4_rules = total_v4_rules,
             v6_rules = total_v6_rules,
             has_v4_rules,
@@ -150,7 +150,12 @@ impl Provider for IpSet {
 
     #[hotpath::measure]
     async fn reload(&self) -> DnsResult<()> {
-        let snapshot = self.build_local_snapshot()?;
+        let tag = self.tag.clone();
+        let args = self.args.clone();
+        let snapshot = spawn_isolated_build("ip_set snapshot build", move || {
+            Self::build_local_snapshot(&tag, &args)
+        })
+        .await?;
         self.snapshot.store(Arc::new(snapshot));
         Ok(())
     }
@@ -202,34 +207,59 @@ impl PluginFactory for IpSetFactory {
 
         Ok(UninitializedPlugin::Provider(Box::new(IpSet {
             tag: plugin_config.tag.clone(),
-            args,
+            args: Arc::new(args),
             referenced_sets: Vec::new(),
             snapshot: ArcSwap::from_pointee(IpSetSnapshot::default()),
         })))
     }
 }
 
-fn append_rules_from_file(rules: &mut Vec<String>, path: &str) -> DnsResult<()> {
-    crate::plugin::provider::provider_utils::for_each_nonempty_rule_line(
-        path,
-        "ip rules",
-        |raw, _| {
-            let rule = normalize_ip_rule_line(raw);
-            if !rule.is_empty() {
-                rules.push(rule.to_string());
+fn scan_ip_rules<F>(args: &IpSetArgs, mut on_rule: F) -> DnsResult<()>
+where
+    F: FnMut(&str, TextLocation<'_>) -> DnsResult<()>,
+{
+    TextSource::new("args.ips", &args.ips, &args.files)
+        .scan(&LineClassifier::new(&["#"]), |line: TextLine<'_>| {
+            if line.annotations().blank || line.annotations().leading_comment.is_some() {
+                return Ok(());
             }
-            Ok(())
-        },
-    )
+            let rule = normalize_ip_rule_line(line.raw());
+            if rule.is_empty() {
+                return Ok(());
+            }
+            on_rule(rule, line.location())
+        })
+        .map_err(|error| DnsError::plugin(format!("failed to load IP rules: {error}")))
 }
 
-fn load_ip_rules(matcher: &mut IpPrefixMatcher, rules: &[String]) -> DnsResult<()> {
-    for (idx, rule) in rules.iter().enumerate() {
-        add_ip_rule(matcher, rule, &format!("rules[{}]", idx))?;
-    }
-    Ok(())
+fn count_ip_rules(args: &IpSetArgs) -> DnsResult<(usize, usize, usize)> {
+    let mut total = 0usize;
+    let mut v4 = 0usize;
+    let mut v6 = 0usize;
+    scan_ip_rules(args, |raw, source| {
+        total += 1;
+        match IpPrefixMatcher::classify_rule(raw).map_err(|error| {
+            DnsError::plugin(format!("invalid ip/cidr '{raw}' in {source}: {error}"))
+        })? {
+            IpRuleFamily::V4 => v4 += 1,
+            IpRuleFamily::V6 => v6 += 1,
+        }
+        Ok(())
+    })?;
+    Ok((total, v4, v6))
 }
 
+fn add_ip_rule_from_source(
+    matcher: &mut IpPrefixMatcher,
+    rule: &str,
+    source: TextLocation<'_>,
+) -> DnsResult<()> {
+    matcher
+        .add_rule(rule)
+        .map_err(|error| DnsError::plugin(format!("invalid ip/cidr '{rule}' in {source}: {error}")))
+}
+
+#[cfg(test)]
 fn add_ip_rule(matcher: &mut IpPrefixMatcher, rule: &str, source: &str) -> DnsResult<()> {
     let rule = rule.trim();
     if rule.is_empty() {
@@ -255,21 +285,21 @@ fn normalize_ip_rule_line(line: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::provider::provider_utils::for_each_nonempty_rule_text;
 
     fn load_rules_text(
         matcher: &mut IpPrefixMatcher,
         source_name: &str,
         content: &str,
     ) -> DnsResult<()> {
-        for_each_nonempty_rule_text(content, |raw, line_no| {
+        for (line_no, raw) in content.lines().enumerate() {
             let rule = normalize_ip_rule_line(raw);
             if rule.is_empty() {
-                return Ok(());
+                continue;
             }
-            let source = format!("file '{}', line {}", source_name, line_no);
-            add_ip_rule(matcher, rule, &source)
-        })
+            let source = format!("file '{}', line {}", source_name, line_no + 1);
+            add_ip_rule(matcher, rule, &source)?;
+        }
+        Ok(())
     }
 
     #[test]

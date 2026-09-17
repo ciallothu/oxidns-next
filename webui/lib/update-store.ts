@@ -28,6 +28,14 @@ const LEGACY_STORAGE_KEYS = [
   "oxidns:upgrade-config",
   "oxidns-next:upgrade-config",
 ];
+import { useAuthStore } from "./auth-store";
+import {
+  isAutomaticUpdateCheckDue,
+  updateCheckOptionsFingerprint,
+  updateCheckRequestKey,
+} from "./update-check-policy";
+
+const UPDATE_CHECK_STORAGE_KEY = "oxidns-next:update-check";
 
 export type UpgradeBundle = "auto" | "full" | "minimal" | "standard";
 
@@ -38,6 +46,8 @@ export interface UpgradeConfig {
   socks5: string;
   githubToken: string;
   allowPrerelease: boolean;
+  force: boolean;
+  cleanupAfterUpgrade: boolean;
   autoCheck: boolean;
 }
 
@@ -48,13 +58,12 @@ export const DEFAULT_UPGRADE_CONFIG: UpgradeConfig = {
   socks5: "",
   githubToken: "",
   allowPrerelease: false,
+  force: false,
+  cleanupAfterUpgrade: true,
   autoCheck: true,
 };
 
-type PersistedUpgradeConfig = Omit<
-  UpgradeConfig,
-  "githubToken" | "socks5"
->;
+type PersistedUpgradeConfig = Omit<UpgradeConfig, "githubToken" | "socks5">;
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -62,6 +71,13 @@ export interface UpdateInfo {
   updateAvailable: boolean;
   assetName: string;
   releaseUrl: string;
+}
+
+interface PersistedUpdateCheck {
+  requestKey: string;
+  checkedAt: number;
+  succeeded: boolean;
+  updateInfo: UpdateInfo | null;
 }
 
 export type UpgradeApplyPhase =
@@ -91,6 +107,7 @@ interface UpdateState {
   ) => void;
   setUpgradeConfig: (config: Partial<UpgradeConfig>) => void;
   checkForUpdates: (currentVersion: string) => Promise<void>;
+  checkForUpdatesIfDue: (currentVersion: string) => Promise<void>;
   triggerUpgrade: () => Promise<void>;
   resetApplyState: () => void;
 }
@@ -138,8 +155,79 @@ function pickPersistedUpgradeConfig(
     ...(config.allowPrerelease !== undefined
       ? { allowPrerelease: config.allowPrerelease }
       : {}),
+    ...(config.force !== undefined ? { force: config.force } : {}),
+    ...(config.cleanupAfterUpgrade !== undefined
+      ? { cleanupAfterUpgrade: config.cleanupAfterUpgrade }
+      : {}),
     ...(config.autoCheck !== undefined ? { autoCheck: config.autoCheck } : {}),
   };
+}
+
+function loadPersistedUpdateCheck(): PersistedUpdateCheck | null {
+  try {
+    const stored = localStorage.getItem(UPDATE_CHECK_STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as Partial<PersistedUpdateCheck>;
+    if (
+      typeof parsed.requestKey !== "string" ||
+      typeof parsed.checkedAt !== "number" ||
+      !Number.isFinite(parsed.checkedAt) ||
+      typeof parsed.succeeded !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      requestKey: parsed.requestKey,
+      checkedAt: parsed.checkedAt,
+      succeeded: parsed.succeeded,
+      updateInfo: isUpdateInfo(parsed.updateInfo) ? parsed.updateInfo : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function savePersistedUpdateCheck(check: PersistedUpdateCheck): void {
+  try {
+    localStorage.setItem(UPDATE_CHECK_STORAGE_KEY, JSON.stringify(check));
+  } catch {
+    // ignore
+  }
+}
+
+function isUpdateInfo(value: unknown): value is UpdateInfo {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<UpdateInfo>;
+  return (
+    typeof candidate.currentVersion === "string" &&
+    typeof candidate.latestVersion === "string" &&
+    typeof candidate.updateAvailable === "boolean" &&
+    typeof candidate.assetName === "string" &&
+    typeof candidate.releaseUrl === "string"
+  );
+}
+
+function createUpdateCheckRequestKey(
+  currentVersion: string,
+  config: UpgradeConfig,
+): string {
+  const backend = useAuthStore
+    .getState()
+    .serverConfig.url.trim()
+    .replace(/\/+$/, "");
+  return updateCheckRequestKey({
+    backend,
+    currentVersion,
+    repository: config.repository,
+    bundle: config.bundle,
+    allowPrerelease: config.allowPrerelease,
+    requestOptionsFingerprint: updateCheckOptionsFingerprint([
+      useAuthStore.getState().user?.id ?? "",
+      config.outbound,
+      config.socks5,
+      config.githubToken,
+    ]),
+  });
 }
 
 function upgradeConfigStorageKey(serverUrl: string, userId: string) {
@@ -209,7 +297,15 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
 
   checkForUpdates: async (currentVersion: string) => {
     const session = captureApiSession();
+    if (get().isChecking) return;
     const { upgradeConfig } = get();
+    const requestKey = createUpdateCheckRequestKey(
+      currentVersion,
+      upgradeConfig,
+    );
+    if (loadPersistedUpdateCheck()?.requestKey !== requestKey) {
+      set({ updateInfo: null });
+    }
     set({ isChecking: true, checkError: null });
     try {
       const result = await fetchUpgradeCheck({
@@ -221,33 +317,63 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         allowPrerelease: upgradeConfig.allowPrerelease,
       });
       assertApiSessionCurrent(session);
+      const updateInfo = {
+        currentVersion,
+        latestVersion: result.latest_version,
+        updateAvailable: result.update_available,
+        assetName: result.asset_name,
+        releaseUrl: result.release_url,
+      };
+      const checkedAt = Date.now();
       set({
-        updateInfo: {
-          currentVersion,
-          latestVersion: result.latest_version,
-          updateAvailable: result.update_available,
-          assetName: result.asset_name,
-          releaseUrl: result.release_url,
-        },
-        lastCheckedAt: Date.now(),
+        updateInfo,
+        lastCheckedAt: checkedAt,
         isChecking: false,
       });
+      savePersistedUpdateCheck({
+        requestKey,
+        checkedAt,
+        succeeded: true,
+        updateInfo,
+      });
     } catch (error) {
-      if (
-        isSupersededApiRequest(error) ||
-        !isApiSessionCurrent(session)
-      ) {
+      if (isSupersededApiRequest(error) || !isApiSessionCurrent(session)) {
         return;
       }
+      const checkedAt = Date.now();
       set({
         checkError:
           error instanceof Error
             ? error.message
             : tClient(WEBUI.storeErrors.updateCheckFailed),
         isChecking: false,
-        lastCheckedAt: Date.now(),
+        lastCheckedAt: checkedAt,
+      });
+      savePersistedUpdateCheck({
+        requestKey,
+        checkedAt,
+        succeeded: false,
+        updateInfo: get().updateInfo,
       });
     }
+  },
+
+  checkForUpdatesIfDue: async (currentVersion: string) => {
+    const state = get();
+    if (state.isChecking) return;
+    const requestKey = createUpdateCheckRequestKey(
+      currentVersion,
+      state.upgradeConfig,
+    );
+    const previous = loadPersistedUpdateCheck();
+    if (!isAutomaticUpdateCheckDue(previous, requestKey)) {
+      set({
+        updateInfo: previous?.updateInfo ?? null,
+        lastCheckedAt: previous?.checkedAt ?? null,
+      });
+      return;
+    }
+    await get().checkForUpdates(currentVersion);
   },
 
   triggerUpgrade: async () => {
@@ -258,10 +384,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     try {
       baseline = createProcessInstanceBaseline(await fetchHealth());
     } catch (error) {
-      if (
-        isSupersededApiRequest(error) ||
-        !isApiSessionCurrent(session)
-      ) {
+      if (isSupersededApiRequest(error) || !isApiSessionCurrent(session)) {
         return;
       }
       // Upgrade completion can still be detected through a temporary outage or
@@ -282,6 +405,8 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         socks5: upgradeConfig.socks5 || undefined,
         githubToken: upgradeConfig.githubToken.trim() || undefined,
         allowPrerelease: upgradeConfig.allowPrerelease,
+        force: upgradeConfig.force,
+        cleanup: upgradeConfig.cleanupAfterUpgrade,
       });
       const installedVersion = await pollUpgradeCompletion({
         baseline,
@@ -314,10 +439,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       assertApiSessionCurrent(session);
       if (typeof window !== "undefined") window.location.reload();
     } catch (error) {
-      if (
-        isSupersededApiRequest(error) ||
-        !isApiSessionCurrent(session)
-      ) {
+      if (isSupersededApiRequest(error) || !isApiSessionCurrent(session)) {
         return;
       }
       set({

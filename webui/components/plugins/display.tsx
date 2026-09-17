@@ -65,6 +65,15 @@ export const pluginTypeIconBg: Record<PluginType, string> = {
     "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
 };
 
+// Foreground-only treatment for compact plugin cards, where a filled icon
+// chip would compete with the plugin name and its operational data.
+export const pluginTypeIconText: Record<PluginType, string> = {
+  server: "text-emerald-600 dark:text-emerald-400",
+  executor: "text-sky-600 dark:text-sky-400",
+  matcher: "text-amber-600 dark:text-amber-400",
+  provider: "text-indigo-600 dark:text-indigo-400",
+};
+
 // Outline-style badge (transparent bg, tinted border + text). Secondary
 // "kind" badge inside topology cards.
 export const pluginTypeBadgeOutline: Record<PluginType, string> = {

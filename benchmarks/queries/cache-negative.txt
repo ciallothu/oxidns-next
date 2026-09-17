@@ -1,0 +1,16 @@
+negative-cache-01.bench.invalid A
+negative-cache-02.bench.invalid A
+negative-cache-03.bench.invalid A
+negative-cache-04.bench.invalid A
+negative-cache-05.bench.invalid A
+negative-cache-06.bench.invalid A
+negative-cache-07.bench.invalid A
+negative-cache-08.bench.invalid A
+negative-cache-09.bench.invalid A
+negative-cache-10.bench.invalid A
+negative-cache-11.bench.invalid A
+negative-cache-12.bench.invalid A
+negative-cache-13.bench.invalid A
+negative-cache-14.bench.invalid A
+negative-cache-15.bench.invalid A
+negative-cache-16.bench.invalid A

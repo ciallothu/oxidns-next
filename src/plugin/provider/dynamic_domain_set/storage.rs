@@ -3,58 +3,50 @@
 
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fs2::FileExt;
 
 use super::rules::{DynamicDomainRuleKind, canonicalize_rule};
 use crate::infra::error::{DnsError, Result as DnsResult};
+use crate::infra::io::{LineClassifier, TextSource};
 
-pub(super) fn read_rule_file(path: &Path) -> DnsResult<Vec<String>> {
+pub(super) fn read_rule_file(path: &Path) -> DnsResult<Vec<Arc<str>>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let file = File::open(path).map_err(|err| {
-        DnsError::plugin(format!(
-            "failed to open dynamic_domain_set file '{}': {}",
-            path.display(),
-            err
-        ))
-    })?;
-    let reader = BufReader::with_capacity(256 * 1024, file);
+    let files = vec![path.display().to_string()];
     let mut rules = Vec::new();
     let mut seen = HashSet::new();
-    for (line_idx, line) in reader.lines().enumerate() {
-        let line = line.map_err(|err| {
-            DnsError::plugin(format!(
-                "failed to read dynamic_domain_set file '{}' at line {}: {}",
-                path.display(),
-                line_idx + 1,
-                err
-            ))
+    TextSource::new("dynamic_domain_set.rules", &[], &files)
+        .scan(&LineClassifier::new(&["#"]), |line| -> DnsResult<()> {
+            if line.annotations().blank || line.annotations().leading_comment.is_some() {
+                return Ok(());
+            }
+            // Existing text files follow `domain_set` semantics: bare domains
+            // mean suffix-domain rules. Auto-learned exact rules are written
+            // with an explicit `full:` prefix.
+            let rule = canonicalize_rule(
+                line.trimmed(),
+                DynamicDomainRuleKind::Domain,
+                line.location(),
+            )?;
+            let rule: Arc<str> = Arc::from(rule);
+            if seen.insert(rule.clone()) {
+                rules.push(rule);
+            }
+            Ok(())
+        })
+        .map_err(|error| {
+            DnsError::plugin(format!("failed to load dynamic domain rules: {error}"))
         })?;
-        let raw = line.trim();
-        if raw.is_empty() || raw.starts_with('#') {
-            continue;
-        }
-        // Existing text files follow `domain_set` semantics: bare domains mean
-        // suffix-domain rules. Auto-learned exact rules are written with the
-        // explicit `full:` prefix, so this default does not affect them.
-        let rule = canonicalize_rule(
-            raw,
-            DynamicDomainRuleKind::Domain,
-            &format!("file '{}', line {}", path.display(), line_idx + 1),
-        )?;
-        if seen.insert(rule.clone()) {
-            rules.push(rule);
-        }
-    }
     Ok(rules)
 }
 
-pub(super) fn append_rule_file(path: &Path, rules: &[String]) -> DnsResult<()> {
+pub(super) fn append_rule_file<T: AsRef<str>>(path: &Path, rules: &[T]) -> DnsResult<()> {
     if rules.is_empty() {
         return Ok(());
     }
@@ -80,20 +72,20 @@ pub(super) fn append_rule_file(path: &Path, rules: &[String]) -> DnsResult<()> {
             }
         }
         for rule in rules {
-            writeln!(file, "{rule}")?;
+            writeln!(file, "{}", rule.as_ref())?;
         }
         file.sync_all()?;
         Ok(())
     })
 }
 
-pub(super) fn rewrite_rule_file(path: &Path, rules: &[String]) -> DnsResult<()> {
+pub(super) fn rewrite_rule_file<T: AsRef<str>>(path: &Path, rules: &[T]) -> DnsResult<()> {
     with_rule_file_lock(path, || {
         let tmp_path = temp_path_for(path);
         {
             let mut file = File::create(&tmp_path)?;
             for rule in rules {
-                writeln!(file, "{rule}")?;
+                writeln!(file, "{}", rule.as_ref())?;
             }
             file.sync_all()?;
         }
@@ -114,8 +106,8 @@ where
         fs::create_dir_all(parent)?;
     }
     // A side-car lock file avoids locking the rule file being atomically
-    // renamed. It is advisory, but it reduces corruption risk when two OxiDNS Next
-    // processes accidentally manage the same path.
+    // renamed. It is advisory, but it reduces corruption risk when two OxiDNS
+    // Next processes accidentally manage the same path.
     let lock_path = lock_path_for(path);
     let lock_file = OpenOptions::new()
         .create(true)

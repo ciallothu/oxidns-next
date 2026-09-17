@@ -7,7 +7,6 @@
 //! filter columns as ordinary scalar columns. This preserves the SQLite API
 //! contract while keeping the query plans portable and predictable.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -22,9 +21,7 @@ use super::model::{
     RecordRow, RecordSummaryRow, ResolvedDatabaseConfig, StepJson, TableNames, TimeseriesPoint,
     TimeseriesQuery, TimeseriesResponse, TopBucketRow, TopBucketsResponse, TopQuery,
 };
-use super::store::{
-    bucket_floor, bucket_share, latency_histogram, latency_percentiles, percentile_value,
-};
+use super::store::{bucket_share, latency_histogram, latency_percentiles};
 use crate::infra::error::{DnsError, Result};
 
 const CLEANUP_BATCH_SIZE: i64 = 1_000;
@@ -137,7 +134,7 @@ impl RemotePool {
         }
     }
 
-    pub(super) async fn cleanup(&self, tables: &TableNames, cutoff_ms: i64) -> Result<()> {
+    pub(super) async fn cleanup(&self, tables: &TableNames, cutoff_ms: i64) -> Result<usize> {
         match self {
             Self::Postgres(pool) => cleanup_postgres(pool, tables, cutoff_ms).await,
             Self::Mysql(pool) => cleanup_mysql(pool, tables, cutoff_ms).await,
@@ -597,7 +594,7 @@ fn i64_from_usize(value: usize, field: &str) -> Result<i64> {
     i64::try_from(value).map_err(|_| DnsError::runtime(format!("query_recorder {field} overflow")))
 }
 
-async fn cleanup_postgres(pool: &PgPool, tables: &TableNames, cutoff_ms: i64) -> Result<()> {
+async fn cleanup_postgres(pool: &PgPool, tables: &TableNames, cutoff_ms: i64) -> Result<usize> {
     let sql = format!(
         "DELETE FROM {records}
          WHERE id IN (
@@ -608,6 +605,7 @@ async fn cleanup_postgres(pool: &PgPool, tables: &TableNames, cutoff_ms: i64) ->
          )",
         records = tables.records
     );
+    let mut total = 0usize;
     loop {
         let affected = sqlx::query(&sql)
             .bind(cutoff_ms)
@@ -615,14 +613,15 @@ async fn cleanup_postgres(pool: &PgPool, tables: &TableNames, cutoff_ms: i64) ->
             .execute(pool)
             .await?
             .rows_affected();
+        total = total.saturating_add(usize::try_from(affected).unwrap_or(usize::MAX));
         if affected == 0 {
             break;
         }
     }
-    Ok(())
+    Ok(total)
 }
 
-async fn cleanup_mysql(pool: &MySqlPool, tables: &TableNames, cutoff_ms: i64) -> Result<()> {
+async fn cleanup_mysql(pool: &MySqlPool, tables: &TableNames, cutoff_ms: i64) -> Result<usize> {
     let sql = format!(
         "DELETE FROM {records}
          WHERE id IN (
@@ -635,6 +634,7 @@ async fn cleanup_mysql(pool: &MySqlPool, tables: &TableNames, cutoff_ms: i64) ->
          )",
         records = tables.records
     );
+    let mut total = 0usize;
     loop {
         let affected = sqlx::query(&sql)
             .bind(cutoff_ms)
@@ -642,11 +642,12 @@ async fn cleanup_mysql(pool: &MySqlPool, tables: &TableNames, cutoff_ms: i64) ->
             .execute(pool)
             .await?
             .rows_affected();
+        total = total.saturating_add(usize::try_from(affected).unwrap_or(usize::MAX));
         if affected == 0 {
             break;
         }
     }
-    Ok(())
+    Ok(total)
 }
 
 #[derive(Debug, Clone)]
@@ -1282,38 +1283,46 @@ impl RemotePool {
         query: TimeseriesQuery,
     ) -> Result<TimeseriesResponse> {
         let dialect = self.dialect();
+        let window = super::timeseries::Window::new(&query)?;
         let mut builder = SqlBuilder::new(dialect);
         let clauses = record_filter_clauses(
             "r",
             tables,
-            query.since_ms,
-            query.until_ms,
+            Some(window.since),
+            Some(window.until),
             &query.filter,
             &mut builder,
         )?;
-        let sample_limit = builder.bind(BindValue::I64(STATS_SAMPLE_LIMIT));
-        let has_response = dialect.signed_count("r.has_response");
-        let sql = format!(
-            "SELECT r.created_at_ms, r.elapsed_ms, r.error,
-                    {has_response} AS has_response
-             FROM {} r
-             WHERE {}
-             ORDER BY r.created_at_ms DESC, r.id DESC
-             LIMIT {}",
-            tables.records,
-            join_clauses(&clauses),
-            sample_limit
-        );
-        let statement = builder.finish(sql);
-        let rows = match self {
+        let bucket = match (query.bucket, dialect) {
+            (super::model::TimeseriesBucket::Month, RemoteDialect::Postgres) => {
+                "EXTRACT(YEAR FROM (TIMESTAMP 'epoch' + r.created_at_ms * INTERVAL '1 millisecond')) * 12 + EXTRACT(MONTH FROM (TIMESTAMP 'epoch' + r.created_at_ms * INTERVAL '1 millisecond')) - 1".to_string()
+            }
+            (super::model::TimeseriesBucket::Month, RemoteDialect::Mysql) => {
+                "YEAR(TIMESTAMPADD(MICROSECOND, r.created_at_ms * 1000, '1970-01-01 00:00:00')) * 12 + MONTH(TIMESTAMPADD(MICROSECOND, r.created_at_ms * 1000, '1970-01-01 00:00:00')) - 1".to_string()
+            }
+            (_, RemoteDialect::Postgres) => format!("r.created_at_ms / {}", query.bucket.millis()),
+            (_, RemoteDialect::Mysql) => format!("r.created_at_ms DIV {}", query.bucket.millis()),
+        };
+        let (integer, float) = match dialect {
+            RemoteDialect::Postgres => ("BIGINT", "DOUBLE PRECISION"),
+            RemoteDialect::Mysql => ("SIGNED", "DOUBLE"),
+        };
+        let statement = builder.finish(super::timeseries::aggregation_sql(
+            &tables.records,
+            &join_clauses(&clauses),
+            &bucket,
+            integer,
+            float,
+        ));
+        let points = match self {
             Self::Postgres(pool) => {
-                aggregate_timeseries(&fetch_all_postgres(pool, &statement).await?, &query)?
+                decode_timeseries(&fetch_all_postgres(pool, &statement).await?, query.bucket)?
             }
             Self::Mysql(pool) => {
-                aggregate_timeseries(&fetch_all_mysql(pool, &statement).await?, &query)?
+                decode_timeseries(&fetch_all_mysql(pool, &statement).await?, query.bucket)?
             }
         };
-        Ok(rows)
+        window.finish(points)
     }
 }
 
@@ -1336,67 +1345,22 @@ fn decode_slow_rows<R: DecodeRemoteRow>(rows: &[R]) -> Result<Vec<LatencySlowRow
         .collect()
 }
 
-fn aggregate_timeseries<R: DecodeRemoteRow>(
+fn decode_timeseries<R: DecodeRemoteRow>(
     rows: &[R],
-    query: &TimeseriesQuery,
-) -> Result<TimeseriesResponse> {
-    #[derive(Default)]
-    struct Aggregator {
-        total: u64,
-        error_count: u64,
-        no_response_count: u64,
-        elapsed_sum: u64,
-        elapsed_values: Vec<u64>,
-    }
-
-    let bucket_ms = query.bucket.millis();
-    let mut buckets: BTreeMap<i64, Aggregator> = BTreeMap::new();
-    let mut sample_size = 0u64;
-    for row in rows {
-        let created_at_ms = row.i64_at(0)?;
-        let elapsed_ms = non_negative_u64(row.i64_at(1)?, "elapsed_ms")?;
-        let error = row.optional_string_at(2)?;
-        let has_response = row.i64_at(3)? != 0;
-        let aggregator = buckets
-            .entry(bucket_floor(created_at_ms, bucket_ms))
-            .or_default();
-        aggregator.total = aggregator.total.saturating_add(1);
-        if error.is_some() {
-            aggregator.error_count = aggregator.error_count.saturating_add(1);
-        }
-        if error.is_none() && !has_response {
-            aggregator.no_response_count = aggregator.no_response_count.saturating_add(1);
-        }
-        aggregator.elapsed_sum = aggregator.elapsed_sum.saturating_add(elapsed_ms);
-        aggregator.elapsed_values.push(elapsed_ms);
-        sample_size = sample_size.saturating_add(1);
-    }
-
-    let mut points = Vec::with_capacity(buckets.len());
-    for (bucket, mut aggregator) in buckets {
-        let avg_ms = if aggregator.total == 0 {
-            0.0
-        } else {
-            aggregator.elapsed_sum as f64 / aggregator.total as f64
-        };
-        points.push(TimeseriesPoint {
-            bucket_ms: bucket,
-            total: aggregator.total,
-            error_count: aggregator.error_count,
-            no_response_count: aggregator.no_response_count,
-            avg_ms,
-            p95_ms: percentile_value(&mut aggregator.elapsed_values, 0.95),
-        });
-    }
-    if points.len() > query.max_buckets {
-        points.drain(0..points.len() - query.max_buckets);
-    }
-    Ok(TimeseriesResponse {
-        ok: true,
-        sample_size,
-        bucket_ms,
-        points,
-    })
+    bucket: super::model::TimeseriesBucket,
+) -> Result<Vec<TimeseriesPoint>> {
+    rows.iter()
+        .map(|row| {
+            Ok(TimeseriesPoint {
+                bucket_ms: bucket.start(row.i64_at(0)?)?,
+                total: non_negative_u64(row.i64_at(1)?, "total")?,
+                error_count: non_negative_u64(row.i64_at(2)?, "errors")?,
+                no_response_count: non_negative_u64(row.i64_at(3)?, "missing")?,
+                avg_ms: row.f64_at(4)?,
+                p95_ms: non_negative_u64(row.i64_at(5)?, "p95")?,
+            })
+        })
+        .collect()
 }
 
 fn record_filter_clauses(

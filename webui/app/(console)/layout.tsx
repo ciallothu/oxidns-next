@@ -22,6 +22,12 @@ import { UpgradeOverlay } from "@/components/shell/upgrade-overlay";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
+import { useVisiblePolling } from "@/hooks/use-visible-polling";
+import {
+  ACTIVE_METRICS_POLL_INTERVAL_MS,
+  metricsPollingInterval,
+} from "@/lib/polling-policy";
+import { updateCheckOptionsFingerprint } from "@/lib/update-check-policy";
 
 export default function ConsoleLayout({
   children,
@@ -38,31 +44,43 @@ export default function ConsoleLayout({
   const isOfflineMode = useAppStore((s) => s.isOfflineMode);
   const exitOfflineMode = useAppStore((s) => s.exitOfflineMode);
   const isConnected = useAuthStore((s) => s.isConnected);
+  const sessionGeneration = useAuthStore((s) => s.sessionGeneration);
   const isConnecting = useAuthStore((s) => s.isConnecting);
   const connectionError = useAuthStore((s) => s.connectionError);
   const needsCredentials = useAuthStore((s) => s.needsCredentials);
   const setupRequired = useAuthStore((s) => s.setupRequired);
   const authUserId = useAuthStore((s) => s.user?.id ?? null);
   const authServerUrl = useAuthStore((s) => s.serverConfig.url);
-  const sessionGeneration = useAuthStore((s) => s.sessionGeneration);
   const hasAttemptedAutoConnect = useAuthStore(
     (s) => s.hasAttemptedAutoConnect,
   );
   const attemptAutoConnect = useAuthStore((s) => s.attemptAutoConnect);
   const isAuthHydrated = useAuthStore((s) => s.isHydrated);
   const pathname = usePathname();
-  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
+  const checkForUpdatesIfDue = useUpdateStore((s) => s.checkForUpdatesIfDue);
   const resetApplyState = useUpdateStore((s) => s.resetApplyState);
   const syncUpgradeSessionScope = useUpdateStore(
     (s) => s.syncSessionScope,
   );
   const upgradeAutoCheck = useUpdateStore((s) => s.upgradeConfig.autoCheck);
+  const upgradeCheckContextKey = useUpdateStore((s) =>
+    JSON.stringify([
+      s.upgradeConfig.repository,
+      s.upgradeConfig.bundle,
+      String(s.upgradeConfig.allowPrerelease),
+      updateCheckOptionsFingerprint([
+        s.upgradeConfig.outbound,
+        s.upgradeConfig.socks5,
+        s.upgradeConfig.githubToken,
+      ]),
+    ]),
+  );
   const buildInfo = useAppStore((s) => s.buildInfo);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const sidebarStateBeforeEditor = useRef(sidebarOpen);
   const previousEditorMode = useRef(editorMode);
   const previousBackendScope = useRef<string | null>(null);
-  const hasCheckedUpdates = useRef(false);
+  const metricsIntervalMs = metricsPollingInterval(pathname, editorMode);
 
   // Once the store has hydrated, eagerly probe the configured backend (default
   // `/api`). Only fall back to the connection prompt if that attempt fails.
@@ -100,28 +118,34 @@ export default function ConsoleLayout({
 
   const health = useAppStore((s) => s.health);
   const system = useAppStore((s) => s.system);
+  const backendSupportsUpgrade =
+    buildInfo?.enabled_features.includes("plugin-upgrade") === true;
+  const runtimeVersion = system?.version ?? health?.version;
 
   useEffect(() => {
-    if (!isConnected || hasCheckedUpdates.current || !upgradeAutoCheck) return;
-    if (!buildInfo?.enabled_features.includes("plugin-upgrade")) return;
-    const version = system?.version ?? health?.version;
-    if (!version) return;
-    hasCheckedUpdates.current = true;
-    void checkForUpdates(version);
+    if (
+      !isConnected ||
+      !upgradeAutoCheck ||
+      !backendSupportsUpgrade ||
+      !runtimeVersion
+    ) {
+      return;
+    }
+    void checkForUpdatesIfDue(runtimeVersion);
   }, [
     isConnected,
+    sessionGeneration,
     upgradeAutoCheck,
-    health,
-    system,
-    buildInfo,
-    checkForUpdates,
+    backendSupportsUpgrade,
+    runtimeVersion,
+    upgradeCheckContextKey,
+    checkForUpdatesIfDue,
   ]);
 
-  // On disconnect: allow auto-check to re-fire on the next reconnect, and
-  // clear any in-progress upgrade state (the server restarted or the apply failed).
+  // Clear any in-progress upgrade state after disconnect; automatic checks
+  // use their persisted request timestamp to decide whether to run again.
   useEffect(() => {
     if (!isConnected) {
-      hasCheckedUpdates.current = false;
       resetApplyState();
     }
   }, [isConnected, resetApplyState]);
@@ -147,15 +171,15 @@ export default function ConsoleLayout({
     if (isConnected && isOfflineMode) exitOfflineMode();
   }, [isConnected, isOfflineMode, exitOfflineMode]);
 
-  // Keep plugin metrics live across the whole console (cards + detail sheet),
-  // not just on the dashboard's runtime-state poll.
-  useEffect(() => {
-    if (!isConnected) return;
-    const id = setInterval(() => {
-      void refreshMetrics();
-    }, 5_000);
-    return () => clearInterval(id);
-  }, [isConnected, refreshMetrics]);
+  // Metrics are useful on dashboard/plugin surfaces and for the outbound
+  // panel in settings. Logs and the config editor do not scrape them.
+  useVisiblePolling(
+    refreshMetrics,
+    metricsIntervalMs ?? ACTIVE_METRICS_POLL_INTERVAL_MS,
+    isConnected && metricsIntervalMs !== null,
+    `${sessionGeneration}:${pathname}`,
+    true,
+  );
 
   useEffect(() => {
     const el = document.documentElement;

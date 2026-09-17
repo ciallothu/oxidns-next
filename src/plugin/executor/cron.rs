@@ -332,7 +332,7 @@ impl CronExecutor {
                     )));
                 }
 
-                let quick_tag = format!("@qs:cron:{}:{}:{}", self.tag, job_index, exec_index);
+                let quick_tag = format!("qs.cron.{}.{}.{}", self.tag, job_index, exec_index);
                 let executor = match context
                     .init_quick_setup(&plugin_type, &quick_tag, param)
                     .await?

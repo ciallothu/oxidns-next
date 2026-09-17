@@ -35,6 +35,8 @@ pub use crate::plugin::executor::sequence::chain::ExecutorNext;
 pub mod arbitrary;
 pub mod black_hole;
 pub mod cache;
+#[cfg(feature = "plugin-client-ip-from-ecs")]
+pub mod client_ip_from_ecs;
 #[cfg(feature = "plugin-cron")]
 pub mod cron;
 pub mod debug_print;
@@ -67,10 +69,16 @@ pub(crate) mod rdata_json;
 pub mod redirect;
 pub mod reload;
 pub mod reload_provider;
+#[cfg(feature = "plugin-response")]
+pub mod response;
 #[cfg(feature = "plugin-reverse-lookup")]
 pub mod reverse_lookup;
-#[cfg(feature = "plugin-mikrotik")]
+#[cfg(feature = "plugin-ros-address-list")]
 pub mod ros_address_list;
+#[cfg(feature = "plugin-ros-route")]
+pub mod ros_route;
+#[cfg(any(feature = "plugin-ros-address-list", feature = "plugin-ros-route"))]
+pub(crate) mod routeros;
 #[cfg(feature = "plugin-script")]
 pub mod script;
 pub mod sequence;

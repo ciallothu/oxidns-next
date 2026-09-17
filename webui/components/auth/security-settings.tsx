@@ -93,6 +93,7 @@ export function SecuritySettings() {
     // account's TOTP setup, recovery codes, passkeys, or OIDC identities.
     scopeSerial.current += 1;
     refreshSerial.current += 1;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear state immediately when synchronizing to a different authenticated account.
     setSummary(null);
     setTotpSetup(null);
     setTotpSetupExpiresAt(null);

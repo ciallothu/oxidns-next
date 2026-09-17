@@ -1,0 +1,207 @@
+---
+title: Conventions and Security
+---
+
+import Admonition from "@theme/Admonition";
+
+This page covers management API listeners, authentication, transport security, WebUI/CORS behavior, and route layout. Also read [Security Hardening](../security.md) before production deployment.
+
+## Request conventions
+
+- Management endpoints live under `/api/*`; plugin endpoints use `/api/plugins/<plugin_tag>/<route>`.
+- After enabling Basic Auth or mTLS, clients must present credentials on every protected request. Scripts should never write passwords or tokens to logs.
+- Call ordinary endpoints with the HTTP method and status semantics documented in each topic. SSE logs and query recorder streams use `Accept: text/event-stream` and require reconnect handling.
+- `/api/metrics` uses the Prometheus exposition format and is not a JSON API.
+- Completion of a mutating request does not mean DNS service has recovered. After reload, restart, or upgrade, inspect the operation status and `/api/readyz`.
+
+## How to Enable It
+
+### Shorthand
+
+```yaml
+api:
+  http: "127.0.0.1:9088"
+```
+
+Listen addresses support `ip:port`, `[ipv6]:port`, and `:port`. `http: ":9088"` binds as dual-stack `[::]:9088`; use `0.0.0.0:9088` for IPv4-only.
+
+### Expanded Form
+
+```yaml
+api:
+  http:
+    listen: "127.0.0.1:9443"
+    ssl:
+      cert: "/etc/oxidns/api.crt"
+      key: "/etc/oxidns/api.key"
+      client_ca: "/etc/oxidns/client-ca.crt"
+      require_client_cert: true
+    auth:
+      type: basic
+      username: "admin"
+      password: "secret"
+    webui:
+      root: "/etc/oxidns/webui"
+      index: "index.html"
+```
+
+## Authentication and Transport
+
+### TLS
+
+When both `ssl.cert` and `ssl.key` are configured, the API is served over HTTPS.
+
+Optional hardening:
+
+* `client_ca`
+  * Configures the client CA.
+* `require_client_cert`
+  * Enforces mutual TLS.
+
+### Basic Auth
+
+```yaml
+auth:
+  type: basic
+  username: "admin"
+  password: "secret"
+```
+
+When enabled, all API requests require Basic Auth.
+
+The request header looks like this:
+
+```http
+Authorization: Basic YWRtaW46c2VjcmV0
+```
+
+Encoding rules:
+
+* Concatenate the raw string as `username:password`
+* Base64-encode the whole string
+* Prefix the header value with `Basic `
+
+In the example above, the Base64 value for `admin:secret` is `YWRtaW46c2VjcmV0`.
+
+<Admonition type="note" title="Notes">
+
+* This uses standard Base64, not URL-safe Base64.
+* Do not encode `username` and `password` separately.
+* Do not percent-encode or URL-encode first.
+* The server compares the fully decoded value directly against `username:password`.
+
+</Admonition>
+
+Examples:
+
+```bash
+curl -u admin:secret http://127.0.0.1:9088/api/healthz
+```
+
+Or:
+
+```bash
+curl -H 'Authorization: Basic YWRtaW46c2VjcmV0' \
+  http://127.0.0.1:9088/api/healthz
+```
+
+### Static WebUI Files
+
+The management API can serve an external WebUI static directory. The WebUI is mounted at `/`, and management API routes are under `/api/*`:
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:9199"
+    webui:
+      root: "/etc/oxidns/webui"
+      index: "index.html"
+```
+
+After enabling it, open `http://server:9199/` for the WebUI. The WebUI uses same-origin `/api` requests to reach the backend. Static files are not protected by Basic Auth, while `/api/*` keeps the management API authentication and CORS behavior. If `webui.root` is relative, it resolves against OxiDNS `-d/--working-dir`, not the configuration file directory. See [WebUI Deployment](../webui.md) for the full configuration, build steps, and standalone nginx example.
+
+### CORS / WebUI Cross-Origin Access
+
+By default, the management API infers WebUI CORS behavior from `api.http.listen`:
+
+* When listening on `0.0.0.0` or `[::]`, it returns `Access-Control-Allow-Origin: *`.
+* When listening on a specific IP, it allows WebUI origins on the same host without constraining the WebUI port. For example, if the API listens on `192.168.1.10:8080`, both `http://192.168.1.10:3000` and `http://192.168.1.10:5173` are allowed.
+* When listening on `127.0.0.1` or `[::1]`, `localhost` is also allowed.
+
+To tighten or override the automatic policy, configure `cors.allowed_origins` explicitly:
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:8080"
+    cors:
+      allowed_origins:
+        - "http://localhost:3000"
+        - "http://192.168.1.100:3000"
+```
+
+When configured explicitly, `allowed_origins` is matched exactly against the browser's `Origin` header. Use `"*"` to allow any origin, but browsers will not accept credentialed cross-origin requests with a wildcard origin.
+
+## Route Layout
+
+API routes fall into three groups:
+
+* Global routes
+  * For example `/api/healthz` and `/api/control`
+* Plugin routes
+  * Uniform format: `/api/plugins/<plugin_tag>/<subpath>`
+* Observability routes
+  * For example `/api/metrics`
+
+## Config Reference
+
+### Minimal Management Plane
+
+```yaml
+api:
+  http: "127.0.0.1:9088"
+```
+
+Good fit:
+
+* Local operations
+* Process self-checks
+* Metrics scraping
+
+### Protected Control Plane
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:9443"
+    ssl:
+      cert: "/etc/oxidns/api.crt"
+      key: "/etc/oxidns/api.key"
+    auth:
+      type: basic
+      username: "admin"
+      password: "secret"
+```
+
+Good fit:
+
+* Remote control
+* Integration with external operations platforms
+
+### Mutual-TLS Control Plane
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:9443"
+    ssl:
+      cert: "/etc/oxidns/api.crt"
+      key: "/etc/oxidns/api.key"
+      client_ca: "/etc/oxidns/client-ca.crt"
+      require_client_cert: true
+```
+
+Good fit:
+
+* Strictly controlled automation systems
+* Multi-tenant or high-sensitivity operational environments

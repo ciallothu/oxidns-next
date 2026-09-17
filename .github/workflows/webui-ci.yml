@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   webui:
-    name: Typecheck and Build
+    name: Lint, Test, Typecheck and Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -33,7 +33,7 @@ jobs:
           version: 10
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -46,6 +46,14 @@ jobs:
       - name: Typecheck WebUI
         working-directory: webui
         run: pnpm typecheck
+
+      - name: Lint WebUI
+        working-directory: webui
+        run: pnpm lint
+
+      - name: Test WebUI
+        working-directory: webui
+        run: pnpm test
 
       - name: Build WebUI
         working-directory: webui

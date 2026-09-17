@@ -1,0 +1,45 @@
+http:
+  address: 127.0.0.1:0
+  session_ttl: 24h
+users: []
+auth_attempts: 0
+block_auth_min: 0
+http_proxy: ""
+language: en
+theme: auto
+dns:
+  bind_hosts: [127.0.0.1]
+  port: 5352
+  ratelimit: 0
+  refuse_any: true
+  upstream_dns: ['127.0.0.1:5453']
+  upstream_mode: load_balance
+  fastest_timeout: 1s
+  cache_enabled: true
+  cache_size: 4194304
+  cache_ttl_min: 0
+  cache_ttl_max: 0
+  cache_optimistic: false
+  aaaa_disabled: false
+  enable_dnssec: false
+  max_goroutines: 0
+  upstream_timeout: 5s
+  serve_plain_dns: true
+  hostsfile_enabled: false
+querylog: {enabled: false, file_enabled: false, interval: 24h, size_memory: 0}
+statistics: {enabled: false, interval: 24h}
+filters: []
+whitelist_filters: []
+user_rules: []
+filtering:
+  blocking_mode: nxdomain
+  rewrites: []
+  safe_fs_patterns: []
+  filtering_enabled: false
+  rewrites_enabled: false
+  protection_enabled: false
+clients:
+  runtime_sources: {whois: false, arp: false, rdns: false, dhcp: false, hosts: false}
+  persistent: []
+log: {enabled: false, file: "", verbose: false}
+schema_version: 34

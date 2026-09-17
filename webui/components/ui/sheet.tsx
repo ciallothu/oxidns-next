@@ -4,6 +4,8 @@ import * as React from "react";
 import { Dialog as SheetPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
+import { WEBUI } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/provider";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";
 
@@ -57,6 +59,7 @@ function SheetContent({
   showCloseButton?: boolean;
   overlayClassName?: string;
 }) {
+  const { t } = useI18n();
   return (
     <SheetPortal>
       <SheetOverlay className={overlayClassName} />
@@ -78,7 +81,7 @@ function SheetContent({
               size="icon-sm"
             >
               <XIcon />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">{t(WEBUI.common.close)}</span>
             </Button>
           </SheetPrimitive.Close>
         )}

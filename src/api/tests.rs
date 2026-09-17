@@ -123,6 +123,16 @@ fn http1_full_client() -> Client<HttpConnector, Full<Bytes>> {
 fn test_build_plugin_route_path() {
     let route = build_plugin_route_path("cache_main", "/flush").expect("route should be built");
     assert_eq!(route, "/plugins/cache_main/flush");
+
+    let sequence_tag = "a".repeat(crate::config::types::MAX_PLUGIN_TAG_LENGTH);
+    let quick_setup_tag = format!("qs.exec.{sequence_tag}.0.cache");
+    assert!(quick_setup_tag.len() > crate::config::types::MAX_PLUGIN_TAG_LENGTH);
+    let quick_setup_route =
+        build_plugin_route_path(&quick_setup_tag, "/flush").expect("synthetic system tag route");
+    assert_eq!(
+        quick_setup_route,
+        format!("/plugins/{quick_setup_tag}/flush")
+    );
 }
 
 #[test]
@@ -143,6 +153,40 @@ fn test_only_authentication_handshake_routes_are_public() {
     assert!(!auth::is_public_route(&Method::GET, "/auth/oidc/start"));
     assert!(!auth::is_public_route(&Method::GET, "/healthz"));
     assert!(!auth::is_public_route(&Method::POST, "/auth/logout"));
+}
+
+#[test]
+fn test_build_plugin_route_path_rejects_invalid_tag_segment() {
+    let err = build_plugin_route_path("cache..cn", "/records")
+        .expect_err("invalid tag should be rejected");
+    assert_eq!(
+        err.to_string(),
+        "Plugin error: plugin tag 'cache..cn' is not valid for API route paths: contains an empty dot-separated segment"
+    );
+}
+
+#[test]
+fn test_build_plugin_route_path_rejects_dot_segments() {
+    for tag in [".", "..", ".cache", "cache."] {
+        assert!(
+            build_plugin_route_path(tag, "/records").is_err(),
+            "{tag} should be rejected before route registration"
+        );
+    }
+}
+
+#[test]
+fn test_plugin_registrar_does_not_trim_tag_before_validation() {
+    let addr = reserve_local_addr();
+    let hub = test_api_hub(addr, None);
+    let register = ApiRegister::new(hub);
+
+    assert!(register.plugin(" cache_main").is_err());
+    assert!(register.plugin("cache_main ").is_err());
+
+    let sequence_tag = "a".repeat(crate::config::types::MAX_PLUGIN_TAG_LENGTH);
+    let quick_setup_tag = format!("qs.exec.{sequence_tag}.0.cache");
+    assert!(register.plugin(&quick_setup_tag).is_ok());
 }
 
 #[test]
@@ -395,6 +439,40 @@ async fn test_global_api_route_macros_noop_when_api_is_disabled() {
         DELETE_PREFIX "/noop/" => TestEchoHandler,
     )
     .expect("plugin route no-op");
+}
+
+#[tokio::test]
+async fn test_plugin_route_with_safe_tag_segment() {
+    AppClock::start();
+    let addr = reserve_local_addr();
+    let hub = test_api_hub(addr, None);
+    let register = ApiRegister::new(hub.clone());
+    register
+        .register_plugin_get(
+            "query_recorder.main-1",
+            "/records",
+            Arc::new(TestEchoHandler),
+        )
+        .expect("register plugin route");
+
+    start_test_api_hub(&hub).await;
+    let client = http1_client();
+    let uri: Uri = format!("http://{addr}/api/plugins/query_recorder.main-1/records")
+        .parse()
+        .expect("plugin route uri");
+    let response = client
+        .request(
+            HyperRequest::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .body(Empty::new())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    hub.stop().await;
 }
 
 #[tokio::test]

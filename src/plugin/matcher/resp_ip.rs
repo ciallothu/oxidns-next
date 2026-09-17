@@ -18,11 +18,11 @@ use crate::infra::error::Result as DnsResult;
 use crate::plugin::dependency::DependencySpec;
 use crate::plugin::matcher::Matcher;
 #[cfg(test)]
-use crate::plugin::matcher::matcher_utils::parse_ip_prefix_matcher;
-use crate::plugin::matcher::matcher_utils::{
+use crate::plugin::matcher::rules::parse_ip_prefix_matcher;
+use crate::plugin::matcher::rules::{
     ensure_ip_capable_providers, parse_ip_rules_and_set_tags, parse_quick_setup_rules,
-    parse_rules_from_value, provider_dependency_specs, resolve_provider_tags,
-    validate_non_empty_ip_rules_or_set_tags,
+    parse_rules_from_value, provider_dependency_specs, provider_tags_from_rules,
+    resolve_provider_tags, validate_non_empty_ip_rules_or_set_tags,
 };
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::plugin_factory;
@@ -36,9 +36,7 @@ impl PluginFactory for RespIpFactory {
         let Ok(rules) = parse_rules_from_value(plugin_config.args.clone()) else {
             return vec![];
         };
-        let Ok((_, ip_set_tags)) = parse_ip_rules_and_set_tags(rules, "resp_ip") else {
-            return vec![];
-        };
+        let ip_set_tags = provider_tags_from_rules(&rules);
         provider_dependency_specs("args.ip_set_tags", ip_set_tags)
     }
 
@@ -46,9 +44,7 @@ impl PluginFactory for RespIpFactory {
         let Ok(rules) = parse_quick_setup_rules(param.map(str::to_owned)) else {
             return vec![];
         };
-        let Ok((_, ip_set_tags)) = parse_ip_rules_and_set_tags(rules, "resp_ip") else {
-            return vec![];
-        };
+        let ip_set_tags = provider_tags_from_rules(&rules);
         provider_dependency_specs("ip_set_tags", ip_set_tags)
     }
 

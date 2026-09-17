@@ -1,17 +1,19 @@
 // SPDX-FileCopyrightText: 2025 Sven Shi
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender as ReplySender, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex, MutexGuard, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak,
+};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 use tokio::sync::{Semaphore, broadcast, mpsc, oneshot};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use super::model::{
     PendingRecord, RecordDetail, ResolvedDatabaseConfig, ResolvedRecorderConfig, TableNames,
@@ -30,7 +32,7 @@ pub(super) enum StorageBackend {
 }
 
 #[derive(Debug)]
-enum WriterQueue {
+pub(super) enum WriterQueue {
     Blocking(SyncSender<WriterCommand>),
     Async(mpsc::Sender<WriterCommand>),
 }
@@ -43,7 +45,7 @@ impl WriterQueue {
         }
     }
 
-    fn blocking_send(&self, command: WriterCommand) -> std::result::Result<(), String> {
+    pub(super) fn blocking_send(&self, command: WriterCommand) -> std::result::Result<(), String> {
         match self {
             Self::Blocking(sender) => sender.send(command).map_err(|err| err.to_string()),
             Self::Async(sender) => sender.blocking_send(command).map_err(|err| err.to_string()),
@@ -62,7 +64,7 @@ pub(super) struct RecorderBackend {
     pub(super) tag: String,
     pub(super) storage: StorageBackend,
     pub(super) tables: TableNames,
-    queue_tx: WriterQueue,
+    pub(super) queue_tx: WriterQueue,
     pub(super) stop_requested: Arc<AtomicBool>,
     writer_handle: Mutex<Option<WriterHandle>>,
     pub(super) tail: Arc<Mutex<VecDeque<RecordDetail>>>,
@@ -72,13 +74,55 @@ pub(super) struct RecorderBackend {
     pub(super) reader_semaphore: Arc<Semaphore>,
     pub(super) acquire_timeout: Duration,
     pub(super) query_timeout: Duration,
+    pub(super) database_coordinator: Arc<DatabaseCoordinator>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct SpaceStats {
+    pub(super) auto_vacuum: i64,
+    pub(super) page_size: u64,
+    pub(super) page_count: u64,
+    pub(super) freelist_count: u64,
+    pub(super) database_bytes: u64,
+    pub(super) wal_bytes: u64,
+}
+
+impl SpaceStats {
+    pub(super) fn total_bytes(&self) -> u64 {
+        self.database_bytes.saturating_add(self.wal_bytes)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct SpaceReclaimResult {
+    pub(super) before: SpaceStats,
+    pub(super) reclaimable: SpaceStats,
+    pub(super) after: SpaceStats,
+    pub(super) migrated: bool,
+    pub(super) peak_wal_bytes: u64,
+}
+
+impl SpaceReclaimResult {
+    pub(super) fn reclaimed_bytes(&self) -> u64 {
+        self.before
+            .total_bytes()
+            .saturating_sub(self.after.total_bytes())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CleanupResult {
+    pub(super) deleted_records: usize,
+    pub(super) space: Option<SpaceReclaimResult>,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct ClearHistoryResult {
     pub(super) cleared_records: usize,
+    pub(super) space: Option<SpaceReclaimResult>,
 }
 
+pub(super) type CleanupReply = std::result::Result<CleanupResult, String>;
 pub(super) type ClearHistoryReply = std::result::Result<ClearHistoryResult, String>;
 #[cfg(test)]
 pub(super) type FlushReply = std::result::Result<(), String>;
@@ -88,6 +132,7 @@ pub(super) enum WriterCommand {
     Insert(Box<PendingRecord>),
     Cleanup {
         cutoff_ms: i64,
+        reply_tx: ReplySender<CleanupReply>,
     },
     ClearHistory {
         reply_tx: ReplySender<ClearHistoryReply>,
@@ -100,6 +145,7 @@ pub(super) enum WriterCommand {
 
 #[derive(Debug)]
 pub(super) struct WriterThreadContext {
+    pub(super) path: PathBuf,
     pub(super) tables: TableNames,
     pub(super) stop_requested: Arc<AtomicBool>,
     pub(super) tail: Arc<Mutex<VecDeque<RecordDetail>>>,
@@ -107,6 +153,68 @@ pub(super) struct WriterThreadContext {
     pub(super) broadcaster: broadcast::Sender<RecordDetail>,
     pub(super) batch_size: usize,
     pub(super) flush_interval: Duration,
+    pub(super) database_coordinator: Arc<DatabaseCoordinator>,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct DatabaseCoordinator {
+    access: RwLock<()>,
+    writer: Mutex<()>,
+}
+
+impl DatabaseCoordinator {
+    pub(super) fn read_access(&self) -> Result<RwLockReadGuard<'_, ()>> {
+        self.access
+            .read()
+            .map_err(|_| DnsError::runtime("query_recorder database access lock poisoned"))
+    }
+
+    pub(super) fn write_access(&self) -> Result<RwLockWriteGuard<'_, ()>> {
+        self.access
+            .write()
+            .map_err(|_| DnsError::runtime("query_recorder database access lock poisoned"))
+    }
+
+    pub(super) fn writer(&self) -> Result<MutexGuard<'_, ()>> {
+        self.writer
+            .lock()
+            .map_err(|_| DnsError::runtime("query_recorder database writer lock poisoned"))
+    }
+}
+
+static DATABASE_COORDINATORS: OnceLock<Mutex<HashMap<PathBuf, Weak<DatabaseCoordinator>>>> =
+    OnceLock::new();
+
+fn database_coordinator(path: &Path) -> Result<Arc<DatabaseCoordinator>> {
+    let path = canonical_database_path(path)?;
+    let registry = DATABASE_COORDINATORS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut registry = registry
+        .lock()
+        .map_err(|_| DnsError::runtime("query_recorder coordinator registry lock poisoned"))?;
+    registry.retain(|_, coordinator| coordinator.strong_count() > 0);
+    if let Some(coordinator) = registry.get(&path).and_then(Weak::upgrade) {
+        return Ok(coordinator);
+    }
+    let coordinator = Arc::new(DatabaseCoordinator::default());
+    registry.insert(path, Arc::downgrade(&coordinator));
+    Ok(coordinator)
+}
+
+fn canonical_database_path(path: &Path) -> Result<PathBuf> {
+    if path.exists() {
+        return Ok(std::fs::canonicalize(path)?);
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let canonical_parent = match parent {
+        Some(parent) => std::fs::canonicalize(parent)?,
+        None => std::env::current_dir()?,
+    };
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| DnsError::plugin("query_recorder path must include a file name"))?;
+    Ok(canonical_parent.join(file_name))
 }
 
 #[derive(Debug)]
@@ -140,6 +248,15 @@ impl RecorderBackend {
         let acquire_timeout = Duration::from_millis(config.database.acquire_timeout_ms());
         let query_timeout = Duration::from_millis(config.database.query_timeout_ms());
 
+        let database_coordinator = match &config.database {
+            ResolvedDatabaseConfig::Sqlite { path, .. } => {
+                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(parent)?;
+                }
+                database_coordinator(path)?
+            }
+            _ => Arc::new(DatabaseCoordinator::default()),
+        };
         let (queue_tx, writer_handle, storage) = match &config.database {
             ResolvedDatabaseConfig::Sqlite { path, .. } => {
                 let (sender, writer_handle) = start_sqlite_writer(
@@ -150,6 +267,7 @@ impl RecorderBackend {
                     stop_requested.clone(),
                     tail.clone(),
                     broadcaster.clone(),
+                    database_coordinator.clone(),
                 )?;
                 (
                     WriterQueue::Blocking(sender),
@@ -203,6 +321,7 @@ impl RecorderBackend {
             reader_semaphore,
             acquire_timeout,
             query_timeout,
+            database_coordinator,
         }))
     }
 
@@ -232,20 +351,53 @@ impl RecorderBackend {
         }
     }
 
-    pub(super) fn cleanup(&self, cutoff_ms: i64) {
-        if let Err(err) = self.queue_tx.try_send(WriterCommand::Cleanup { cutoff_ms }) {
-            warn!("query_recorder cleanup skipped: {}", err);
+    pub(super) fn cleanup(&self, cutoff_ms: i64) -> CleanupReply {
+        let started = Instant::now();
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        self.queue_tx
+            .blocking_send(WriterCommand::Cleanup {
+                cutoff_ms,
+                reply_tx,
+            })
+            .map_err(|err| format!("query_recorder cleanup enqueue failed: {err}"))?;
+        let result = reply_rx
+            .recv()
+            .map_err(|err| format!("query_recorder cleanup reply failed: {err}"))?;
+        if let Ok(result) = &result
+            && let Some(space) = &result.space
+        {
+            log_space_reclaim(
+                &self.tag,
+                "periodic",
+                result.deleted_records,
+                space,
+                started.elapsed(),
+            );
         }
+        result
     }
 
     pub(super) fn clear_history(&self) -> ClearHistoryReply {
+        let started = Instant::now();
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         self.queue_tx
             .blocking_send(WriterCommand::ClearHistory { reply_tx })
             .map_err(|err| format!("query_recorder clear enqueue failed: {err}"))?;
-        reply_rx
+        let result = reply_rx
             .recv()
-            .map_err(|err| format!("query_recorder clear reply failed: {err}"))?
+            .map_err(|err| format!("query_recorder clear reply failed: {err}"))?;
+        if let Ok(result) = &result
+            && let Some(space) = &result.space
+        {
+            log_space_reclaim(
+                &self.tag,
+                "manual",
+                result.cleared_records,
+                space,
+                started.elapsed(),
+            );
+        }
+        result
     }
 
     #[cfg(test)]
@@ -297,6 +449,7 @@ impl RecorderBackend {
         let backend = self.clone();
         let (interrupt_tx, interrupt_rx) = oneshot::channel();
         let task = tokio::task::spawn_blocking(move || {
+            let _access = backend.database_coordinator.read_access()?;
             let conn = open_reader_database(&path)?;
             let interrupt = conn.get_interrupt_handle();
             if interrupt_tx.send(interrupt).is_err() {
@@ -325,6 +478,8 @@ impl Drop for InterruptOnDrop {
     }
 }
 
+// Startup hands the writer its owned lifecycle and notification handles.
+#[allow(clippy::too_many_arguments)]
 fn start_sqlite_writer(
     tag: &str,
     path: &Path,
@@ -333,6 +488,7 @@ fn start_sqlite_writer(
     stop_requested: Arc<AtomicBool>,
     tail: Arc<Mutex<VecDeque<RecordDetail>>>,
     broadcaster: broadcast::Sender<RecordDetail>,
+    database_coordinator: Arc<DatabaseCoordinator>,
 ) -> Result<(SyncSender<WriterCommand>, JoinHandle<()>)> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -346,6 +502,7 @@ fn start_sqlite_writer(
         })?;
     }
 
+    let access = database_coordinator.write_access()?;
     let mut conn = open_writer_database(path).map_err(|err| {
         DnsError::plugin(format!(
             "failed to open query_recorder database '{}': {}",
@@ -372,6 +529,8 @@ fn start_sqlite_writer(
         warn!("query_recorder PRAGMA optimize failed at startup: {}", err);
     }
 
+    drop(access);
+    let path = path.to_path_buf();
     let (queue_tx, queue_rx) = sync_channel(config.queue_size);
     let memory_tail = config.memory_tail.max(1);
     let batch_size = config.batch_size;
@@ -384,6 +543,8 @@ fn start_sqlite_writer(
             move || {
                 if let Err(err) = run_writer_thread(
                     WriterThreadContext {
+                        path,
+                        database_coordinator,
                         tables,
                         stop_requested,
                         tail,
@@ -421,18 +582,19 @@ async fn run_remote_writer(
                             let _ = flush_remote(&context, &remote, &mut pending).await;
                         }
                     }
-                    Some(WriterCommand::Cleanup { cutoff_ms }) => {
+                    Some(WriterCommand::Cleanup { cutoff_ms, reply_tx }) => {
                         let _ = flush_remote(&context, &remote, &mut pending).await;
-                        match tokio::time::timeout(
+                        let result = match tokio::time::timeout(
                             context.query_timeout,
                             remote.cleanup(&context.tables, cutoff_ms),
                         )
                         .await
                         {
-                            Ok(Ok(())) => {}
-                            Ok(Err(err)) => warn!("query_recorder cleanup failed: {}", err),
-                            Err(_) => warn!("query_recorder cleanup timed out"),
-                        }
+                            Ok(Ok(deleted_records)) => Ok(CleanupResult { deleted_records, space: None }),
+                            Ok(Err(err)) => Err(err.to_string()),
+                            Err(_) => Err("query_recorder cleanup timed out".to_string()),
+                        };
+                        let _ = reply_tx.send(result);
                     }
                     Some(WriterCommand::ClearHistory { reply_tx }) => {
                         let _ = flush_remote(&context, &remote, &mut pending).await;
@@ -446,7 +608,7 @@ async fn run_remote_writer(
                                 if let Ok(mut tail) = context.tail.lock() {
                                     tail.clear();
                                 }
-                                Ok(ClearHistoryResult { cleared_records })
+                                Ok(ClearHistoryResult { cleared_records, space: None })
                             }
                             Ok(Err(err)) => Err(err.to_string()),
                             Err(_) => Err("query_recorder clear timed out".to_string()),
@@ -586,4 +748,36 @@ mod tests {
             assert_eq!(mode, 0o600);
         }
     }
+}
+
+fn log_space_reclaim(
+    tag: &str,
+    operation: &str,
+    deleted_records: usize,
+    space: &SpaceReclaimResult,
+    elapsed: Duration,
+) {
+    info!(
+        query_recorder_tag = tag,
+        operation,
+        deleted_records,
+        migrated = space.migrated,
+        auto_vacuum_before = space.reclaimable.auto_vacuum,
+        auto_vacuum_after = space.after.auto_vacuum,
+        page_size = space.after.page_size,
+        page_count_before = space.before.page_count,
+        page_count_reclaimable = space.reclaimable.page_count,
+        page_count_after = space.after.page_count,
+        freelist_before = space.before.freelist_count,
+        freelist_reclaimable = space.reclaimable.freelist_count,
+        freelist_after = space.after.freelist_count,
+        database_bytes_before = space.before.database_bytes,
+        database_bytes_after = space.after.database_bytes,
+        wal_bytes_before = space.before.wal_bytes,
+        wal_bytes_peak = space.peak_wal_bytes,
+        wal_bytes_after = space.after.wal_bytes,
+        reclaimed_bytes = space.reclaimed_bytes(),
+        elapsed_ms = elapsed.as_millis(),
+        "query_recorder space reclaim completed"
+    );
 }

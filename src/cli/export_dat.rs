@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{DatKind, ExportDatOptions, ExportFormat};
 use crate::infra::error::{DnsError, Result};
-use crate::plugin::provider::v2ray_dat::{
+use crate::plugin::provider::v2ray::{
     GeoIpList, GeoSiteList, ParsedDat, cidr_to_rule, detect_dat_kind, geoip_code, geosite_code,
     geosite_domain_expression, geosite_domain_expression_original_with_attrs,
     geosite_domain_matches_selectors, matched_geosite_selectors, normalized_selectors,
@@ -232,7 +232,7 @@ fn export_geosite_original(selectors: &[String], geosite: &GeoSiteList) -> Resul
 fn append_original_section<'a>(
     target: &mut Vec<String>,
     header: &str,
-    domains: impl Iterator<Item = &'a crate::plugin::provider::v2ray_dat::Domain>,
+    domains: impl Iterator<Item = &'a crate::plugin::provider::v2ray::Domain>,
     error_context: &str,
     code: &str,
 ) -> Result<()> {
@@ -398,7 +398,7 @@ fn export_geoip_original(selectors: &[String], geoip: &GeoIpList) -> Result<Expo
 fn append_geoip_original_section<'a>(
     target: &mut Vec<String>,
     header: &str,
-    cidrs: impl Iterator<Item = &'a crate::plugin::provider::v2ray_dat::Cidr>,
+    cidrs: impl Iterator<Item = &'a crate::plugin::provider::v2ray::Cidr>,
     error_context: &str,
     code: &str,
 ) -> Result<()> {

@@ -70,7 +70,14 @@ import {
 
 type ConditionMode = "reference" | "quick_setup" | "text";
 type ActionMode = "reference" | "quick_setup" | "control" | "text";
-type ControlKind = "accept" | "return" | "reject" | "mark" | "jump" | "goto";
+type ControlKind =
+  | "accept"
+  | "return"
+  | "reject"
+  | "mark"
+  | "set_mark"
+  | "jump"
+  | "goto";
 
 type SequenceFlowNode =
   | Node<RuleNodeData, "rule">
@@ -160,6 +167,7 @@ const controlLabels: Record<ControlKind, string> = {
   return: "return",
   reject: "reject",
   mark: "mark",
+  set_mark: "set_mark",
   jump: "jump",
   goto: "goto",
 };
@@ -169,6 +177,7 @@ const builtinControls: ControlKind[] = [
   "return",
   "reject",
   "mark",
+  "set_mark",
   "jump",
   "goto",
 ];
@@ -223,6 +232,7 @@ export function SequenceComposer({
       const stored = JSON.parse(
         localStorage.getItem(positionStorageKey) ?? "null",
       ) as NodePositions | null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize persisted positions when the backend or sequence scope changes.
       setSavedPositions(
         stored && typeof stored === "object" && !Array.isArray(stored)
           ? stored
@@ -523,7 +533,7 @@ function SequenceExpandedCanvas({
             <GitBranch className="h-4 w-4 text-primary" />
             <span>{t(WEBUI.sequence.canvasTitle)}</span>
             <Badge variant="secondary" className="font-mono">
-              {rules.length} rules
+              {t(WEBUI.sequence.ruleCountValue, { count: rules.length })}
             </Badge>
           </div>
           <div className="mt-0.5 text-xs text-muted-foreground">

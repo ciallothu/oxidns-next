@@ -26,6 +26,15 @@ pub enum ConfigError {
 
     #[error("Plugin tag '{tag}' exceeds the maximum length of {max} characters")]
     PluginTagTooLong { tag: String, max: usize },
+    #[error("Invalid plugin tag '{tag}': {reason}")]
+    InvalidPluginTag {
+        tag: String,
+        #[source]
+        reason: PluginTagValidationError,
+    },
+
+    #[error("Plugin tag '{0}' uses a reserved quick-setup prefix")]
+    ReservedPluginTagPrefix(String),
 
     #[error("Invalid log level: {0}")]
     InvalidLogLevel(String),
@@ -213,6 +222,15 @@ impl Config {
                     max: MAX_PLUGIN_TAG_CHARS,
                 });
             }
+            if let Err(reason) = validate_plugin_tag(&plugin.tag) {
+                return Err(ConfigError::InvalidPluginTag {
+                    tag: plugin.tag.clone(),
+                    reason,
+                });
+            }
+            if is_reserved_plugin_tag(&plugin.tag) {
+                return Err(ConfigError::ReservedPluginTagPrefix(plugin.tag.clone()));
+            }
             if let Some(prev_idx) = seen_tags.insert(plugin.tag.as_str(), idx) {
                 return Err(ConfigError::DuplicatePluginTag {
                     tag: plugin.tag.clone(),
@@ -344,6 +362,98 @@ fn normalize_path_lexically(path: &Path) -> PathBuf {
         }
     }
     normalized
+}
+
+/// Maximum byte length for a plugin tag.
+pub const MAX_PLUGIN_TAG_LENGTH: usize = 64;
+
+/// Detailed plugin-tag validation error.
+///
+/// Plugin tags are used as a single path segment in management API routes, so
+/// they deliberately use a small, readable ASCII grammar instead of relying
+/// on URL escaping behavior across clients and reverse proxies.
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum PluginTagValidationError {
+    #[error("cannot be empty")]
+    Empty,
+
+    #[error("must be at most {MAX_PLUGIN_TAG_LENGTH} ASCII characters")]
+    TooLong,
+
+    #[error("must contain ASCII characters only")]
+    NonAscii,
+
+    #[error(
+        "contains invalid character '{0}'; only ASCII letters, digits, '_', '-', and '.' are allowed"
+    )]
+    InvalidCharacter(char),
+
+    #[error("contains an empty dot-separated segment")]
+    EmptySegment,
+
+    #[error("segment '{0}' must start and end with an ASCII letter or digit")]
+    InvalidSegmentBoundary(String),
+}
+
+/// Validate a user-configured plugin tag.
+///
+/// The length limit is a product-level constraint for stable configuration
+/// identifiers. Runtime-generated quick-setup tags may be longer and should
+/// use `validate_plugin_tag_path_segment` when registering API routes.
+pub fn validate_plugin_tag(tag: &str) -> Result<(), PluginTagValidationError> {
+    if tag.is_empty() {
+        return Err(PluginTagValidationError::Empty);
+    }
+    if tag.len() > MAX_PLUGIN_TAG_LENGTH {
+        return Err(PluginTagValidationError::TooLong);
+    }
+
+    validate_plugin_tag_path_segment(tag)
+}
+
+/// Validate only the syntax required for a safe, readable API path segment.
+///
+/// This intentionally does not apply [`MAX_PLUGIN_TAG_LENGTH`], because
+/// deterministic `qs.*` runtime tags include their validated parent tag plus
+/// quick-setup metadata and can therefore exceed the user-configured limit.
+pub(crate) fn validate_plugin_tag_path_segment(tag: &str) -> Result<(), PluginTagValidationError> {
+    if tag.is_empty() {
+        return Err(PluginTagValidationError::Empty);
+    }
+    if !tag.is_ascii() {
+        return Err(PluginTagValidationError::NonAscii);
+    }
+
+    if let Some(byte) = tag
+        .bytes()
+        .find(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'_' | b'-' | b'.'))
+    {
+        return Err(PluginTagValidationError::InvalidCharacter(char::from(byte)));
+    }
+
+    for segment in tag.split('.') {
+        if segment.is_empty() {
+            return Err(PluginTagValidationError::EmptySegment);
+        }
+
+        let bytes = segment.as_bytes();
+        if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
+            return Err(PluginTagValidationError::InvalidSegmentBoundary(
+                segment.to_string(),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Return whether `tag` satisfies the plugin-tag grammar.
+pub fn is_valid_plugin_tag(tag: &str) -> bool {
+    validate_plugin_tag(tag).is_ok()
+}
+
+pub fn is_reserved_plugin_tag(tag: &str) -> bool {
+    tag.starts_with("qs.exec.") || tag.starts_with("qs.match.") || tag.starts_with("qs.cron.")
 }
 
 /// Shared network configuration.
@@ -1354,11 +1464,19 @@ pub struct PluginConfig {
 
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use super::*;
 
     #[derive(Deserialize)]
     struct AuthConfigWrapper {
         auth: ApiAuthConfig,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PluginTagCase {
+        tag: String,
+        error: Option<String>,
     }
 
     fn plugin(tag: &str, plugin_type: &str) -> PluginConfig {
@@ -1579,6 +1697,86 @@ auth:
             .validate()
             .expect_err("should reject empty plugin type");
         assert!(matches!(err, ConfigError::EmptyPluginType));
+    }
+
+    #[test]
+    fn test_plugin_tag_validation_matches_shared_cases() {
+        let cases: Vec<PluginTagCase> =
+            serde_json::from_str(include_str!("../../tests/fixtures/plugin_tag_cases.json"))
+                .expect("shared plugin tag cases should parse");
+
+        for case in cases {
+            let actual = validate_plugin_tag(&case.tag)
+                .err()
+                .map(plugin_tag_error_code);
+            assert_eq!(actual, case.error.as_deref(), "{:?}", case.tag);
+            assert_eq!(is_valid_plugin_tag(&case.tag), case.error.is_none());
+        }
+    }
+
+    fn plugin_tag_error_code(error: PluginTagValidationError) -> &'static str {
+        match error {
+            PluginTagValidationError::Empty => "empty",
+            PluginTagValidationError::TooLong => "too_long",
+            PluginTagValidationError::NonAscii => "non_ascii",
+            PluginTagValidationError::InvalidCharacter(_) => "invalid_character",
+            PluginTagValidationError::EmptySegment => "empty_segment",
+            PluginTagValidationError::InvalidSegmentBoundary(_) => "invalid_segment_boundary",
+        }
+    }
+
+    #[test]
+    fn test_validate_rejects_invalid_plugin_tags() {
+        for tag in [
+            "has space",
+            "中文",
+            "tag/slash",
+            "tag:colon",
+            "tag%20",
+            ".",
+            "..",
+            "cache..cn",
+            "_cache",
+        ] {
+            let config = Config {
+                include: Vec::new(),
+                runtime: RuntimeConfig::default(),
+                api: ApiConfig::default(),
+                storage: StorageConfig::default(),
+                log: LogConfig::default(),
+                network: NetworkConfig::default(),
+                plugins: vec![plugin(tag, "debug_print")],
+            };
+
+            let err = config
+                .validate()
+                .expect_err("should reject invalid plugin tag");
+            assert!(matches!(err, ConfigError::InvalidPluginTag { .. }));
+        }
+    }
+
+    #[test]
+    fn test_validate_rejects_reserved_quick_setup_plugin_tags() {
+        for tag in [
+            "qs.exec.seq.0.cache",
+            "qs.match.seq.0.0.qname",
+            "qs.cron.cron.0.0.cache",
+        ] {
+            let config = Config {
+                include: Vec::new(),
+                runtime: RuntimeConfig::default(),
+                api: ApiConfig::default(),
+                storage: StorageConfig::default(),
+                log: LogConfig::default(),
+                network: NetworkConfig::default(),
+                plugins: vec![plugin(tag, "debug_print")],
+            };
+
+            let err = config
+                .validate()
+                .expect_err("should reject reserved quick-setup tag prefix");
+            assert!(matches!(err, ConfigError::ReservedPluginTagPrefix(_)));
+        }
     }
 
     #[test]

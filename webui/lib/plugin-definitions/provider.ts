@@ -68,6 +68,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
         label: "队列大小",
         type: "number",
         default: 1024,
+        advanced: true,
       },
       {
         key: "batch_size",
@@ -75,6 +76,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
         label: "批量写入条数",
         type: "number",
         default: 256,
+        advanced: true,
       },
       {
         key: "flush_interval_ms",
@@ -82,6 +84,7 @@ export const providerPluginDefinitions: PluginKindDefinition[] = [
         label: "Flush 间隔(ms)",
         type: "number",
         default: 200,
+        advanced: true,
       },
     ],
   },

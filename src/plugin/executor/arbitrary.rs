@@ -16,11 +16,9 @@ use std::sync::Arc;
 
 use ahash::AHashMap;
 use async_trait::async_trait;
-use oxidns_next_zoneparser::{
-    ParseOptions, parse_file as parse_zone_file, parse_str as parse_zone_str,
-};
 use serde::Deserialize;
 use serde_yaml_ng::Value;
+use zoneparser::{ParseOptions, visit_file as visit_zone_file, visit_str as visit_zone_str};
 
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
@@ -167,28 +165,24 @@ fn build_records(cfg: &ArbitraryConfig) -> Result<AnswerIndex> {
 }
 
 fn load_inline_zone_source(index: &mut BuildAnswerIndex, raw: &str, rule_no: usize) -> Result<()> {
-    let records = parse_zone_str(raw, &ParseOptions::default()).map_err(|e| {
+    visit_zone_str(raw, &ParseOptions::default(), |record| {
+        insert_record(index, record)
+    })
+    .map_err(|e| {
         DnsError::plugin(format!(
             "failed to parse arbitrary rule #{}: {}",
             rule_no, e
         ))
     })?;
 
-    for record in records {
-        insert_record(index, record);
-    }
-
     Ok(())
 }
 
 fn load_zone_file(index: &mut BuildAnswerIndex, path: &str) -> Result<()> {
-    let records = parse_zone_file(path, &ParseOptions::default()).map_err(|e| {
-        DnsError::plugin(format!("failed to parse arbitrary file '{}': {}", path, e))
-    })?;
-
-    for record in records {
-        insert_record(index, record);
-    }
+    visit_zone_file(path, &ParseOptions::default(), |record| {
+        insert_record(index, record)
+    })
+    .map_err(|e| DnsError::plugin(format!("failed to parse arbitrary file '{}': {}", path, e)))?;
 
     Ok(())
 }

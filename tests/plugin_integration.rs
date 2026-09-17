@@ -36,11 +36,13 @@ use oxidns_next::infra::network::transport::udp::UdpTransport;
 use oxidns_next::plugin;
 use oxidns_next::plugin::executor::ExecStep;
 use oxidns_next::plugin::{PluginRegistry, PluginType};
+#[cfg(any(feature = "plugin-dynamic-domain", feature = "plugin-response"))]
+use oxidns_next::proto::RData;
+#[cfg(feature = "plugin-dynamic-domain")]
+use oxidns_next::proto::Record;
 #[cfg(feature = "plugin-dynamic-domain")]
 use oxidns_next::proto::rdata::A;
 use oxidns_next::proto::{DNSClass, Message, Name, Question, Rcode, RecordType};
-#[cfg(feature = "plugin-dynamic-domain")]
-use oxidns_next::proto::{RData, Record};
 use tempfile::TempDir;
 #[cfg(any(feature = "plugin-download", feature = "plugin-http-request"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -79,6 +81,54 @@ fn make_context_with_qtype(
     ));
 
     DnsContext::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 5300)), request)
+}
+
+#[cfg(feature = "plugin-client-ip-from-ecs")]
+#[tokio::test]
+async fn test_client_ip_from_ecs_updates_client_ip_for_following_matcher() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: ecs_client
+    type: client_ip_from_ecs
+  - tag: lan_client
+    type: client_ip
+    args:
+      - "192.0.2.0/24"
+  - tag: main
+    type: sequence
+    args:
+      - exec: $ecs_client
+      - matches: $lan_client
+        exec: mark 7
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("main")
+        .expect("main sequence should exist")
+        .to_executor();
+    let mut context = make_context(registry.clone(), "example.com.");
+    context
+        .request_mut()
+        .ensure_edns_mut()
+        .insert(oxidns_next::proto::EdnsOption::Subnet(
+            oxidns_next::proto::ClientSubnet::new(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 42)), 32, 0),
+        ));
+
+    let step = sequence.execute(&mut context).await?;
+
+    assert_eq!(step, ExecStep::Next);
+    assert_eq!(
+        context.peer_addr(),
+        SocketAddr::from((Ipv4Addr::new(192, 0, 2, 42), 5300))
+    );
+    assert!(context.marks().contains(&7));
+
+    registry.destroy().await;
+    Ok(())
 }
 
 fn test_rule_path(relative_name: &str) -> String {
@@ -659,6 +709,73 @@ plugins:
     Ok(())
 }
 
+#[cfg(feature = "plugin-ros-route")]
+#[tokio::test]
+async fn test_ros_route_plugin_init_accepts_config_and_registers_executor() -> Result<()> {
+    let yaml = r#"
+plugins:
+  - tag: ros_route_policy
+    type: ros_route
+    args:
+      address: "127.0.0.1:9"
+      username: "api-user"
+      password: "secret"
+      connect_timeout: 1
+      send_timeout: 1
+      receive_timeout: 1
+      routing_table: "via_proxy"
+      gateway4: "192.0.2.1@main"
+      fixed_ttl: 0
+      cleanup_on_shutdown: false
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let route = registry
+        .get_plugin("ros_route_policy")
+        .expect("ros_route plugin should be registered");
+
+    assert_eq!(route.plugin_type, PluginType::Executor);
+    assert_eq!(route.plugin_name, "ros_route");
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[cfg(feature = "plugin-ros-address-list")]
+#[tokio::test]
+async fn test_ros_address_list_plugin_init_accepts_tls() -> Result<()> {
+    let yaml = r#"
+plugins:
+  - tag: ros_address_list_policy
+    type: ros_address_list
+    args:
+      address: "127.0.0.1:9"
+      username: "api-user"
+      password: "secret"
+      tls:
+        insecure: true
+      connect_timeout: 1
+      send_timeout: 1
+      receive_timeout: 1
+      address_list4: "oxidns_next_ipv4"
+      fixed_ttl: 0
+      cleanup_on_shutdown: false
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let address_list = registry
+        .get_plugin("ros_address_list_policy")
+        .expect("ros_address_list plugin should be registered");
+
+    assert_eq!(address_list.plugin_type, PluginType::Executor);
+    assert_eq!(address_list.plugin_name, "ros_address_list");
+
+    registry.destroy().await;
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_plugin_system_init_resolves_sequence_dependency_and_quick_setup() -> Result<()> {
     let yaml = r#"
@@ -798,6 +915,182 @@ plugins:
     assert!(context.response().is_none());
 
     registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_dual_selector_uses_dedicated_probe_executor_and_isolates_marks() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: probe_hosts
+    type: hosts
+    args:
+      entries:
+        - "full:example.com 192.0.2.10"
+  - tag: prefer_v4
+    type: prefer_ipv4
+    args:
+      probe_executor: probe_hosts
+      cache: false
+  - tag: main
+    type: sequence
+    args:
+      - exec: mark 1
+      - exec: $prefer_v4
+      - exec: mark 10
+      - exec: reject SERVFAIL
+"#;
+
+    let config = parse_config(yaml)?;
+    let report = plugin::analyze_configuration(&config)?;
+    assert!(report.edges.iter().any(|edge| {
+        edge.source_tag == "prefer_v4"
+            && edge.target_tag == "probe_hosts"
+            && edge.field == "args.probe_executor"
+    }));
+
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("main")
+        .expect("main sequence should exist")
+        .to_executor();
+    let mut context = make_context_with_qtype(registry.clone(), "example.com.", RecordType::AAAA);
+
+    let step = sequence.execute(&mut context).await?;
+
+    assert_eq!(step, ExecStep::Stop);
+    assert_eq!(context.request().first_qtype(), Some(RecordType::AAAA));
+    let response = context
+        .response()
+        .expect("preferred probe should suppress AAAA");
+    assert_eq!(response.rcode(), Rcode::NoError);
+    assert!(response.answers().is_empty());
+    assert!(context.marks().contains(&1));
+    assert!(!context.marks().contains(&10));
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_dual_selector_accepts_sequence_as_dedicated_probe_executor() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: probe_hosts
+    type: hosts
+    args:
+      entries:
+        - "full:example.com 192.0.2.10"
+  - tag: probe_sequence
+    type: sequence
+    args:
+      - exec: mark 20
+      - exec: $probe_hosts
+  - tag: prefer_v4
+    type: prefer_ipv4
+    args:
+      probe_executor: probe_sequence
+      cache: false
+  - tag: main
+    type: sequence
+    args:
+      - exec: mark 1
+      - exec: $prefer_v4
+      - exec: mark 10
+      - exec: reject SERVFAIL
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("main")
+        .expect("main sequence should exist")
+        .to_executor();
+    let mut context = make_context_with_qtype(registry.clone(), "example.com.", RecordType::AAAA);
+
+    sequence.execute(&mut context).await?;
+
+    assert_eq!(
+        context
+            .response()
+            .expect("preferred probe should suppress AAAA")
+            .rcode(),
+        Rcode::NoError
+    );
+    assert!(context.marks().contains(&1));
+    assert!(!context.marks().contains(&10));
+    assert!(!context.marks().contains(&20));
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[test]
+fn test_dual_selector_probe_executor_dependency_validation() -> Result<()> {
+    let missing = parse_config(
+        r#"
+plugins:
+  - tag: prefer_v4
+    type: prefer_ipv4
+    args:
+      probe_executor: missing
+"#,
+    )?;
+    let err = plugin::analyze_configuration(&missing)
+        .expect_err("missing probe executor should fail dependency analysis");
+    assert!(err.to_string().contains("missing plugin 'missing'"));
+    assert!(err.to_string().contains("args.probe_executor"));
+
+    let wrong_kind = parse_config(
+        r#"
+plugins:
+  - tag: not_executor
+    type: _true
+  - tag: prefer_v4
+    type: prefer_ipv4
+    args:
+      probe_executor: not_executor
+"#,
+    )?;
+    let err = plugin::analyze_configuration(&wrong_kind)
+        .expect_err("non-executor probe target should fail dependency analysis");
+    assert!(err.to_string().contains("expects executor"));
+    assert!(err.to_string().contains("not_executor"));
+
+    let self_reference = parse_config(
+        r#"
+plugins:
+  - tag: prefer_v4
+    type: prefer_ipv4
+    args:
+      probe_executor: prefer_v4
+"#,
+    )?;
+    let err = plugin::analyze_configuration(&self_reference)
+        .expect_err("self-referenced probe executor should fail dependency analysis");
+    assert!(err.to_string().contains("references itself"));
+
+    let cycle = parse_config(
+        r#"
+plugins:
+  - tag: prefer_a
+    type: prefer_ipv4
+    args:
+      probe_executor: prefer_b
+  - tag: prefer_b
+    type: prefer_ipv6
+    args:
+      probe_executor: prefer_a
+"#,
+    )?;
+    let err = plugin::analyze_configuration(&cycle)
+        .expect_err("probe executor cycle should fail dependency analysis");
+    assert!(err.to_string().contains("Circular dependency detected"));
+
     Ok(())
 }
 
@@ -963,6 +1256,76 @@ plugins:
 }
 
 #[tokio::test]
+async fn test_sequence_set_mark_replaces_multiple_marks_across_jump() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: child
+    type: sequence
+    args:
+      - exec: set_mark 2,3
+      - exec: return
+  - tag: parent
+    type: sequence
+    args:
+      - exec: mark 1 4
+      - exec: jump child
+      - exec: mark 5
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("parent")
+        .expect("parent sequence should exist")
+        .to_executor();
+    let mut context = make_context(registry.clone(), "example.com.");
+
+    let step = sequence.execute(&mut context).await?;
+
+    assert!(matches!(step, ExecStep::Next));
+    assert_eq!(context.marks().len(), 3);
+    assert!(context.marks().contains(&2));
+    assert!(context.marks().contains(&3));
+    assert!(context.marks().contains(&5));
+    assert!(!context.marks().contains(&1));
+    assert!(!context.marks().contains(&4));
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_sequence_set_mark_rejects_invalid_values_during_init() -> Result<()> {
+    for exec in [
+        "set_mark",
+        "set_mark -1",
+        "set_mark abc",
+        "set_mark 4294967296",
+    ] {
+        let yaml = format!(
+            r#"
+log:
+  level: info
+plugins:
+  - tag: seq
+    type: sequence
+    args:
+      - exec: "{exec}"
+"#
+        );
+        let config = parse_config(&yaml)?;
+        let err = plugin::init(config)
+            .await
+            .expect_err("invalid set_mark value should fail sequence initialization");
+        assert!(err.to_string().contains("set_mark"));
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_sequence_quick_setup_matchers_accept_enum_text() -> Result<()> {
     let yaml = r#"
 log:
@@ -1003,6 +1366,66 @@ plugins:
     );
 
     registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_time_matcher_config_and_quick_setup_initialize() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: office_hours
+    type: time
+    args:
+      timezone: Asia/Shanghai
+      periods:
+        - start: "09:00"
+          end: "18:00"
+          weekdays: [1, 2, 3, 4, 5]
+        - monthdays: [1, 15]
+  - tag: seq
+    type: sequence
+    args:
+      - matches: time 22:00-02:00
+        exec: accept
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+
+    let matcher = registry
+        .get_plugin("office_hours")
+        .expect("time matcher should be registered");
+    assert_eq!(matcher.plugin_type, PluginType::Matcher);
+    assert_eq!(matcher.plugin_name, "time");
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_time_matcher_rejects_invalid_period_config() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: invalid_time
+    type: time
+    args:
+      periods:
+        - start: "09:00"
+          end: "09:00"
+"#;
+
+    let config = parse_config(yaml)?;
+    let err = plugin::init(config)
+        .await
+        .expect_err("same time boundaries must be rejected");
+    assert!(
+        err.to_string()
+            .contains("periods[0].start and periods[0].end must differ")
+    );
     Ok(())
 }
 
@@ -1158,6 +1581,59 @@ plugins:
     assert_eq!(response.rcode(), Rcode::NoError);
     assert!(response.answers().is_empty());
     assert!(response.authorities().is_empty());
+
+    registry.destroy().await;
+    Ok(())
+}
+
+#[cfg(feature = "plugin-response")]
+#[tokio::test]
+async fn test_response_plugin_builds_soa_backed_nodata() -> Result<()> {
+    let yaml = r#"
+log:
+  level: info
+plugins:
+  - tag: suppress_https
+    type: response
+    args:
+      rcode: NOERROR
+      authorities:
+        - "{qname} 300 {qclass} SOA ns.example. hostmaster.example. 1 7200 1800 86400 300"
+  - tag: seq
+    type: sequence
+    args:
+      - matches: qtype HTTPS
+        exec: $suppress_https
+      - exec: reject SERVFAIL
+"#;
+
+    let config = parse_config(yaml)?;
+    let registry = plugin::init(config).await?;
+    let sequence = registry
+        .get_plugin("seq")
+        .expect("sequence plugin should exist")
+        .to_executor();
+    let mut context = make_context_with_qtype(registry.clone(), "apple.com.", RecordType::HTTPS);
+
+    assert!(matches!(
+        sequence.execute(&mut context).await?,
+        ExecStep::Stop
+    ));
+    let response = context
+        .response()
+        .expect("response plugin should set a response");
+    assert_eq!(response.rcode(), Rcode::NoError);
+    assert!(response.answers().is_empty());
+    assert_eq!(response.authorities().len(), 1);
+    let soa = &response.authorities()[0];
+    assert_eq!(soa.name(), &Name::from_ascii("apple.com.")?);
+    assert_eq!(soa.class(), DNSClass::IN);
+    assert_eq!(soa.rr_type(), RecordType::SOA);
+    assert_eq!(soa.ttl(), 300);
+    let RData::SOA(soa_rdata) = soa.data() else {
+        panic!("authority record should carry SOA data");
+    };
+    assert_eq!(soa_rdata.minimum(), 300);
 
     registry.destroy().await;
     Ok(())

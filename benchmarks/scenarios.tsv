@@ -1,0 +1,27 @@
+# label|engines|oxidns_config|mosdns_config|adguardhome_config|smartdns_config|query_file|mode|family|warmup_query_file|tags|description|notes
+#
+# The catalog is intentionally small.  Cross-engine claims are allowed only for
+# common scenarios.  Native scenarios compare OxiDNS and mosdns only because
+# their plugin pipelines and rule semantics are equivalent.  OxiDNS feature
+# scenarios are A/B diagnostics and never enter product rankings.
+
+# Four-engine common matrix: same queries and asserted DNS response semantics,
+# with each product using its documented idiomatic configuration.
+02-cache-hotpath|oxidns,mosdns,adguardhome,smartdns|configs/common/oxidns/02-cache-hotpath.yaml|configs/common/mosdns/02-cache-hotpath.yaml|configs/common/adguardhome/02-cache-hotpath.yaml|configs/common/smartdns/02-cache-hotpath.conf|queries/cache-hotpath.txt|udp|common-cache|-|common,four-engine,fixture-upstream,stable|Positive warm-cache hit path|A deterministic local upstream fills the cache; zero upstream queries are allowed during timing.
+47-server-local-udp|oxidns,mosdns,adguardhome,smartdns|configs/common/oxidns/47-server-local-udp.yaml|configs/common/mosdns/47-server-local-udp.yaml|configs/common/adguardhome/47-server-local.yaml|configs/common/smartdns/47-server-local-udp.conf|queries/plugin-a.txt|udp|common-server|-|common,four-engine,stable|Minimal UDP local response|Measures listener, codec, dispatch, and synthetic response cost without public upstream variance.
+48-server-local-tcp|oxidns,mosdns,adguardhome,smartdns|configs/common/oxidns/48-server-local-tcp.yaml|configs/common/mosdns/48-server-local-tcp.yaml|configs/common/adguardhome/48-server-local-tcp.yaml|configs/common/smartdns/48-server-local-tcp.conf|queries/plugin-a.txt|tcp|common-server|-|common,four-engine,stable|Minimal TCP local response|Measures TCP accept/session/framing plus the same asserted local A response.
+50-common-local-answers|oxidns,mosdns,adguardhome,smartdns|configs/common/oxidns/50-common-local-answers.yaml|configs/common/mosdns/50-common-local-answers.yaml|configs/common/adguardhome/50-common-local-answers.yaml|configs/common/smartdns/50-common-local-answers.conf|queries/local-answers-common.txt|udp|common-policy|-|common,four-engine,stable|Common A and AAAA local answers|Five names and both address families exercise a representative local override table.
+51-common-domain-set|oxidns,mosdns,adguardhome,smartdns|configs/common/oxidns/51-common-domain-set.yaml|configs/common/mosdns/51-common-domain-set.yaml|configs/common/adguardhome/51-common-domain-set.yaml|configs/common/smartdns/51-common-domain-set.conf|queries/domain-set.txt|udp|common-policy|-|common,four-engine,stable|Normalized domain-set positive matches|All engines load the same generated plain-domain corpus and must pass hit and miss response assertions.
+52-negative-cache-hotpath|oxidns,mosdns,adguardhome,smartdns|configs/common/oxidns/52-negative-cache-hotpath.yaml|configs/common/mosdns/52-negative-cache-hotpath.yaml|configs/common/adguardhome/52-negative-cache-hotpath.yaml|configs/common/smartdns/52-negative-cache-hotpath.conf|queries/cache-negative.txt|udp|common-cache|-|common,four-engine,fixture-upstream,stable|Negative warm-cache hit path|A deterministic local upstream returns NXDOMAIN plus SOA; zero upstream queries are allowed during timing.
+
+# OxiDNS/mosdns native-equivalent suite: both engines consume the same configs,
+# original rule formats, query mixes, and exact response assertions.
+08-domain-set|oxidns,mosdns|configs/native/08-domain-set.yaml|configs/native/08-domain-set.yaml|-|-|queries/domain-set-mixed.txt|udp|native-rules|-|native-specialized,stable|Native domain-set hit and miss mix|Keeps full, regexp, and plain native rules; this is not merged with the normalized four-engine domain matrix.
+09-ip-set|oxidns,mosdns|configs/native/09-ip-set.yaml|configs/native/09-ip-set.yaml|-|-|queries/ip-set.txt|udp|native-rules|-|native-specialized,stable|Native response IP-set hit and miss mix|Uses identical synthetic responses and CIDR data, then asserts both accepted and rejected branches.
+42-composite-local-rewrite|oxidns,mosdns|configs/native/42-composite-local-rewrite.yaml|configs/native/42-composite-local-rewrite.yaml|-|-|queries/local-rewrite.txt|udp|native-policy|-|native-specialized,stable|Redirect, local answer, and TTL rewrite chain|A, AAAA, rewritten names, and output TTL 60 are asserted before timing.
+43-composite-provider-chain|oxidns,mosdns|configs/native/43-composite-provider-chain.yaml|configs/native/43-composite-provider-chain.yaml|-|-|queries/provider-chain.txt|udp|native-policy|-|native-specialized,stable|Domain provider plus response-IP provider chain|Exercises a realistic multi-stage rule pipeline with exact accept/reject assertions.
+
+# OxiDNS-only feature A/B suite.  These rows show the cost and benefit of an
+# OxiDNS-specific feature; they must not be presented as cross-product rankings.
+60-cache-short-circuit|oxidns|configs/oxidns/60-cache-short-circuit.yaml|-|-|-|queries/cache-hotpath.txt|udp|oxidns-features|-|oxidns-only,feature-ab,fixture-upstream,stable|OxiDNS cache with short_circuit enabled|Stops the sequence directly on a cache hit.
+61-cache-explicit-accept|oxidns|configs/oxidns/61-cache-explicit-accept.yaml|-|-|-|queries/cache-hotpath.txt|udp|oxidns-features|-|oxidns-only,feature-ab,fixture-upstream,stable|OxiDNS cache with explicit has_resp and accept|Control arm with identical cache, upstream, queries, and answers.

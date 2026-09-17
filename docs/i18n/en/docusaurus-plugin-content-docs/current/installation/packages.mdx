@@ -1,0 +1,163 @@
+---
+title: Releases, Debian, and Source Installation
+---
+
+import Admonition from '@theme/Admonition';
+
+This page is for users who want to control file layout manually, install a Debian/systemd package, or build directly from source. For a quick system-service installation, prefer the [native installer](native.mdx).
+
+## Release archive contents
+
+A `full` archive normally contains:
+
+```text
+oxidns              # oxidns.exe on Windows
+config.yaml
+LICENSE
+webui/
+```
+
+Linux x86_64 and ARM64 musl releases also provide:
+
+- `minimal`: binary, minimal configuration, and license, without the WebUI.
+- `standard`: common management features, encrypted protocols, query recorder, upgrade support, and WebUI.
+- `full`: the complete official capability set.
+
+Use `oxidns build-info` to confirm the actual bundle, features, and plugins. Do not infer runtime capabilities from the archive name alone.
+
+## Supported release targets
+
+| Platform | Target / asset |
+| --- | --- |
+| Linux x86_64 | `x86_64-unknown-linux-musl` (preferred) or `x86_64-unknown-linux-gnu` |
+| Linux ARM64 | `aarch64-unknown-linux-musl` (preferred) or `aarch64-unknown-linux-gnu` |
+| Linux 32-bit x86 | `i686-unknown-linux-musl` |
+| Linux ARM | `arm-unknown-linux-musleabihf`, `armv7-unknown-linux-musleabihf` |
+| macOS Intel / Apple Silicon | `x86_64-apple-darwin`, `aarch64-apple-darwin` |
+| Windows x64 / x86 / ARM64 | `x86_64-pc-windows-msvc`, `i686-pc-windows-msvc`, `aarch64-pc-windows-msvc` |
+| FreeBSD x86_64 | `x86_64-unknown-freebsd` |
+| Debian / Ubuntu | `*_amd64.deb`, `*_arm64.deb` |
+
+Non-Windows archive names are:
+
+```text
+oxidns-<target>.tar.gz
+oxidns-minimal-<target>.tar.gz
+oxidns-standard-<target>.tar.gz
+```
+
+Windows uses `oxidns-<target>.zip`. Slim bundles are not published for every target, so check the GitHub Release asset list before downloading.
+
+## Choose a Linux asset
+
+```bash
+uname -s
+uname -m
+```
+
+General choices:
+
+- `Linux + x86_64`: prefer `x86_64-unknown-linux-musl`.
+- `Linux + aarch64`: prefer `aarch64-unknown-linux-musl`.
+- `Linux + armv7l`: choose `armv7-unknown-linux-musleabihf`.
+- Alpine: use musl.
+- Choose `*-linux-gnu` only when you specifically need glibc dynamic linking.
+
+On Windows, run:
+
+```powershell
+(Get-CimInstance Win32_OperatingSystem).OSArchitecture
+```
+
+## Install an archive manually
+
+Choose an explicit version from [GitHub Releases](https://github.com/svenshi/oxidns/releases). Linux x86_64 musl example:
+
+```bash
+curl -L -o oxidns.tar.gz \
+  https://github.com/svenshi/oxidns/releases/download/TAG/oxidns-x86_64-unknown-linux-musl.tar.gz
+
+mkdir -p oxidns
+tar -xzf oxidns.tar.gz -C oxidns
+cd oxidns
+chmod +x oxidns
+
+./oxidns build-info
+./oxidns check -c config.yaml
+./oxidns start -c config.yaml
+```
+
+Replace `TAG` with the actual version, such as `v1.5.1`. After extracting the Windows zip, run:
+
+```powershell
+.\oxidns.exe build-info
+.\oxidns.exe check -c .\config.yaml
+.\oxidns.exe start -c .\config.yaml
+```
+
+A manual archive does not create a system service. For long-running deployments, use the built-in `oxidns service install`; see [Runtime, Probes, and Services](../cli/runtime.md#service) for all options.
+
+## Debian packages
+
+Official releases provide `.deb` files for x86_64 and ARM64 GNU/Linux. Install x86_64 with:
+
+```bash
+sudo dpkg -i oxidns_*_amd64.deb
+```
+
+For ARM64:
+
+```bash
+sudo dpkg -i oxidns_*_arm64.deb
+```
+
+Default layout:
+
+| Content | Path |
+| --- | --- |
+| Binary | `/usr/bin/oxidns` |
+| Configuration | `/etc/oxidns/config.yaml` |
+| Working directory | `/var/lib/oxidns` |
+| WebUI | `/var/lib/oxidns/webui` links to `/usr/share/oxidns/webui` |
+
+After changing the configuration, validate it with the same working directory as the service:
+
+```bash
+oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+sudo systemctl enable --now oxidns
+sudo systemctl status oxidns
+```
+
+<Admonition type="note" title="Configuration and working directory differ">
+
+The Debian configuration lives under `/etc/oxidns`, while relative runtime paths are resolved from `/var/lib/oxidns`. Preserve `-d /var/lib/oxidns` during troubleshooting and manual runs, or log, SQLite, rule, and WebUI paths may change.
+
+</Admonition>
+
+## Build from source
+
+Use this path for development, debugging, or a target that has no release asset. A stable Rust toolchain is required:
+
+```bash
+git clone https://github.com/svenshi/oxidns.git
+cd oxidns
+
+cargo build --release
+./target/release/oxidns build-info
+./target/release/oxidns check -c config.yaml
+./target/release/oxidns start -c config.yaml
+```
+
+`cargo build` enables the `full` bundle by default. For feature trimming or template-repository builds, read [Custom Builds](../custom-build.mdx). Read [Contributing](../contributing.md) before development work.
+
+## Post-installation checks
+
+For every installation method, verify that:
+
+1. `--version` matches the expected release.
+2. `build-info` contains the plugins and protocols used by the configuration.
+3. `oxidns check` uses the correct configuration path and working directory.
+4. The DNS listener completes a local query and an upstream query.
+5. If the API is enabled, readiness, WebUI, and authentication behave as expected.
+
+Before replacing a production deployment, keep the previous binary, WebUI, configuration, and persistent data. See [Upgrade and Rollback](../operations.md#upgrade-and-rollback).

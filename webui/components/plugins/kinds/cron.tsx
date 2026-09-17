@@ -19,6 +19,7 @@ import {
   stringifyArgsLevelPluginConfigYaml,
 } from "@/lib/plugin-config-yaml";
 import { CreatePluginDialog } from "@/components/plugins/create-plugin-dialog";
+import { AdvancedSettingsSection } from "@/components/plugins/advanced-settings-section";
 import { PluginReferencePicker } from "@/components/plugins/plugin-reference-picker";
 import {
   InlineSelect,
@@ -241,7 +242,12 @@ export function CronComposer({
 
       {view === "visual" && (
         <div className="space-y-3">
-          {!readOnly && (
+          <AdvancedSettingsSection
+            defaultOpen={Object.prototype.hasOwnProperty.call(
+              value,
+              "timezone",
+            )}
+          >
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
                 {t(WEBUI.cron.timezone)}
@@ -253,9 +259,10 @@ export function CronComposer({
                 }
                 placeholder={t(WEBUI.cron.timezonePlaceholder)}
                 className="h-8 max-w-xs font-mono text-xs"
+                disabled={readOnly}
               />
             </div>
-          )}
+          </AdvancedSettingsSection>
           {jobs.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
               <Clock className="mx-auto h-8 w-8 text-muted-foreground" />

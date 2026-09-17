@@ -253,7 +253,7 @@ impl SvcParamValue {
                 }
                 let mut mandatory = Vec::with_capacity(value.len() / 2);
                 for chunk in value.as_chunks::<2>().0 {
-                    mandatory.push(u16::from_be_bytes(*chunk));
+                    mandatory.push(u16::from_be_bytes([chunk[0], chunk[1]]));
                 }
                 Self::Mandatory(mandatory)
             }
@@ -293,7 +293,7 @@ impl SvcParamValue {
                     .as_chunks::<4>()
                     .0
                     .iter()
-                    .map(|c| Ipv4Addr::from(*c))
+                    .map(|c| Ipv4Addr::new(c[0], c[1], c[2], c[3]))
                     .collect();
                 Self::Ipv4Hint(hints)
             }
@@ -306,7 +306,11 @@ impl SvcParamValue {
                     .as_chunks::<16>()
                     .0
                     .iter()
-                    .map(|c| Ipv6Addr::from(*c))
+                    .map(|c| {
+                        let mut octets = [0u8; 16];
+                        octets.copy_from_slice(c);
+                        Ipv6Addr::from(octets)
+                    })
                     .collect();
                 Self::Ipv6Hint(hints)
             }
@@ -392,8 +396,8 @@ mod tests {
     use crate::proto::Name;
 
     #[test]
-    // Covers the key-specific interpretation layer separately from the wire codec
-    // so malformed known-key payloads can never be mistaken for valid
+    // Covers the key-specific interpretation layer separately from the wire
+    // codec so malformed known-key payloads can never be mistaken for valid
     // structured values.
     fn svc_param_value_from_wire_matrix() {
         let port_443 = 443u16.to_be_bytes();
@@ -436,8 +440,8 @@ mod tests {
     }
 
     #[test]
-    // RFC 9460 known keys have strict value shapes; malformed ones must degrade to
-    // Unknown rather than partially decoding.
+    // RFC 9460 known keys have strict value shapes; malformed ones must degrade
+    // to Unknown rather than partially decoding.
     fn svc_param_value_rejects_invalid_known_shapes() {
         let cases = [
             (0, vec![0]),

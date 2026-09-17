@@ -45,6 +45,7 @@ const config = {
   projectName: 'oxidns-next',
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   i18n: {
     defaultLocale: 'zh-Hans',
@@ -95,7 +96,13 @@ const config = {
           path: './docs',
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
-          editUrl: 'https://github.com/ciallothu/oxidns-next/tree/main/docs/',
+          editUrl: ({locale, docPath}) => {
+            const sourcePath = locale === 'en'
+              ? 'i18n/en/docusaurus-plugin-content-docs/current'
+              : 'docs';
+            return `https://github.com/ciallothu/oxidns-next/edit/main/docs/${sourcePath}/${docPath}`;
+          },
+          showLastUpdateTime: true,
         },
         blog: false,
         theme: {
@@ -122,6 +129,16 @@ const config = {
         },
         items: [
           {
+            to: '/quickstart',
+            label: '快速开始',
+            position: 'left',
+          },
+          {
+            to: '/plugin-reference/overview',
+            label: '插件参考',
+            position: 'left',
+          },
+          {
             type: 'localeDropdown',
             position: 'right',
           },
@@ -140,6 +157,32 @@ const config = {
       footer: {
         style: 'light',
         links: [
+          {
+            title: '文档',
+            items: [
+              {label: '快速开始', to: '/quickstart'},
+              {label: '配置指南', to: '/configuration'},
+              {label: '插件参考', to: '/plugin-reference/overview'},
+              {label: '文档版本', to: '/documentation'},
+            ],
+          },
+          {
+            title: '运维',
+            items: [
+              {label: '运维与故障排查', to: '/operations'},
+              {label: '安全加固', to: '/security'},
+              {label: '管理 API', to: '/api'},
+            ],
+          },
+          {
+            title: '社区',
+            items: [
+              {label: '参与贡献', to: '/contributing'},
+              {label: '支持项目开发', to: '/support-development'},
+              {label: 'GitHub Discussions', href: 'https://github.com/ciallothu/oxidns-next/discussions'},
+              {label: 'Telegram', href: 'https://t.me/oxidns-next'},
+            ],
+          },
         ],
         copyright: `Copyright © ${new Date().getFullYear()} OxiDNS Next contributors · Based on OxiDNS by Sven Shi`,
       },

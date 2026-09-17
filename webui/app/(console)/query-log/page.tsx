@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { BarChart3, Database, List } from "lucide-react";
 import { AppHeader } from "@/components/shell/app-header";
 import {
@@ -26,12 +26,9 @@ export default function QueryLogPage() {
     () => plugins.filter((plugin) => plugin.pluginKind === "query_recorder"),
     [plugins],
   );
-  const [selectedTag, setSelectedTag] = useState("");
+  const [requestedTag, setSelectedTag] = useState("");
+  const selectedTag = recorders.some(recorder => recorder.name === requestedTag) ? requestedTag : recorders[0]?.name ?? "";
 
-  useEffect(() => {
-    if (recorders.some((recorder) => recorder.name === selectedTag)) return;
-    setSelectedTag(recorders[0]?.name ?? "");
-  }, [recorders, selectedTag]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">

@@ -1,0 +1,201 @@
+---
+title: Native Installation and Uninstallation
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import Admonition from '@theme/Admonition';
+
+This page covers one-command installation, version selection, portable mode, and uninstallation on Linux, macOS, and Windows. See the other installation guides for Docker, release archives, Debian packages, and OpenWrt.
+
+## One-command installation
+
+The installer detects the current platform, downloads the matching GitHub Release archive, installs `oxidns` / `oxidns.exe`, `config.yaml`, and `webui/`, then registers and starts a system service by default.
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/install.sh | sudo sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+Run in an administrator PowerShell session:
+
+```powershell
+irm https://oxidns.org/install.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+Default layout:
+
+| Platform / mode | Installation directory | Command and service |
+| --- | --- | --- |
+| Linux / macOS service install | `/opt/oxidns` | `/usr/local/bin/oxidns` link; installs and starts a system service |
+| Windows administrator install | `%ProgramFiles%\OxiDNS` | Added to Machine PATH; installs and starts a Windows service |
+| Linux / macOS portable install | `~/.oxidns` | `~/.local/bin/oxidns` link; no service |
+| Windows portable install | `%LOCALAPPDATA%\OxiDNS` | Added to user PATH; no service |
+
+Running the installer again updates the binary and `webui/`. An existing `config.yaml` is preserved, while the release copy is written as `config.yaml.example`.
+
+## Verify the installation
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+oxidns --version
+oxidns build-info
+curl -fsS http://127.0.0.1:9199/api/readyz
+dig @127.0.0.1 example.com
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+oxidns.exe --version
+oxidns.exe build-info
+Invoke-RestMethod http://127.0.0.1:9199/api/readyz
+Resolve-DnsName example.com -Server 127.0.0.1
+```
+
+  </TabItem>
+</Tabs>
+
+The default WebUI address is `http://SERVER_IP:9199/`. Enable authentication and read [Security Hardening](../security.md) before exposing it to other devices.
+
+## Select a version or bundle
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/install.sh | \
+  sudo env OXIDNS_VERSION=vX.Y.Z OXIDNS_BUNDLE=full sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+$env:OXIDNS_VERSION = "vX.Y.Z"
+$env:OXIDNS_BUNDLE = "full"
+irm https://oxidns.org/install.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+Common variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `OXIDNS_VERSION` | Release tag; defaults to `latest` |
+| `OXIDNS_INSTALL_DIR` | Overrides the installation directory |
+| `OXIDNS_BIN_DIR` | Linux/macOS command-link directory |
+| `OXIDNS_TARGET` | Forces a specific release target |
+| `OXIDNS_BUNDLE` | `full`, `standard`, or `minimal`; defaults to `full` |
+| `OXIDNS_NO_PATH=1` | Does not create a command link or modify PATH |
+| `OXIDNS_INSTALL_SERVICE=0` | Uses portable mode without installing a service |
+| `OXIDNS_START_SERVICE=0` | Installs the service without starting it immediately |
+| `OXIDNS_OPENWRT_INSTALL=0` | Forces the normal Linux archive path on OpenWrt |
+
+`minimal` and `standard` releases currently cover selected Linux musl targets only. See [Custom Builds](../custom-build.mdx#preset-capability-matrix) for the full capability matrix.
+
+## Portable installation
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/install.sh | \
+  env OXIDNS_INSTALL_SERVICE=0 sh
+
+oxidns start -c ~/.oxidns/config.yaml -d ~/.oxidns
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+$env:OXIDNS_INSTALL_SERVICE = "0"
+irm https://oxidns.org/install.ps1 | iex
+
+oxidns.exe start `
+  -c "$env:LOCALAPPDATA\OxiDNS\config.yaml" `
+  -d "$env:LOCALAPPDATA\OxiDNS"
+```
+
+  </TabItem>
+</Tabs>
+
+<Admonition type="note" title="Privileged ports">
+
+The default service configuration may listen on port 53. A regular Unix user normally cannot bind a privileged port. Use `:5353` for local validation, or use a system service, a controlled capability, or port forwarding in production.
+
+</Admonition>
+
+## Uninstallation
+
+The uninstaller removes the binary, WebUI, service, and PATH entry by default, but preserves `config.yaml`.
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/uninstall.sh | sudo sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+irm https://oxidns.org/uninstall.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+If you installed into a custom directory, provide the same `OXIDNS_INSTALL_DIR` / `OXIDNS_BIN_DIR` values while uninstalling. Common variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `OXIDNS_INSTALL_DIR` | Overrides the removal directory; must match installation |
+| `OXIDNS_BIN_DIR` | Linux/macOS command-link directory |
+| `OXIDNS_NO_PATH=1` | Does not remove the command link or user PATH entry |
+| `OXIDNS_UNINSTALL_SERVICE=1` | Forces a system-service removal attempt |
+| `OXIDNS_PURGE=1` | Deletes the entire installation directory and configuration |
+
+<Admonition type="danger" title="Purging cannot be undone">
+
+`OXIDNS_PURGE=1` deletes the configuration and installation directory. Back up `config.yaml`, SQLite files, provider data, certificates, and other persistent files first.
+
+</Admonition>
+
+Purge example:
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/uninstall.sh | \
+  sudo env OXIDNS_PURGE=1 sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+$env:OXIDNS_PURGE = "1"
+irm https://oxidns.org/uninstall.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+If installation, upgrade, or removal leaves service, port, or path issues, follow the diagnostic order in [Operations and Troubleshooting](../operations.md).

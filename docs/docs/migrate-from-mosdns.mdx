@@ -5,13 +5,43 @@ sidebar_position: 7
 
 import Admonition from '@theme/Admonition';
 
-<Admonition type="tip" title="配置高度兼容">
+<Admonition type="tip" title="配置模型兼容，但运行语义需要验证">
 
-大多数 mosdns v5 配置文件可以**直接复制使用**。如果启动时出现报错，根据错误信息调整对应字段即可。
+OxiDNS 与 mosdns v5 共享插件化配置模型，常见配置通常可以作为迁移起点，但不应未经校验直接替换生产服务。插件可用性、默认值、边界语义、平台支持和运行期路径仍可能不同。
 
 </Admonition>
 
 OxiDNS Next 与 mosdns v5 共享几乎相同的插件模型和配置结构：`plugins` 数组、`sequence` 编排、`jump` / `goto` / `accept` / `return` / `reject` 控制流，以及 `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` 等插件及其字段名，均高度兼容。
+
+## 推荐迁移流程
+
+1. 备份原配置、规则文件、缓存/数据库文件和服务定义，记录原服务监听地址及上游行为。
+2. 选择包含所需插件和协议的 OxiDNS bundle，并确认当前二进制能力：
+
+   ```bash
+   oxidns build-info
+   ```
+
+3. 使用与生产启动一致的工作目录执行静态校验并查看依赖图：
+
+   ```bash
+   oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns --graph
+   ```
+
+4. 根据校验错误处理插件类型、tag、字段和引用关系；不要通过删除错误项来静默改变策略链。
+5. 在非生产端口启动，验证正向答案、NXDOMAIN/NODATA、CNAME、TTL、缓存命中、fallback、规则更新和外部副作用。
+6. 切换流量前检查 `/api/readyz`、日志和关键指标，并保留可立即恢复原服务的回滚步骤。
+
+迁移时重点核对：
+
+| 范围 | 核对内容 |
+| --- | --- |
+| 编译能力 | 插件和协议可能受 Cargo feature / bundle 限制，以 `oxidns build-info` 为准。 |
+| plugin tag | tag 必须满足 OxiDNS 的 ASCII 路径规则，且不能使用保留的 Quick Setup 前缀。 |
+| 相对路径 | 规则、日志、SQLite、WebUI 等运行期相对路径以 `-d/--working-dir` 为基准；`include` 路径以声明它的配置文件为基准。 |
+| 平台能力 | `ipset` / `nftset` 等系统集成受操作系统和权限限制。 |
+| 同名字段 | 同名插件和字段不代表所有默认值与异常响应语义完全相同，应通过实际查询验证。 |
+| 出站网络 | 使用 `network.outbound.default` 时，未显式指定 outbound 的上游会继承默认 profile。 |
 
 ## 迁移时需要留意的语法差异
 
@@ -92,7 +122,7 @@ api:
 
 ### `short_circuit`：命中即短路
 
-`forward`、`cache`、`hosts`、`fallback`、`black_hole`、`dual_selector` 等执行器插件均支持 `short_circuit` 选项。开启后，命中时立即结束当前 sequence 的后续步骤，无需额外写 `has_resp` + `accept`。
+`forward`、`cache`、`hosts`、`fallback`、`black_hole`、`prefer_ipv4`、`prefer_ipv6` 等执行器插件均支持 `short_circuit` 选项。开启后，命中时立即结束当前 sequence 的后续步骤，无需额外写 `has_resp` + `accept`。
 
 ```yaml
 - tag: cache_main
@@ -126,7 +156,7 @@ log:
 
 ### `ros_address_list`：RouterOS 路由联动
 
-把解析结果实时同步到 MikroTik RouterOS 的 address-list，配合路由规则实现 DNS 驱动的流量分流。详见 [MikroTik 策略路由](mikrotik-policy-routing.md)。
+把解析结果实时同步到 MikroTik RouterOS 的 address-list，配合路由规则实现 DNS 驱动的流量分流。详见 [`ros_address_list`](plugin-reference/executor/integrations.mdx#ros_address_list)。
 
 ---
 

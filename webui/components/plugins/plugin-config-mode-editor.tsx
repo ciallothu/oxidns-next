@@ -18,6 +18,7 @@ import {
 } from "@/lib/plugin-config-yaml";
 import {
   createPluginConfigFormValues,
+  isPluginConfigFormValid,
   PluginConfigFieldsEditor,
   serializePluginConfigValues,
 } from "@/components/plugins/plugin-config-fields-editor";
@@ -36,6 +37,8 @@ interface PluginConfigModeEditorProps {
   yamlLabel?: string;
   pluginKind?: string;
   currentPluginName?: string;
+  outboundProfileNames?: string[];
+  advancedInitiallyConfigured?: boolean;
 }
 
 export function PluginConfigModeEditor({
@@ -50,6 +53,8 @@ export function PluginConfigModeEditor({
   yamlLabel = "YAML",
   pluginKind,
   currentPluginName,
+  outboundProfileNames,
+  advancedInitiallyConfigured = true,
 }: PluginConfigModeEditorProps) {
   const { t } = useI18n();
   const resolvedFieldLabel = fieldLabel ?? t(WEBUI.common.fields);
@@ -62,24 +67,26 @@ export function PluginConfigModeEditor({
   const [fieldValues, setFieldValues] = useState(() =>
     createPluginConfigFormValues(fields, values),
   );
+  const [configuredValues, setConfiguredValues] = useState<
+    Record<string, unknown>
+  >(() => (advancedInitiallyConfigured ? values : {}));
 
   const handleModeChange = (nextMode: "fields" | "yaml") => {
     if (nextMode === "yaml") {
+      const serializedValues = serializePluginConfigValues(fields, fieldValues);
       setYamlText(
-        stringifyArgsLevelPluginConfigYaml(
-          serializePluginConfigValues(fields, fieldValues),
-          alreadyArgsLevel,
-        ),
+        stringifyArgsLevelPluginConfigYaml(serializedValues, alreadyArgsLevel),
       );
+      setConfiguredValues(serializedValues);
       setYamlError(null);
-      onValidityChange?.(true);
+      onValidityChange?.(isPluginConfigFormValid(fields, fieldValues));
     }
     setMode(nextMode);
   };
 
   const handleFieldChange = (nextValues: Record<string, unknown>) => {
     setFieldValues(nextValues);
-    onValidityChange?.(true);
+    onValidityChange?.(isPluginConfigFormValid(fields, nextValues));
     onChange(serializePluginConfigValues(fields, nextValues));
   };
 
@@ -100,9 +107,14 @@ export function PluginConfigModeEditor({
       !Array.isArray(parsed.value)
     ) {
       setYamlError(null);
-      onValidityChange?.(true);
       const parsedValues = parsed.value as Record<string, unknown>;
-      setFieldValues(createPluginConfigFormValues(fields, parsedValues));
+      const nextFieldValues = createPluginConfigFormValues(
+        fields,
+        parsedValues,
+      );
+      onValidityChange?.(isPluginConfigFormValid(fields, parsedValues));
+      setFieldValues(nextFieldValues);
+      setConfiguredValues(parsedValues);
       onChange(parsedValues);
       return;
     }
@@ -139,6 +151,7 @@ export function PluginConfigModeEditor({
           fields={fields}
           plugins={plugins}
           values={fieldValues}
+          configuredValues={configuredValues}
           onChange={handleFieldChange}
           defaultArrayObjectCollapsed={defaultArrayObjectCollapsed}
           readOnly={readOnly}
@@ -154,6 +167,7 @@ export function PluginConfigModeEditor({
           pluginKind={pluginKind}
           fields={fields}
           currentPluginName={currentPluginName}
+          outboundProfileNames={outboundProfileNames}
         />
       )}
     </div>

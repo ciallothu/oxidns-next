@@ -11,7 +11,7 @@ use crate::core::context::DnsContext;
 use crate::core::context::ExecutionPathEvent;
 use crate::infra::error::{DnsError, Result};
 use crate::plugin::executor::sequence::{
-    PluginRef, Rule, parse_control_flow_sequence_tag, parse_matcher_expr,
+    BuiltinKind, PluginRef, Rule, parse_control_flow_sequence_tag, parse_matcher_expr,
 };
 use crate::plugin::executor::{ExecStep, Executor};
 use crate::plugin::matcher::{Matcher, MatcherRef};
@@ -45,8 +45,27 @@ enum BuiltinOp {
     Jump(Arc<dyn Executor>),
     /// Execute another sequence executor and stop current program immediately.
     Goto(Arc<dyn Executor>),
-    /// Insert marks into context and continue execution.
-    Mark(AHashSet<u32>),
+    /// Mutate the request-local mark collection and continue execution.
+    Mark {
+        mode: MarkMutationMode,
+        values: AHashSet<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum MarkMutationMode {
+    Append,
+    Replace,
+}
+
+impl MarkMutationMode {
+    #[cfg(feature = "_sequence-step-recording")]
+    fn builtin_name(self) -> &'static str {
+        match self {
+            Self::Append => "mark",
+            Self::Replace => "set_mark",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -345,14 +364,18 @@ impl ChainProgram {
                     Err(err)
                 }
             },
-            BuiltinOp::Mark(marks) => {
-                context.marks_mut().extend(marks.iter().cloned());
+            BuiltinOp::Mark { mode, values } => {
+                let context_marks = context.marks_mut();
+                if *mode == MarkMutationMode::Replace {
+                    context_marks.clear();
+                }
+                context_marks.extend(values.iter().copied());
                 record_sequence_event!(
                     self,
                     context,
                     _instruction.node_index,
                     "builtin",
-                    Some("mark"),
+                    Some(mode.builtin_name()),
                     "next",
                 );
                 Ok(InstructionFlow::Continue)
@@ -362,16 +385,16 @@ impl ChainProgram {
 
     fn matches_instruction(&self, context: &mut DnsContext, instruction: &Instruction) -> bool {
         for matcher_ref in &instruction.matchers {
-            let matched = matcher_ref.is_match(context);
+            let evaluation = matcher_ref.evaluate(context);
             record_sequence_event!(
                 self,
                 context,
                 instruction.node_index,
                 "matcher",
                 Some(matcher_ref.tag()),
-                if matched { "matched" } else { "not_matched" },
+                evaluation.outcome(),
             );
-            if !matched {
+            if !evaluation.is_match() {
                 debug!("instruction skipped, matcher: {}", matcher_ref.tag());
                 return false;
             }
@@ -503,11 +526,16 @@ impl<'a> ChainBuilder<'a> {
             for (match_index, matcher_raw) in matcher_exprs.iter().enumerate() {
                 let field = format!("args[{}].matches[{}]", node_index, match_index);
                 let (reverse, matcher_expr) = parse_matcher_expr(matcher_raw)?;
-                matchers.push(MatcherRef::new(
-                    self.resolve_matcher_ref(matcher_expr, node_index, match_index, &field)
-                        .await?,
-                    reverse,
-                ));
+                matchers.push(
+                    self.resolve_matcher_ref(
+                        matcher_expr,
+                        reverse,
+                        node_index,
+                        match_index,
+                        &field,
+                    )
+                    .await?,
+                );
             }
         }
 
@@ -516,7 +544,8 @@ impl<'a> ChainBuilder<'a> {
             .as_ref()
             .ok_or_else(|| DnsError::plugin("rule must have 'exec' field"))?;
 
-        // Builtin syntax has priority; otherwise resolve as normal executor reference.
+        // Builtin syntax has priority; otherwise resolve as normal executor
+        // reference.
         let op = if let Some(op) = self.parse_builtin(exec, node_index).await? {
             InstructionOp::Builtin(op)
         } else {
@@ -536,20 +565,27 @@ impl<'a> ChainBuilder<'a> {
         let op = split.next().unwrap_or_default();
         let arg = split.next().map(str::trim).filter(|s| !s.is_empty());
 
-        match op {
-            "accept" => Ok(Some(BuiltinOp::Accept)),
-            "return" => Ok(Some(BuiltinOp::Return)),
-            "reject" => parse_reject_builtin(arg).map(Some),
-            "mark" => Ok(Some(BuiltinOp::Mark(parse_mark_values(arg)?))),
-            "jump" => Ok(Some(BuiltinOp::Jump(
+        match BuiltinKind::from_keyword(op) {
+            Some(BuiltinKind::Accept) => Ok(Some(BuiltinOp::Accept)),
+            Some(BuiltinKind::Return) => Ok(Some(BuiltinOp::Return)),
+            Some(BuiltinKind::Reject) => parse_reject_builtin(arg).map(Some),
+            Some(BuiltinKind::Mark) => Ok(Some(BuiltinOp::Mark {
+                mode: MarkMutationMode::Append,
+                values: parse_mark_values("mark", arg)?,
+            })),
+            Some(BuiltinKind::SetMark) => Ok(Some(BuiltinOp::Mark {
+                mode: MarkMutationMode::Replace,
+                values: parse_mark_values("set_mark", arg)?,
+            })),
+            Some(BuiltinKind::Jump) => Ok(Some(BuiltinOp::Jump(
                 self.resolve_jump_or_goto_executor("jump", arg, node_index)
                     .await?,
             ))),
-            "goto" => Ok(Some(BuiltinOp::Goto(
+            Some(BuiltinKind::Goto) => Ok(Some(BuiltinOp::Goto(
                 self.resolve_jump_or_goto_executor("goto", arg, node_index)
                     .await?,
             ))),
-            _ => Ok(None),
+            None => Ok(None),
         }
     }
 
@@ -579,7 +615,7 @@ impl<'a> ChainBuilder<'a> {
             }
             PluginRef::QuickSetup { plugin_type, param } => {
                 let quick_tag = format!(
-                    "@qs:exec:{}:{}:{}",
+                    "qs.exec.{}.{}.{}",
                     self.sequence_tag, node_index, plugin_type
                 );
                 let holder = self
@@ -604,16 +640,18 @@ impl<'a> ChainBuilder<'a> {
     async fn resolve_matcher_ref(
         &mut self,
         expr: &str,
+        reverse: bool,
         node_index: usize,
         match_index: usize,
         field: &str,
-    ) -> Result<Arc<dyn Matcher>> {
+    ) -> Result<MatcherRef> {
         match PluginRef::from_str(expr)? {
-            PluginRef::PluginTag(tag) => self.context.matcher(field, &tag),
+            PluginRef::PluginTag(tag) => self.context.matcher_ref(field, &tag, reverse),
             PluginRef::QuickSetup { plugin_type, param } => {
-                // Generate deterministic synthetic runtime tag for quick-setup matcher.
+                // Generate deterministic synthetic runtime tag for quick-setup
+                // matcher.
                 let quick_tag = format!(
-                    "@qs:match:{}:{}:{}:{}",
+                    "qs.match.{}.{}.{}.{}",
                     self.sequence_tag, node_index, match_index, plugin_type
                 );
                 let holder = self
@@ -630,7 +668,7 @@ impl<'a> ChainBuilder<'a> {
                     }
                 };
                 self.quick_setup_matchers.push(matcher.clone());
-                Ok(matcher)
+                Ok(MatcherRef::new(matcher, reverse))
             }
         }
     }
@@ -669,15 +707,18 @@ fn parse_reject_builtin(arg: Option<&str>) -> Result<BuiltinOp> {
     Ok(BuiltinOp::Reject { rcode })
 }
 
-/// Parse optional `mark` arguments into normalized mark strings.
+/// Parse mark mutation arguments into a normalized mark set.
 ///
 /// Supported syntax:
 /// - `mark 1`
 /// - `mark 1,2,3`
 /// - `mark 1 2 3`
-fn parse_mark_values(arg: Option<&str>) -> Result<AHashSet<u32>> {
+fn parse_mark_values(op: &str, arg: Option<&str>) -> Result<AHashSet<u32>> {
     let Some(raw) = arg else {
-        return Err(DnsError::plugin("mark requires at least one value"));
+        return Err(DnsError::plugin(format!(
+            "{} requires at least one value",
+            op
+        )));
     };
 
     let mut marks = AHashSet::new();
@@ -688,12 +729,15 @@ fn parse_mark_values(arg: Option<&str>) -> Result<AHashSet<u32>> {
     {
         let mark = token
             .parse::<u32>()
-            .map_err(|e| DnsError::plugin(format!("invalid mark value '{}': {}", token, e)))?;
+            .map_err(|e| DnsError::plugin(format!("invalid {} value '{}': {}", op, token, e)))?;
         marks.insert(mark);
     }
 
     if marks.is_empty() {
-        return Err(DnsError::plugin("mark requires at least one value"));
+        return Err(DnsError::plugin(format!(
+            "{} requires at least one value",
+            op
+        )));
     }
 
     Ok(marks)
@@ -808,6 +852,22 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct AlwaysMatcher;
+
+    #[async_trait]
+    impl Plugin for AlwaysMatcher {
+        fn tag(&self) -> &str {
+            "controlled"
+        }
+    }
+
+    impl Matcher for AlwaysMatcher {
+        fn is_match(&self, _context: &mut DnsContext) -> bool {
+            true
+        }
+    }
+
     fn make_context() -> DnsContext {
         let mut request = Message::new();
         request.set_id(42);
@@ -833,6 +893,87 @@ mod tests {
         Instruction::new(0, Vec::new(), InstructionOp::Builtin(op))
     }
 
+    fn mark_values(values: impl IntoIterator<Item = u32>) -> AHashSet<u32> {
+        values.into_iter().collect()
+    }
+
+    #[tokio::test]
+    async fn test_mark_mutations_append_and_replace_context_marks() {
+        let program = Arc::new(ChainProgram::new(
+            "test_sequence".to_string(),
+            vec![
+                builtin_instruction(BuiltinOp::Mark {
+                    mode: MarkMutationMode::Replace,
+                    values: mark_values([2, 3]),
+                }),
+                builtin_instruction(BuiltinOp::Mark {
+                    mode: MarkMutationMode::Append,
+                    values: mark_values([3, 5]),
+                }),
+            ],
+        ));
+        let mut context = make_context();
+        context.marks_mut().extend([1, 4]);
+
+        let step = program.run(&mut context).await.unwrap();
+
+        assert_eq!(step, ExecStep::Next);
+        assert_eq!(context.marks(), &mark_values([2, 3, 5]));
+    }
+
+    #[tokio::test]
+    async fn test_set_mark_does_not_run_when_instruction_matchers_fail() {
+        let program = Arc::new(ChainProgram::new(
+            "test_sequence".to_string(),
+            vec![Instruction::new(
+                0,
+                vec![MatcherRef::new(Arc::new(AlwaysMatcher), true)],
+                InstructionOp::Builtin(BuiltinOp::Mark {
+                    mode: MarkMutationMode::Replace,
+                    values: mark_values([2, 3]),
+                }),
+            )],
+        ));
+        let mut context = make_context();
+        context.marks_mut().extend([1, 4]);
+
+        let step = program.run(&mut context).await.unwrap();
+
+        assert_eq!(step, ExecStep::Next);
+        assert_eq!(context.marks(), &mark_values([1, 4]));
+    }
+
+    #[test]
+    fn test_parse_mark_values_supports_single_multiple_and_u32_bounds() {
+        assert_eq!(
+            parse_mark_values("set_mark", Some("7")).unwrap(),
+            mark_values([7])
+        );
+        assert_eq!(
+            parse_mark_values("set_mark", Some("0 7,7,4294967295")).unwrap(),
+            mark_values([0, 7, u32::MAX])
+        );
+    }
+
+    #[test]
+    fn test_parse_mark_values_rejects_missing_invalid_and_overflow_values() {
+        for arg in [None, Some(""), Some(",,")] {
+            let err = parse_mark_values("set_mark", arg).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("set_mark requires at least one value")
+            );
+        }
+
+        for value in ["-1", "abc", "4294967296"] {
+            let err = parse_mark_values("set_mark", Some(value)).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains(&format!("invalid set_mark value '{}'", value))
+            );
+        }
+    }
+
     #[cfg(feature = "_sequence-step-recording")]
     #[tokio::test]
     async fn test_sequence_records_execution_path_with_step_recording_feature() {
@@ -851,6 +992,118 @@ mod tests {
         assert_eq!(events[0].kind, "builtin");
         assert_eq!(events[0].tag.as_deref(), Some("accept"));
         assert_eq!(events[0].outcome, "stop");
+    }
+
+    #[cfg(feature = "_sequence-step-recording")]
+    #[tokio::test]
+    async fn test_set_mark_records_builtin_execution_path() {
+        let program = Arc::new(ChainProgram::new(
+            "test_sequence".to_string(),
+            vec![builtin_instruction(BuiltinOp::Mark {
+                mode: MarkMutationMode::Replace,
+                values: mark_values([2, 3]),
+            })],
+        ));
+        let mut context = make_context();
+        context.enable_execution_path();
+
+        let step = program.run(&mut context).await.unwrap();
+
+        assert_eq!(step, ExecStep::Next);
+        let events = context.execution_path_events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "builtin");
+        assert_eq!(events[0].tag.as_deref(), Some("set_mark"));
+        assert_eq!(events[0].outcome, "next");
+    }
+
+    #[cfg(feature = "_sequence-step-recording")]
+    #[tokio::test]
+    async fn test_shared_runtime_mode_preserves_positive_and_negated_references() {
+        use crate::plugin::matcher::{MatcherRuntimeControl, MatcherRuntimeMode};
+
+        let control = Arc::new(MatcherRuntimeControl::new());
+        let matcher = Arc::new(AlwaysMatcher);
+        let positive_program = Arc::new(ChainProgram::new(
+            "positive_sequence".to_string(),
+            vec![Instruction::new(
+                0,
+                vec![MatcherRef::with_runtime_control(
+                    matcher.clone(),
+                    false,
+                    control.clone(),
+                )],
+                InstructionOp::Builtin(BuiltinOp::Accept),
+            )],
+        ));
+        let negated_program = Arc::new(ChainProgram::new(
+            "negated_sequence".to_string(),
+            vec![Instruction::new(
+                0,
+                vec![MatcherRef::with_runtime_control(
+                    matcher,
+                    true,
+                    control.clone(),
+                )],
+                InstructionOp::Builtin(BuiltinOp::Accept),
+            )],
+        ));
+
+        control.set_mode(MatcherRuntimeMode::AlwaysFalse);
+        let mut positive_false_context = make_context();
+        positive_false_context.enable_execution_path();
+        assert_eq!(
+            positive_program
+                .run(&mut positive_false_context)
+                .await
+                .unwrap(),
+            ExecStep::Next
+        );
+        assert_eq!(
+            positive_false_context.execution_path_events()[0].outcome,
+            "always_false_not_matched"
+        );
+        let mut negated_false_context = make_context();
+        negated_false_context.enable_execution_path();
+        assert_eq!(
+            negated_program
+                .run(&mut negated_false_context)
+                .await
+                .unwrap(),
+            ExecStep::Stop
+        );
+        assert_eq!(
+            negated_false_context.execution_path_events()[0].outcome,
+            "always_false_matched"
+        );
+
+        control.set_mode(MatcherRuntimeMode::AlwaysTrue);
+        let mut positive_true_context = make_context();
+        positive_true_context.enable_execution_path();
+        assert_eq!(
+            positive_program
+                .run(&mut positive_true_context)
+                .await
+                .unwrap(),
+            ExecStep::Stop
+        );
+        assert_eq!(
+            positive_true_context.execution_path_events()[0].outcome,
+            "always_true_matched"
+        );
+        let mut negated_true_context = make_context();
+        negated_true_context.enable_execution_path();
+        assert_eq!(
+            negated_program
+                .run(&mut negated_true_context)
+                .await
+                .unwrap(),
+            ExecStep::Next
+        );
+        assert_eq!(
+            negated_true_context.execution_path_events()[0].outcome,
+            "always_true_not_matched"
+        );
     }
 
     #[cfg(not(feature = "_sequence-step-recording"))]

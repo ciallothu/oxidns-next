@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 #[cfg(feature = "api")]
-use crate::api::{self, ApiHub, clear_global_api, install_global_api};
+use crate::api::{self, ApiHub, ApiRegister, clear_global_api, install_global_api};
 use crate::config::types::Config;
 use crate::infra::control::AppController;
 use crate::infra::error::Result;
@@ -66,6 +66,13 @@ pub async fn assemble(
 
     #[cfg(feature = "api")]
     if let Some(api_hub) = &api_hub {
+        let register = ApiRegister::new(api_hub.clone());
+        if let Err(err) = api::register_plugin_runtime_control_routes(&register, &runtime) {
+            plugin::destroy_runtime().await;
+            clear_global_api();
+            plugin::clear_app_controller();
+            return Err(err);
+        }
         api_hub.mark_plugins_initialized(runtime.plugin_count(), runtime.server_plugin_count());
         if let Err(err) = api_hub.start().await {
             plugin::destroy_runtime().await;

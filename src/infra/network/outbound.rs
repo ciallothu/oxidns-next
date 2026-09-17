@@ -289,6 +289,7 @@ pub(crate) fn install_global(config: &NetworkOutboundConfig) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn restore_global(runtime: Arc<OutboundRuntime>) {
     *global_slot()
         .lock()

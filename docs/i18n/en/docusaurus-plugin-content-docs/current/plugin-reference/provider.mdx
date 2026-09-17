@@ -3,13 +3,14 @@ title: Provider Plugins
 sidebar_position: 5
 ---
 
-import Admonition from "@theme/Admonition";
+import Admonition from '@theme/Admonition';
+
 
 Providers turn rule sets from one-off literals into reusable data assets. In larger configurations they reduce duplication, centralize shared datasets, and keep policies maintainable.
 
 Providers with domain or IP match capability can be referenced directly by matchers through `"$tag"` and can also be composed by `domain_set` or `ip_set`. Those composite providers compile only their own local rules and then consult referenced providers at runtime instead of copying downstream rule data into a merged matcher.
 
-Every live provider also registers `POST /plugins/<provider_tag>/reload`, and the `reload_provider` executor can refresh that provider's snapshot in place with the same startup configuration without rebuilding unrelated plugins.
+Every live provider also registers `POST /api/plugins/<provider_tag>/reload`, and the `reload_provider` executor can refresh that provider's snapshot in place with the same startup configuration without rebuilding unrelated plugins. The WebUI exposes the same capability as **Reload data** on provider cards and detail views, with distinct pending, success, failure, and busy feedback.
 
 At runtime, OxiDNS Next only initializes providers that are actually consumed. If a provider is not referenced directly or indirectly by any `server`, `executor`, or `matcher`, it is skipped during startup, does not appear in the runtime registry, and emits a warning log so the unused configuration is visible.
 
@@ -427,18 +428,11 @@ Loads reusable IP and CIDR rules from v2ray-rules-dat `geoip.dat`.
 
 ### Configuration Details
 
-- `file`
-  - Type: `string`; Required: yes
-  - Path to `geoip.dat`.
-- `selectors`
-  - Type: `array`; Required: no; Default: empty array
-  - Case-insensitive exact code filter.
-  - Multiple selectors are merged as a union.
-  - Omit it or pass `[]` to load the full union of every entry in the dat file.
+| Group | Plugins |
+| --- | --- |
+| [Domain Providers](provider/domain.mdx) | [`domain_set`](provider/domain.mdx#domain_set), [`dynamic_domain_set`](provider/domain.mdx#dynamic_domain_set), [`geosite`](provider/domain.mdx#geosite), [`adguard_rule`](provider/domain.mdx#adguard_rule) |
+| [IP Providers](provider/ip.mdx) | [`ip_set`](provider/ip.mdx#ip_set), [`geoip`](provider/ip.mdx#geoip) |
 
-### Behavior
+<span id="domain_set"></span><span id="dynamic_domain_set"></span><span id="geosite"></span><span id="adguard_rule"></span><span id="ip_set"></span><span id="geoip"></span>
 
-- Exposes IP-only membership checks.
-- Can be referenced directly by `client_ip`, `resp_ip`, and `ptr_ip`, or composed by `ip_set`.
-- Supports independent refresh through `reload_provider` or `POST /plugins/<tag>/reload`.
-- To pre-export selected rules into text files before runtime, use `oxidns-next export-dat --kind geoip`.
+Legacy plugin anchors remain on this directory page; field references now live in the responsibility groups above.

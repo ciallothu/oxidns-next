@@ -111,6 +111,29 @@ plugins:
     }
 
     #[test]
+    fn run_check_rejects_unsafe_plugin_tag() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_path = write_config(
+            temp.path(),
+            "config.yaml",
+            r#"
+plugins:
+  - tag: cache..cn
+    type: debug_print
+"#,
+        );
+
+        let err = run_check(&CheckOptions {
+            config: config_path,
+            working_dir: None,
+            graph: false,
+        })
+        .expect_err("unsafe plugin tag should fail config check");
+
+        assert!(err.to_string().contains("Invalid plugin tag 'cache..cn'"));
+    }
+
+    #[test]
     fn print_dependency_graph_renders_tree_from_top_level_plugins() {
         let summary = config::validate_text(
             r#"
@@ -177,6 +200,28 @@ plugins:
         assert!(graph.contains("child_seq [executor:sequence]"));
         assert!(graph.contains("THEN $cache [args[0].exec]"));
         assert!(graph.contains("cache [executor:cache]"));
+    }
+
+    #[test]
+    fn print_dependency_graph_renders_set_mark_as_builtin_without_dependencies() {
+        let summary = config::validate_text(
+            r#"
+plugins:
+  - tag: seq
+    type: sequence
+    args:
+      - exec: set_mark 2,3
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: seq
+"#,
+        )
+        .expect("config should validate");
+
+        let graph = render_dependency_graph(&summary);
+        assert!(graph.contains("THEN set_mark 2,3 [args[0].exec]"));
+        assert!(!graph.contains("quick_setup(set_mark)"));
     }
 
     #[test]

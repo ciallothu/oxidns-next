@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -13,7 +13,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 
-use super::backend::{ClearHistoryResult, RecorderBackend, WriterCommand, WriterThreadContext};
+use super::backend::{
+    CleanupResult, ClearHistoryResult, DatabaseCoordinator, RecorderBackend, SpaceReclaimResult,
+    SpaceStats, WriterCommand, WriterThreadContext,
+};
 use super::model::{
     DistributionQuery, DistributionResponse, DistributionRow, LatencyHistogramBucket, LatencyQuery,
     LatencySlowRow, LatencySummary, ListCursor, ListQuery, PendingRecord, PluginStatsKind,
@@ -26,6 +29,7 @@ use crate::infra::error::{DnsError, Result};
 const SCHEMA_VERSION: &str = "v1";
 const QUESTIONS_BACKFILL_MARKER: &str = "questions_backfilled";
 const CLEANUP_BATCH_SIZE: usize = 1_000;
+const VACUUM_BATCH_PAGES: u64 = 1_000;
 const PLUGIN_STATS_SAMPLE_LIMIT: usize = 10_000;
 const MAX_TABLE_TAG_PREFIX_LEN: usize = 12;
 const RECORD_ROW_COLUMNS: [&str; 28] = [
@@ -82,7 +86,8 @@ pub(super) fn open_writer_database(path: &Path) -> rusqlite::Result<Connection> 
     // - auto_vacuum must be selected before WAL or schema creation for a fresh
     //   database; otherwise SQLite keeps the default NONE mode until a manual
     //   VACUUM rewrites the file.
-    // - WAL + synchronous=NORMAL keeps the writer fast and readers non-blocking.
+    // - WAL + synchronous=NORMAL keeps the writer fast and readers
+    //   non-blocking.
     conn.execute_batch(
         "PRAGMA auto_vacuum=INCREMENTAL;
          PRAGMA journal_mode=WAL;
@@ -368,6 +373,7 @@ pub(super) fn run_writer_thread(
     mut conn: Connection,
 ) -> Result<()> {
     let WriterThreadContext {
+        path,
         tables,
         stop_requested,
         tail,
@@ -375,6 +381,7 @@ pub(super) fn run_writer_thread(
         broadcaster,
         batch_size,
         flush_interval,
+        database_coordinator,
     } = context;
 
     let mut pending = Vec::with_capacity(batch_size);
@@ -383,6 +390,23 @@ pub(super) fn run_writer_thread(
             Ok(WriterCommand::Insert(record)) => {
                 pending.push(*record);
                 if pending.len() >= batch_size {
+                    flush_pending_coordinated(
+                        &mut conn,
+                        &tables,
+                        &mut pending,
+                        &tail,
+                        memory_tail,
+                        &broadcaster,
+                        &database_coordinator,
+                    )?;
+                }
+            }
+            Ok(WriterCommand::Cleanup {
+                cutoff_ms,
+                reply_tx,
+            }) => {
+                let result = (|| {
+                    let _access = database_coordinator.write_access()?;
                     flush_pending(
                         &mut conn,
                         &tables,
@@ -391,66 +415,64 @@ pub(super) fn run_writer_thread(
                         memory_tail,
                         &broadcaster,
                     )?;
-                }
-            }
-            Ok(WriterCommand::Cleanup { cutoff_ms }) => {
-                flush_pending(
-                    &mut conn,
-                    &tables,
-                    &mut pending,
-                    &tail,
-                    memory_tail,
-                    &broadcaster,
-                )?;
-                run_cleanup(&mut conn, &tables, cutoff_ms)?;
+                    run_cleanup(&mut conn, &path, &tables, cutoff_ms)
+                })()
+                .map_err(|err: DnsError| err.to_string());
+                let _ = reply_tx.send(result);
             }
             Ok(WriterCommand::ClearHistory { reply_tx }) => {
-                let result = flush_pending(
-                    &mut conn,
-                    &tables,
-                    &mut pending,
-                    &tail,
-                    memory_tail,
-                    &broadcaster,
-                )
-                .and_then(|_| run_clear_history(&mut conn, &tables, &tail))
-                .map_err(|err| err.to_string());
+                let result = (|| {
+                    let _access = database_coordinator.write_access()?;
+                    flush_pending(
+                        &mut conn,
+                        &tables,
+                        &mut pending,
+                        &tail,
+                        memory_tail,
+                        &broadcaster,
+                    )?;
+                    run_clear_history(&mut conn, &path, &tables, &tail)
+                })()
+                .map_err(|err: DnsError| err.to_string());
                 let _ = reply_tx.send(result);
             }
             #[cfg(test)]
             Ok(WriterCommand::Flush { reply_tx }) => {
-                let result = flush_pending(
+                let result = flush_pending_coordinated(
                     &mut conn,
                     &tables,
                     &mut pending,
                     &tail,
                     memory_tail,
                     &broadcaster,
+                    &database_coordinator,
                 )
                 .map_err(|err| err.to_string());
                 let _ = reply_tx.send(result);
             }
             Err(RecvTimeoutError::Timeout) => {
-                flush_pending(
+                flush_pending_coordinated(
                     &mut conn,
                     &tables,
                     &mut pending,
                     &tail,
                     memory_tail,
                     &broadcaster,
+                    &database_coordinator,
                 )?;
                 if stop_requested.load(Ordering::Relaxed) {
                     break;
                 }
             }
             Err(RecvTimeoutError::Disconnected) => {
-                flush_pending(
+                flush_pending_coordinated(
                     &mut conn,
                     &tables,
                     &mut pending,
                     &tail,
                     memory_tail,
                     &broadcaster,
+                    &database_coordinator,
                 )?;
                 break;
             }
@@ -458,6 +480,20 @@ pub(super) fn run_writer_thread(
     }
 
     Ok(())
+}
+
+fn flush_pending_coordinated(
+    conn: &mut Connection,
+    tables: &TableNames,
+    pending: &mut Vec<PendingRecord>,
+    tail: &Arc<Mutex<VecDeque<RecordDetail>>>,
+    memory_tail: usize,
+    broadcaster: &broadcast::Sender<RecordDetail>,
+    database_coordinator: &DatabaseCoordinator,
+) -> Result<()> {
+    let _access = database_coordinator.read_access()?;
+    let _writer = database_coordinator.writer()?;
+    flush_pending(conn, tables, pending, tail, memory_tail, broadcaster)
 }
 
 fn flush_pending(
@@ -644,7 +680,16 @@ where
         .transpose()
 }
 
-fn run_cleanup(conn: &mut Connection, tables: &TableNames, cutoff_ms: i64) -> rusqlite::Result<()> {
+fn run_cleanup(
+    conn: &mut Connection,
+    path: &Path,
+    tables: &TableNames,
+    cutoff_ms: i64,
+) -> Result<CleanupResult> {
+    checkpoint_wal(conn)?;
+    let before = read_space_stats(conn, path)?;
+    let mut deleted_records = 0usize;
+    let mut peak_wal_bytes = 0;
     loop {
         let deleted = conn.execute(
             &format!(
@@ -662,26 +707,231 @@ fn run_cleanup(conn: &mut Connection, tables: &TableNames, cutoff_ms: i64) -> ru
         if deleted == 0 {
             break;
         }
+        deleted_records = deleted_records.saturating_add(deleted);
+        observe_wal_size(path, &mut peak_wal_bytes)?;
+        checkpoint_wal(conn)?;
     }
-    conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE); PRAGMA incremental_vacuum;")
+    let reclaimable = read_space_stats(conn, path)?;
+    let space = reclaim_database_space(conn, path, before, reclaimable, peak_wal_bytes)?;
+    Ok(CleanupResult {
+        deleted_records,
+        space: Some(space),
+    })
 }
 
 fn run_clear_history(
     conn: &mut Connection,
+    path: &Path,
     tables: &TableNames,
     tail: &Arc<Mutex<VecDeque<RecordDetail>>>,
 ) -> Result<ClearHistoryResult> {
-    let tx = conn.transaction()?;
-    let cleared_records = tx.execute(&format!("DELETE FROM {}", tables.records), [])?;
-    tx.commit()?;
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum;")?;
+    run_clear_history_with_checkpoint(conn, path, tables, tail, &mut checkpoint_wal)
+}
 
-    let mut tail_guard = tail
-        .lock()
-        .map_err(|_| "query_recorder tail buffer lock poisoned".to_string())?;
+fn run_clear_history_with_checkpoint<F>(
+    conn: &mut Connection,
+    path: &Path,
+    tables: &TableNames,
+    tail: &Arc<Mutex<VecDeque<RecordDetail>>>,
+    checkpoint: &mut F,
+) -> Result<ClearHistoryResult>
+where
+    F: FnMut(&Connection) -> Result<()>,
+{
+    // Start from an empty WAL and keep it bounded throughout the operation.
+    // A single DELETE transaction for a large recorder can otherwise grow the
+    // WAL close to the amount of history being removed before the final
+    // checkpoint gets a chance to truncate it.
+    checkpoint(conn)?;
+    let before = read_space_stats(conn, path)?;
+    let mut cleared_records = 0usize;
+    let mut peak_wal_bytes = 0;
+    loop {
+        let deleted = conn.execute(
+            &format!(
+                "DELETE FROM {records}
+                 WHERE id IN (
+                    SELECT id FROM {records}
+                    ORDER BY id ASC
+                    LIMIT ?1
+                 )",
+                records = tables.records
+            ),
+            params![CLEANUP_BATCH_SIZE as i64],
+        )?;
+        if deleted == 0 {
+            break;
+        }
+        cleared_records = cleared_records.saturating_add(deleted);
+        // Deletes are auto-committed per batch. Clear the in-memory replay
+        // buffer before the next fallible checkpoint so a partial clear can
+        // never advertise rows that no longer exist in SQLite.
+        clear_tail(tail);
+        observe_wal_size(path, &mut peak_wal_bytes)?;
+        checkpoint(conn)?;
+    }
+
+    clear_tail(tail);
+
+    let reclaimable = read_space_stats(conn, path)?;
+    let space =
+        reclaim_database_space(conn, path, before, reclaimable, peak_wal_bytes).map_err(|err| {
+            DnsError::runtime(format!(
+                "query history cleared ({cleared_records} records), but space reclaim failed: {err}"
+            ))
+        })?;
+
+    Ok(ClearHistoryResult {
+        cleared_records,
+        space: Some(space),
+    })
+}
+
+fn clear_tail(tail: &Arc<Mutex<VecDeque<RecordDetail>>>) {
+    let mut tail_guard = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     tail_guard.clear();
+}
 
-    Ok(ClearHistoryResult { cleared_records })
+fn reclaim_database_space(
+    conn: &Connection,
+    path: &Path,
+    before: SpaceStats,
+    reclaimable: SpaceStats,
+    mut peak_wal_bytes: u64,
+) -> Result<SpaceReclaimResult> {
+    let migrated = match reclaimable.auto_vacuum {
+        0 => {
+            conn.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+            true
+        }
+        1 => false,
+        2 => {
+            run_incremental_vacuum(conn, path, &mut peak_wal_bytes)?;
+            false
+        }
+        mode => {
+            return Err(DnsError::runtime(format!(
+                "query_recorder returned unsupported auto_vacuum mode {mode}"
+            )));
+        }
+    };
+
+    observe_wal_size(path, &mut peak_wal_bytes)?;
+    checkpoint_wal(conn)?;
+
+    let after = read_space_stats(conn, path)?;
+    if migrated && after.auto_vacuum != 2 {
+        return Err(DnsError::runtime(format!(
+            "query_recorder legacy database migration did not enable incremental auto-vacuum (mode {})",
+            after.auto_vacuum
+        )));
+    }
+    if after.freelist_count != 0 {
+        return Err(DnsError::runtime(format!(
+            "query_recorder space reclaim left {} free pages",
+            after.freelist_count
+        )));
+    }
+    if reclaimable.freelist_count > 0 && after.page_count >= reclaimable.page_count {
+        return Err(DnsError::runtime(format!(
+            "query_recorder space reclaim made no page-count progress ({} pages, {} free)",
+            after.page_count, reclaimable.freelist_count
+        )));
+    }
+
+    Ok(SpaceReclaimResult {
+        before,
+        reclaimable,
+        after,
+        migrated,
+        peak_wal_bytes,
+    })
+}
+
+fn run_incremental_vacuum(conn: &Connection, path: &Path, peak_wal_bytes: &mut u64) -> Result<()> {
+    // `PRAGMA incremental_vacuum` is a multi-step statement that yields one
+    // zero-column row per reclaimed page. `Connection::execute_batch` only
+    // steps a result-producing statement once. Reclaim a bounded number of
+    // pages per statement and truncate the WAL between batches so a manual
+    // clear cannot trade a smaller main file for an unbounded WAL peak.
+    loop {
+        let before = pragma_u64(conn, "PRAGMA freelist_count")?;
+        if before == 0 {
+            return Ok(());
+        }
+
+        let mut statement =
+            conn.prepare(&format!("PRAGMA incremental_vacuum({VACUUM_BATCH_PAGES})"))?;
+        let mut rows = statement.query([])?;
+        while rows.next()?.is_some() {}
+        drop(rows);
+        drop(statement);
+        observe_wal_size(path, peak_wal_bytes)?;
+        checkpoint_wal(conn)?;
+
+        let after = pragma_u64(conn, "PRAGMA freelist_count")?;
+        if after >= before {
+            return Err(DnsError::runtime(format!(
+                "query_recorder incremental vacuum made no progress ({after} of {before} free pages remain)"
+            )));
+        }
+    }
+}
+
+fn checkpoint_wal(conn: &Connection) -> Result<()> {
+    let (busy, _log_frames, _checkpointed_frames) =
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+    if busy != 0 {
+        return Err(DnsError::runtime(format!(
+            "query_recorder WAL checkpoint remained busy ({busy})"
+        )));
+    }
+    Ok(())
+}
+
+fn observe_wal_size(path: &Path, peak_wal_bytes: &mut u64) -> Result<()> {
+    *peak_wal_bytes = (*peak_wal_bytes).max(file_size(&wal_path(path))?);
+    Ok(())
+}
+
+fn read_space_stats(conn: &Connection, path: &Path) -> Result<SpaceStats> {
+    let auto_vacuum = conn.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
+    let page_size = pragma_u64(conn, "PRAGMA page_size")?;
+    let page_count = pragma_u64(conn, "PRAGMA page_count")?;
+    let freelist_count = pragma_u64(conn, "PRAGMA freelist_count")?;
+    Ok(SpaceStats {
+        auto_vacuum,
+        page_size,
+        page_count,
+        freelist_count,
+        database_bytes: file_size(path)?,
+        wal_bytes: file_size(&wal_path(path))?,
+    })
+}
+
+fn pragma_u64(conn: &Connection, pragma: &str) -> Result<u64> {
+    let value = conn.query_row(pragma, [], |row| row.get::<_, i64>(0))?;
+    non_negative_u64(value).map_err(Into::into)
+}
+
+fn file_size(path: &Path) -> Result<u64> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.len()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(0),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn wal_path(path: &Path) -> PathBuf {
+    let mut path = path.as_os_str().to_os_string();
+    path.push("-wal");
+    PathBuf::from(path)
 }
 
 #[cfg(test)]
@@ -861,11 +1111,18 @@ pub(super) fn load_plugin_stats_on_connection(
                 s.tag,
                 SUM(CASE
                     WHEN s.kind = 'matcher'
-                     AND s.outcome IN ('matched', 'not_matched') THEN 1
+                     AND s.outcome IN (
+                         'matched', 'not_matched',
+                         'always_true_matched', 'always_true_not_matched',
+                         'always_false_matched', 'always_false_not_matched'
+                     ) THEN 1
                     ELSE 0
                 END) AS checked,
                 SUM(CASE
-                    WHEN s.kind = 'matcher' AND s.outcome = 'matched' THEN 1
+                    WHEN s.kind = 'matcher'
+                     AND s.outcome IN (
+                         'matched', 'always_true_matched', 'always_false_matched'
+                     ) THEN 1
                     ELSE 0
                 END) AS matched,
                 SUM(CASE
@@ -1342,87 +1599,40 @@ pub(super) fn load_timeseries_on_connection(
     conn: &Connection,
     query: TimeseriesQuery,
 ) -> std::result::Result<TimeseriesResponse, DnsError> {
-    let (clauses, mut params) = record_filter_clauses(
+    let window = super::timeseries::Window::new(&query)?;
+    let (clauses, params) = record_filter_clauses(
         "r",
         &backend.tables,
-        query.since_ms,
-        query.until_ms,
+        Some(window.since),
+        Some(window.until),
         &query.filter,
     )?;
-    let where_sql = join_clauses(&clauses);
-    params.push(Value::Integer(PLUGIN_STATS_SAMPLE_LIMIT as i64));
-
-    let bucket_ms = query.bucket.millis();
-    let sql = format!(
-        "SELECT r.created_at_ms, r.elapsed_ms, r.error, r.has_response
-         FROM {records} r
-         WHERE {where_sql}
-         ORDER BY r.created_at_ms DESC, r.id DESC
-         LIMIT ?",
-        records = backend.tables.records,
+    let bucket = if query.bucket == super::model::TimeseriesBucket::Month {
+        "CAST(strftime('%Y', r.created_at_ms / 1000, 'unixepoch') AS INTEGER) * 12 + CAST(strftime('%m', r.created_at_ms / 1000, 'unixepoch') AS INTEGER) - 1".to_string()
+    } else {
+        format!("r.created_at_ms / {}", query.bucket.millis())
+    };
+    let sql = super::timeseries::aggregation_sql(
+        &backend.tables.records,
+        &join_clauses(&clauses),
+        &bucket,
+        "INTEGER",
+        "REAL",
     );
-
-    #[derive(Default)]
-    struct Aggregator {
-        total: u64,
-        error_count: u64,
-        no_response_count: u64,
-        elapsed_sum: u64,
-        elapsed_values: Vec<u64>,
-    }
-    let mut buckets: std::collections::BTreeMap<i64, Aggregator> =
-        std::collections::BTreeMap::new();
-    let mut sample_size = 0u64;
-
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params_from_iter(params))?;
+    let mut points = Vec::new();
     while let Some(row) = rows.next()? {
-        let created_at_ms = row.get::<_, i64>(0)?;
-        let elapsed_ms = row.get::<_, i64>(1).and_then(non_negative_u64)?;
-        let error = row.get::<_, Option<String>>(2)?;
-        let has_response = row.get::<_, i64>(3)? != 0;
-        let bucket = bucket_floor(created_at_ms, bucket_ms);
-        let aggregator = buckets.entry(bucket).or_default();
-        aggregator.total = aggregator.total.saturating_add(1);
-        if error.is_some() {
-            aggregator.error_count = aggregator.error_count.saturating_add(1);
-        }
-        if error.is_none() && !has_response {
-            aggregator.no_response_count = aggregator.no_response_count.saturating_add(1);
-        }
-        aggregator.elapsed_sum = aggregator.elapsed_sum.saturating_add(elapsed_ms);
-        aggregator.elapsed_values.push(elapsed_ms);
-        sample_size = sample_size.saturating_add(1);
-    }
-
-    let mut points: Vec<TimeseriesPoint> = Vec::with_capacity(buckets.len());
-    for (bucket, mut aggregator) in buckets {
-        let avg_ms = if aggregator.total == 0 {
-            0.0
-        } else {
-            aggregator.elapsed_sum as f64 / aggregator.total as f64
-        };
-        let p95_ms = percentile_value(&mut aggregator.elapsed_values, 0.95);
         points.push(TimeseriesPoint {
-            bucket_ms: bucket,
-            total: aggregator.total,
-            error_count: aggregator.error_count,
-            no_response_count: aggregator.no_response_count,
-            avg_ms,
-            p95_ms,
+            bucket_ms: query.bucket.start(row.get(0)?)?,
+            total: row.get::<_, i64>(1).and_then(non_negative_u64)?,
+            error_count: row.get::<_, i64>(2).and_then(non_negative_u64)?,
+            no_response_count: row.get::<_, i64>(3).and_then(non_negative_u64)?,
+            avg_ms: row.get(4)?,
+            p95_ms: row.get::<_, i64>(5).and_then(non_negative_u64)?,
         });
     }
-    if points.len() > query.max_buckets {
-        let drop = points.len() - query.max_buckets;
-        points.drain(0..drop);
-    }
-
-    Ok(TimeseriesResponse {
-        ok: true,
-        sample_size,
-        bucket_ms,
-        points,
-    })
+    window.finish(points)
 }
 
 pub(super) fn bucket_share(count: u64, sample_size: u64) -> f64 {
@@ -1431,14 +1641,6 @@ pub(super) fn bucket_share(count: u64, sample_size: u64) -> f64 {
     } else {
         count as f64 / sample_size as f64
     }
-}
-
-pub(super) fn bucket_floor(created_at_ms: i64, bucket_ms: i64) -> i64 {
-    if bucket_ms <= 0 {
-        return created_at_ms;
-    }
-    let remainder = created_at_ms.rem_euclid(bucket_ms);
-    created_at_ms - remainder
 }
 
 pub(super) fn latency_percentiles(values: &mut [u64]) -> (f64, u64, u64, u64, u64) {
@@ -1452,14 +1654,6 @@ pub(super) fn latency_percentiles(values: &mut [u64]) -> (f64, u64, u64, u64, u6
     let p99 = percentile_of_sorted(values, 0.99);
     let max = *values.last().unwrap_or(&0);
     (avg, p50, p95, p99, max)
-}
-
-pub(super) fn percentile_value(values: &mut [u64], quantile: f64) -> u64 {
-    if values.is_empty() {
-        return 0;
-    }
-    values.sort_unstable();
-    percentile_of_sorted(values, quantile)
 }
 
 fn percentile_of_sorted(sorted_values: &[u64], quantile: f64) -> u64 {
@@ -1537,7 +1731,9 @@ fn record_filter_clauses(
                 SELECT s.record_id
                 FROM {steps} s
                 WHERE s.kind = 'matcher'
-                  AND s.outcome = 'matched'
+                  AND s.outcome IN (
+                      'matched', 'always_true_matched', 'always_false_matched'
+                  )
                   AND s.tag = ?
             )",
             steps = tables.steps,
@@ -1749,6 +1945,10 @@ fn non_negative_usize(value: i64) -> rusqlite::Result<usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+
     use rusqlite::{Connection, params};
     use serde_json::json;
 
@@ -1905,6 +2105,57 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM questions", [], |row| row.get(0))
             .unwrap();
         assert_eq!(question_count, 0);
+    }
+
+    #[test]
+    fn test_clear_history_clears_tail_before_partial_batch_checkpoint_failure() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let tables = TableNames {
+            records: "records".to_string(),
+            steps: "steps".to_string(),
+            questions: "questions".to_string(),
+            meta: "meta".to_string(),
+        };
+        create_schema(&mut conn, &tables).unwrap();
+
+        let tx = conn.transaction().unwrap();
+        let mut first_detail = None;
+        for request_id in 0..=CLEANUP_BATCH_SIZE {
+            let mut record = sample_record_row();
+            record.request_id = request_id as u16;
+            let detail = insert_record(&tx, &tables, record, Vec::new()).unwrap();
+            if first_detail.is_none() {
+                first_detail = Some(detail);
+            }
+        }
+        tx.commit().unwrap();
+
+        let tail = Arc::new(Mutex::new(VecDeque::from([first_detail.unwrap()])));
+        let checkpoint_calls = Cell::new(0);
+        let mut checkpoint = |_: &Connection| {
+            let calls = checkpoint_calls.get() + 1;
+            checkpoint_calls.set(calls);
+            if calls == 2 {
+                Err(DnsError::runtime("injected checkpoint failure"))
+            } else {
+                Ok(())
+            }
+        };
+
+        let result = run_clear_history_with_checkpoint(
+            &mut conn,
+            Path::new("/nonexistent/query-recorder-review.sqlite"),
+            &tables,
+            &tail,
+            &mut checkpoint,
+        );
+
+        assert!(result.is_err());
+        assert!(tail.lock().unwrap().is_empty());
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM records", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 1);
     }
 
     fn sample_record_row() -> RecordRow {

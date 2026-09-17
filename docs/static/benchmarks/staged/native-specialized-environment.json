@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-07-24T16:47:08.506963+08:00",
+  "hostname": "oxidns",
+  "kernel": "Linux-7.0.14-4-pve-x86_64-with-glibc2.36",
+  "cpu": "Model name:                              Intel(R) N100",
+  "logical_cpus": "4",
+  "memory": "Mem:           512Mi        54Mi        67Mi        80Ki       389Mi       457Mi",
+  "git_head": "n/a (release artifact benchmark)",
+  "git_describe": "n/a (release artifact benchmark)",
+  "dnsperf_version": "2.15.1",
+  "oxidns_version": "oxidns 1.5.1 (full)",
+  "oxidns_sha256": "8cff1b81a6518f4436308750fb24700fd1389d747d171adaca809d1110e73518",
+  "mosdns_version": "v5.3.4-0-gb732318",
+  "mosdns_sha256": "5357fbb83c89f0a7acad275b72c33aa70d4c720cb5590525660132b10cee8af9"
+}

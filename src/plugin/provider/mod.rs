@@ -18,14 +18,10 @@
 
 use std::any::Any;
 use std::net::IpAddr;
-#[cfg(not(feature = "api"))]
-use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::infra::error::{DnsError, Result as DnsResult};
-#[cfg(not(feature = "api"))]
-use crate::plugin;
+use crate::infra::error::Result as DnsResult;
 use crate::plugin::Plugin;
 use crate::proto::{Name, Question};
 
@@ -39,9 +35,13 @@ pub mod geoip;
 #[cfg(feature = "provider-protobuf")]
 pub mod geosite;
 pub mod ip_set;
-pub(crate) mod provider_utils;
 #[cfg(feature = "provider-protobuf")]
-pub(crate) mod v2ray_dat;
+pub(crate) mod v2ray;
+
+mod control;
+#[cfg(feature = "api")]
+pub(crate) use control::ProviderReloadError;
+pub(crate) use control::ProviderRuntimeControl;
 
 #[async_trait]
 #[allow(dead_code)]
@@ -68,12 +68,7 @@ pub trait Provider: Plugin {
     }
 
     /// Reload the provider's internal data using the same startup config.
-    async fn reload(&self) -> DnsResult<()> {
-        Err(DnsError::plugin(format!(
-            "provider '{}' does not support reload",
-            self.tag()
-        )))
-    }
+    async fn reload(&self) -> DnsResult<()>;
 
     #[inline]
     fn supports_ip_matching(&self) -> bool {
@@ -86,79 +81,6 @@ pub trait Provider: Plugin {
     }
 }
 
-#[cfg(feature = "api")]
-mod api_routes {
-    use std::sync::Arc;
-
-    use async_trait::async_trait;
-    use bytes::Bytes;
-    use http::{Request, StatusCode};
-    use serde::Serialize;
-
-    use crate::api::{ApiHandler, json_error, json_ok};
-    use crate::infra::error::Result as DnsResult;
-    use crate::plugin::{self, PluginRegistry};
-    use crate::register_plugin_api;
-
-    #[derive(Debug, Serialize)]
-    struct ProviderReloadResponse {
-        ok: bool,
-        action: &'static str,
-        provider: String,
-        status: &'static str,
-    }
-
-    #[derive(Debug)]
-    struct ProviderReloadHandler {
-        tag: String,
-    }
-
-    #[async_trait]
-    impl ApiHandler for ProviderReloadHandler {
-        async fn handle(&self, _request: Request<Bytes>) -> crate::api::ApiResponse {
-            match plugin::reload_provider(&self.tag).await {
-                Ok(()) => json_ok(
-                    StatusCode::OK,
-                    &ProviderReloadResponse {
-                        ok: true,
-                        action: "reload_provider",
-                        provider: self.tag.clone(),
-                        status: "reloaded",
-                    },
-                ),
-                Err(err) => json_error(
-                    StatusCode::BAD_REQUEST,
-                    "provider_reload_failed",
-                    err.to_string(),
-                ),
-            }
-        }
-    }
-
-    pub(crate) fn register_reload_api_route(
-        _registry: Arc<PluginRegistry>,
-        tag: &str,
-    ) -> DnsResult<()> {
-        register_plugin_api!(
-            tag,
-            POST "/reload" => ProviderReloadHandler {
-                tag: tag.to_string(),
-            },
-        )
-    }
-}
-
-#[cfg(feature = "api")]
-pub(crate) use api_routes::register_reload_api_route;
-
-#[cfg(not(feature = "api"))]
-pub(crate) fn register_reload_api_route(
-    _registry: Arc<plugin::PluginRegistry>,
-    _tag: &str,
-) -> DnsResult<()> {
-    Ok(())
-}
-
 #[cfg(all(test, feature = "api"))]
 mod tests {
     use std::net::{SocketAddr, TcpListener as StdTcpListener};
@@ -167,18 +89,23 @@ mod tests {
 
     use async_trait::async_trait;
     use http::{Method, Request as HttpRequest, StatusCode, Uri};
-    use http_body_util::{BodyExt, Empty};
+    use http_body_util::{BodyExt, Full};
     use hyper_util::client::legacy::Client;
     use hyper_util::client::legacy::connect::HttpConnector;
     use hyper_util::rt::TokioExecutor;
 
     use super::*;
-    use crate::api::{ApiHub, clear_global_api, global_api_test_guard, install_global_api};
+    use crate::api::{
+        ApiHub, ApiRegister, clear_global_api, global_api_test_guard, install_global_api,
+        register_plugin_runtime_control_routes,
+    };
     use crate::config::types::{ApiConfig, ApiHttpConfig, PluginConfig};
     use crate::infra::clock::AppClock;
     use crate::plugin::dependency::DependencyKind;
+    use crate::plugin::executor::sequence::SequenceFactory;
     use crate::plugin::matcher::qname::QnameFactory;
-    use crate::plugin::{self, PluginFactory, PluginRegistry, UninitializedPlugin};
+    use crate::plugin::test_utils::test_context;
+    use crate::plugin::{self, PluginFactory, PluginRegistry, PluginResolver, UninitializedPlugin};
 
     fn reserve_local_addr() -> SocketAddr {
         let listener = StdTcpListener::bind("127.0.0.1:0").expect("bind test listener");
@@ -249,7 +176,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provider_reload_api_calls_targeted_reload() -> DnsResult<()> {
+    async fn runtime_control_api_controls_matcher_and_reloads_provider() -> DnsResult<()> {
         let _guard = global_api_test_guard().await;
         clear_global_api();
         plugin::reset_runtime_for_test().await;
@@ -264,6 +191,11 @@ mod tests {
         install_global_api(hub.clone());
         let mut registry = PluginRegistry::new();
         registry.register_factory("qname", DependencyKind::Matcher, Box::new(QnameFactory {}));
+        registry.register_factory(
+            "sequence",
+            DependencyKind::Executor,
+            Box::new(SequenceFactory {}),
+        );
         registry.register_factory(
             "reloadable_provider",
             DependencyKind::Provider,
@@ -284,17 +216,44 @@ mod tests {
                 plugin_type: "qname".to_string(),
                 args: Some(serde_yaml_ng::from_str("- \"$reloadable\"").unwrap()),
             },
+            PluginConfig {
+                tag: "positive_sequence".to_string(),
+                plugin_type: "sequence".to_string(),
+                args: Some(
+                    serde_yaml_ng::from_str(
+                        r#"
+- matches: "$match_qname"
+  exec: reject 2
+"#,
+                    )
+                    .unwrap(),
+                ),
+            },
+            PluginConfig {
+                tag: "negated_sequence".to_string(),
+                plugin_type: "sequence".to_string(),
+                args: Some(
+                    serde_yaml_ng::from_str(
+                        r#"
+- matches: "!$match_qname"
+  exec: reject 2
+"#,
+                    )
+                    .unwrap(),
+                ),
+            },
         ];
 
         registry
             .clone()
-            .init_plugins(configs)
+            .init_plugins(configs.clone())
             .await
             .expect("plugin init should succeed");
         plugin::set_current_runtime_for_test(registry.clone()).await;
+        register_plugin_runtime_control_routes(&ApiRegister::new(hub.clone()), &registry)?;
         hub.start().await.expect("api hub should start");
 
-        let client: Client<HttpConnector, Empty<bytes::Bytes>> =
+        let client: Client<HttpConnector, Full<bytes::Bytes>> =
             Client::builder(TokioExecutor::new()).build(HttpConnector::new());
         let uri: Uri = format!("http://{listen}/api/plugins/reloadable/reload")
             .parse()
@@ -302,7 +261,7 @@ mod tests {
         let request = HttpRequest::builder()
             .method(Method::POST)
             .uri(uri)
-            .body(Empty::new())
+            .body(Full::new(bytes::Bytes::new()))
             .expect("request should build");
         let response = client
             .request(request)
@@ -323,6 +282,219 @@ mod tests {
         assert_eq!(payload["ok"], true);
         assert_eq!(payload["action"], "reload_provider");
         assert_eq!(payload["provider"], "reloadable");
+
+        let uri: Uri = format!("http://{listen}/api/plugins/match_qname/status")
+            .parse()
+            .expect("uri should parse");
+        let response = client
+            .request(
+                HttpRequest::builder()
+                    .method(Method::GET)
+                    .uri(uri)
+                    .body(Full::new(bytes::Bytes::new()))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+        let payload = serde_json::from_slice::<serde_json::Value>(
+            &response
+                .into_body()
+                .collect()
+                .await
+                .expect("body should collect")
+                .to_bytes(),
+        )
+        .expect("response should be valid json");
+        assert_eq!(payload["matcher"], "match_qname");
+        assert_eq!(payload["mode"], "normal");
+        assert!(payload.get("enabled").is_none());
+        let positive_sequence = registry
+            .get_plugin("positive_sequence")
+            .expect("positive sequence should be initialized")
+            .to_executor();
+        let negated_sequence = registry
+            .get_plugin("negated_sequence")
+            .expect("negated sequence should be initialized")
+            .to_executor();
+        let public_positive_ref = PluginResolver::matcher_ref(
+            registry.as_ref(),
+            "positive_sequence",
+            "args[0].matches[0]",
+            "match_qname",
+            false,
+        )?;
+        let public_negated_ref = PluginResolver::matcher_ref(
+            registry.as_ref(),
+            "negated_sequence",
+            "args[0].matches[0]",
+            "match_qname",
+            true,
+        )?;
+        let mut positive_normal_context = test_context();
+        positive_sequence
+            .execute(&mut positive_normal_context)
+            .await?;
+        assert!(positive_normal_context.response().is_none());
+        let mut negated_normal_context = test_context();
+        negated_sequence
+            .execute(&mut negated_normal_context)
+            .await?;
+        assert!(negated_normal_context.response().is_some());
+        assert!(!public_positive_ref.is_match(&mut test_context()));
+        assert!(public_negated_ref.is_match(&mut test_context()));
+
+        let uri: Uri = format!("http://{listen}/api/plugins/match_qname/mode")
+            .parse()
+            .expect("uri should parse");
+        let response = client
+            .request(
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri(uri)
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Full::new(bytes::Bytes::from_static(
+                        br#"{"mode":"always_false"}"#,
+                    )))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = serde_json::from_slice::<serde_json::Value>(
+            &response
+                .into_body()
+                .collect()
+                .await
+                .expect("body should collect")
+                .to_bytes(),
+        )
+        .expect("response should be valid json");
+        assert_eq!(payload["mode"], "always_false");
+        let mut positive_false_context = test_context();
+        positive_sequence
+            .execute(&mut positive_false_context)
+            .await?;
+        assert!(positive_false_context.response().is_none());
+        let mut negated_false_context = test_context();
+        negated_sequence.execute(&mut negated_false_context).await?;
+        assert!(negated_false_context.response().is_some());
+        assert!(!public_positive_ref.is_match(&mut test_context()));
+        assert!(public_negated_ref.is_match(&mut test_context()));
+
+        let uri: Uri = format!("http://{listen}/api/plugins/match_qname/mode")
+            .parse()
+            .expect("uri should parse");
+        let response = client
+            .request(
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri(uri)
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Full::new(bytes::Bytes::from_static(
+                        br#"{"mode":"always_true"}"#,
+                    )))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = serde_json::from_slice::<serde_json::Value>(
+            &response
+                .into_body()
+                .collect()
+                .await
+                .expect("body should collect")
+                .to_bytes(),
+        )
+        .expect("response should be valid json");
+        assert_eq!(payload["mode"], "always_true");
+        let mut positive_true_context = test_context();
+        positive_sequence
+            .execute(&mut positive_true_context)
+            .await?;
+        assert!(positive_true_context.response().is_some());
+        let mut negated_true_context = test_context();
+        negated_sequence.execute(&mut negated_true_context).await?;
+        assert!(negated_true_context.response().is_none());
+        assert!(public_positive_ref.is_match(&mut test_context()));
+        assert!(!public_negated_ref.is_match(&mut test_context()));
+
+        let uri: Uri = format!("http://{listen}/api/plugins/match_qname/mode")
+            .parse()
+            .expect("uri should parse");
+        let response = client
+            .request(
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri(uri)
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Full::new(bytes::Bytes::from_static(
+                        br#"{"mode":"invalid"}"#,
+                    )))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let uri: Uri = format!("http://{listen}/api/plugins/match_qname/disable")
+            .parse()
+            .expect("uri should parse");
+        let response = client
+            .request(
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri(uri)
+                    .body(Full::new(bytes::Bytes::new()))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let next_reload_count = Arc::new(AtomicUsize::new(0));
+        let mut next_registry = PluginRegistry::new();
+        next_registry.register_factory("qname", DependencyKind::Matcher, Box::new(QnameFactory {}));
+        next_registry.register_factory(
+            "sequence",
+            DependencyKind::Executor,
+            Box::new(SequenceFactory {}),
+        );
+        next_registry.register_factory(
+            "reloadable_provider",
+            DependencyKind::Provider,
+            Box::new(ReloadableProviderFactory {
+                reload_count: next_reload_count.clone(),
+            }),
+        );
+        let next_registry = Arc::new(next_registry);
+        next_registry
+            .clone()
+            .init_plugins(configs)
+            .await
+            .expect("replacement plugin init should succeed");
+        plugin::set_current_runtime_for_test(next_registry).await;
+
+        let uri: Uri = format!("http://{listen}/api/plugins/reloadable/reload")
+            .parse()
+            .expect("uri should parse");
+        let response = client
+            .request(
+                HttpRequest::builder()
+                    .method(Method::POST)
+                    .uri(uri)
+                    .body(Full::new(bytes::Bytes::new()))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request on existing connection should succeed");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            reload_count.load(Ordering::Relaxed),
+            1,
+            "stale route must not reload the destroyed provider"
+        );
+        assert_eq!(next_reload_count.load(Ordering::Relaxed), 1);
 
         hub.stop().await;
         plugin::reset_runtime_for_test().await;

@@ -1,3 +1,5 @@
 mod parser;
 
-pub use crate::parser::{ParseOptions, ZoneParseError, parse_file, parse_str};
+pub use crate::parser::{
+    ParseOptions, ZoneParseError, parse_file, parse_str, visit_file, visit_str,
+};

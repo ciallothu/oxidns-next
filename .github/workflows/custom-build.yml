@@ -73,6 +73,7 @@ jobs:
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
       features: ${{ steps.gen.outputs.features }}
+      cache_scope: ${{ steps.gen.outputs.cache_scope }}
     steps:
       - id: gen
         env:
@@ -97,8 +98,21 @@ jobs:
               exit 1
             fi
             FEATURES="$FEATURES_IN"
+            # Cargo feature order is irrelevant, so derive a stable, bounded cache suffix.
+            NORMALIZED_FEATURES=$(printf '%s' "$FEATURES_IN" \
+              | tr ',' '\n' \
+              | sed '/^$/d' \
+              | LC_ALL=C sort -u \
+              | paste -sd, -)
+            if [ -z "$NORMALIZED_FEATURES" ]; then
+              echo "::error::bundle=custom requires at least one feature"
+              exit 1
+            fi
+            FEATURES_HASH=$(printf '%s' "$NORMALIZED_FEATURES" | sha256sum | cut -d ' ' -f 1)
+            CACHE_SCOPE="custom-$FEATURES_HASH"
           else
             FEATURES="$BUNDLE"
+            CACHE_SCOPE="$BUNDLE"
           fi
 
           # `targets` is a JSON array — expand it into a matrix.include list.
@@ -130,10 +144,12 @@ jobs:
           {
             echo "matrix={\"include\":$MATRIX}"
             echo "features=$FEATURES"
+            echo "cache_scope=$CACHE_SCOPE"
           } >> "$GITHUB_OUTPUT"
 
           echo "Resolved matrix:"
           echo "$MATRIX" | jq .
+          echo "Resolved Rust cache scope: $CACHE_SCOPE"
 
   # -------------------------------------------------------------------------
   # Build the WebUI once and reuse across every target. Skipped for the
@@ -154,7 +170,7 @@ jobs:
         with:
           version: 10
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -196,7 +212,11 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          # The plan scope captures the effective bundle or custom feature set.
+          key: ${{ matrix.target }}-${{ needs.plan.outputs.cache_scope }}
 
       - name: Download WebUI artifact
         if: inputs.bundle != 'minimal'

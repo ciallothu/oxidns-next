@@ -222,30 +222,27 @@ plugins:
 
     #[test]
     fn validate_text_expands_env_vars() {
-        let expected_path =
-            crate::infra::env::var_lossy("PATH").expect("PATH should exist in test environment");
-        let yaml = r#"
+        let mut value: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+            r#"
 plugins:
-  - tag: env_expansion
+  - tag: '${OXIDNS_NEXT_VALIDATE_TEXT_TAG}'
     type: debug_print
-    args:
-      msg: '${PATH}'
-"#;
-        let parsed = parse_config_text(yaml).expect("PATH placeholder should expand");
-        let expanded = parsed.plugins[0]
-            .args
-            .as_ref()
-            .and_then(|args| args.get("msg"))
-            .and_then(|msg| msg.as_str());
-        assert_eq!(expanded, Some(expected_path.as_str()));
+"#,
+        )
+        .expect("test YAML should parse");
+        env_expand::expand_env_in_value_with_lookup(&mut value, &|name| match name {
+            "OXIDNS_NEXT_VALIDATE_TEXT_TAG" => Some(std::ffi::OsString::from("env_debug")),
+            _ => None,
+        })
+        .expect("tag placeholder should expand");
+        let config: Config =
+            serde_yaml_ng::from_value(value).expect("expanded config should parse");
+        config.validate().expect("expanded config should validate");
+        let dependency_graph =
+            crate::plugin::analyze_configuration(&config).expect("dependency graph should build");
 
-        let summary = validate_text(yaml).expect("expanded config should validate");
-
-        assert_eq!(summary.plugin_count, 1);
-        assert_eq!(
-            summary.dependency_graph.init_order,
-            vec!["env_expansion".to_string()]
-        );
+        assert_eq!(config.plugins.len(), 1);
+        assert_eq!(dependency_graph.init_order, vec!["env_debug"]);
     }
 
     #[test]

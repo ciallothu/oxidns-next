@@ -17,10 +17,10 @@ use crate::core::rule_matcher::DomainRuleMatcher;
 use crate::infra::error::Result as DnsResult;
 use crate::plugin::dependency::DependencySpec;
 use crate::plugin::matcher::Matcher;
-use crate::plugin::matcher::matcher_utils::{
+use crate::plugin::matcher::rules::{
     ensure_domain_capable_providers, parse_domain_rules_and_set_tags, parse_quick_setup_rules,
-    parse_rules_from_value, provider_dependency_specs, resolve_provider_tags,
-    validate_non_empty_domain_rules_or_set_tags,
+    parse_rules_from_value, provider_dependency_specs, provider_tags_from_rules,
+    resolve_provider_tags, validate_non_empty_domain_rules_or_set_tags,
 };
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::plugin_factory;
@@ -34,9 +34,7 @@ impl PluginFactory for QnameFactory {
         let Ok(rules) = parse_rules_from_value(plugin_config.args.clone()) else {
             return vec![];
         };
-        let Ok((_, domain_set_tags)) = parse_domain_rules_and_set_tags(rules, "qname") else {
-            return vec![];
-        };
+        let domain_set_tags = provider_tags_from_rules(&rules);
         provider_dependency_specs("args.domain_set_tags", domain_set_tags)
     }
 
@@ -44,9 +42,7 @@ impl PluginFactory for QnameFactory {
         let Ok(rules) = parse_quick_setup_rules(param.map(str::to_owned)) else {
             return vec![];
         };
-        let Ok((_, domain_set_tags)) = parse_domain_rules_and_set_tags(rules, "qname") else {
-            return vec![];
-        };
+        let domain_set_tags = provider_tags_from_rules(&rules);
         provider_dependency_specs("domain_set_tags", domain_set_tags)
     }
 

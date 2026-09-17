@@ -99,6 +99,7 @@ export function PluginWorkspace() {
   const setDetailOpen = useAppStore((state) => state.setDetailOpen);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize the external localStorage order when the backend scope changes.
     setSavedOrder(loadDisplayOrder(displayOrderStorageKey));
   }, [displayOrderStorageKey]);
 

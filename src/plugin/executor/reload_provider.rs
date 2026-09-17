@@ -27,7 +27,7 @@ use crate::infra::observability::metrics::{
 };
 use crate::plugin::dependency::DependencySpec;
 use crate::plugin::executor::{ExecStep, Executor};
-use crate::plugin::matcher::matcher_utils::{
+use crate::plugin::matcher::rules::{
     parse_quick_setup_rules, parse_rules_from_value, provider_dependency_specs, split_rule_sources,
 };
 use crate::plugin::{self, Plugin, PluginFactory, UninitializedPlugin};

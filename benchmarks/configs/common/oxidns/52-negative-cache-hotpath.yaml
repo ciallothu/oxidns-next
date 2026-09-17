@@ -1,0 +1,30 @@
+log:
+  level: error
+
+plugins:
+  - tag: cache_main
+    type: cache
+    args:
+      size: 200000
+      short_circuit: true
+      cache_negative: true
+      max_negative_ttl: 300
+      negative_ttl_without_soa: 60
+
+  - tag: forward_main
+    type: forward
+    args:
+      upstreams:
+        - addr: "127.0.0.1:5453"
+
+  - tag: seq_main
+    type: sequence
+    args:
+      - exec: $cache_main
+      - exec: $forward_main
+
+  - tag: udp_server
+    type: udp_server
+    args:
+      entry: "seq_main"
+      listen: "127.0.0.1:5352"

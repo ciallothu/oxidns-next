@@ -1,0 +1,1634 @@
+[
+  {
+    "scenario": "02-cache-hotpath",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300
+      },
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "02-cache-hotpath",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300
+      },
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "02-cache-hotpath",
+    "engine": "adguardhome",
+    "probes": [
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300
+      },
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "02-cache-hotpath",
+    "engine": "smartdns",
+    "probes": [
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300
+      },
+      {
+        "name": "www.baidu.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.100"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.100",
+            "ttl": 300
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.100",
+        "expected_ttl": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "47-server-local-udp",
+    "engine": "smartdns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "47-server-local-udp",
+    "engine": "adguardhome",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "47-server-local-udp",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "47-server-local-udp",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "48-server-local-tcp",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "tcp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "48-server-local-tcp",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "tcp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "48-server-local-tcp",
+    "engine": "adguardhome",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "tcp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "48-server-local-tcp",
+    "engine": "smartdns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "tcp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "50-common-local-answers",
+    "engine": "smartdns",
+    "probes": [
+      {
+        "name": "bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.40"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.50"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.60"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.60",
+        "expected_ttl": 10
+      },
+      {
+        "name": "bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::10"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::20"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::40"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::50"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::60"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::60",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "50-common-local-answers",
+    "engine": "adguardhome",
+    "probes": [
+      {
+        "name": "bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.40"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.50"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.60"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.60",
+        "expected_ttl": 10
+      },
+      {
+        "name": "bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::10"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::20"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::40"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::50"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::60"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::60",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "50-common-local-answers",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.40"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.50"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.60"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.60",
+        "expected_ttl": 10
+      },
+      {
+        "name": "bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::10"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::20"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::40"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::50"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::60"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::60",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "50-common-local-answers",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.40"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.50"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.60"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.60",
+        "expected_ttl": 10
+      },
+      {
+        "name": "bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::10"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::10",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::10",
+        "expected_ttl": 10
+      },
+      {
+        "name": "svc.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::20"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::20",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::20",
+        "expected_ttl": 10
+      },
+      {
+        "name": "api.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::40"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::40",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::40",
+        "expected_ttl": 10
+      },
+      {
+        "name": "cdn.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::50"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::50",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::50",
+        "expected_ttl": 10
+      },
+      {
+        "name": "metrics.bench.local",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::60"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::60",
+            "ttl": 10
+          }
+        ],
+        "authority_records": [],
+        "expected_aaaa": "2001:db8::60",
+        "expected_ttl": 10
+      }
+    ]
+  },
+  {
+    "scenario": "51-common-domain-set",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.53"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.53",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.53",
+        "expected_ttl": 60
+      },
+      {
+        "name": "semantic-miss.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.54"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.54",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.54",
+        "expected_ttl": 60
+      }
+    ]
+  },
+  {
+    "scenario": "51-common-domain-set",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.53"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.53",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.53",
+        "expected_ttl": 60
+      },
+      {
+        "name": "semantic-miss.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.54"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.54",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.54",
+        "expected_ttl": 60
+      }
+    ]
+  },
+  {
+    "scenario": "51-common-domain-set",
+    "engine": "adguardhome",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.53"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.53",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.53",
+        "expected_ttl": 60
+      },
+      {
+        "name": "semantic-miss.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.54"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.54",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.54",
+        "expected_ttl": 60
+      }
+    ]
+  },
+  {
+    "scenario": "51-common-domain-set",
+    "engine": "smartdns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.53"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.53",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.53",
+        "expected_ttl": 60
+      },
+      {
+        "name": "semantic-miss.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.54"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.54",
+            "ttl": 60
+          }
+        ],
+        "authority_records": [],
+        "expected_a": "192.0.2.54",
+        "expected_ttl": 60
+      }
+    ]
+  },
+  {
+    "scenario": "52-negative-cache-hotpath",
+    "engine": "smartdns",
+    "probes": [
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300
+      },
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "52-negative-cache-hotpath",
+    "engine": "adguardhome",
+    "probes": [
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300
+      },
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "52-negative-cache-hotpath",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300
+      },
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300,
+        "cache_recheck": true
+      }
+    ]
+  },
+  {
+    "scenario": "52-negative-cache-hotpath",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300
+      },
+      {
+        "name": "negative-cache-01.bench.invalid",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 3,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "authority_records": [
+          {
+            "type_code": 6,
+            "class": 1,
+            "ttl": 300,
+            "type": "SOA",
+            "serial": 1,
+            "refresh": 60,
+            "retry": 60,
+            "expire": 60,
+            "minimum": 300
+          }
+        ],
+        "expected_rcode": 3,
+        "expected_soa_ttl": 300,
+        "expected_soa_minimum": 300,
+        "cache_recheck": true
+      }
+    ]
+  }
+]

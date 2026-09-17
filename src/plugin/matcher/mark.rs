@@ -14,7 +14,7 @@ use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result as DnsResult};
 use crate::plugin::matcher::Matcher;
-use crate::plugin::matcher::matcher_utils::{parse_quick_setup_rules, parse_rules_from_value};
+use crate::plugin::matcher::rules::{parse_quick_setup_rules, parse_rules_from_value};
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::plugin_factory;
 

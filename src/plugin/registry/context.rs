@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::infra::error::Result;
 use crate::plugin::executor::Executor;
-use crate::plugin::matcher::Matcher;
+use crate::plugin::matcher::MatcherRef;
 use crate::plugin::provider::Provider;
 use crate::plugin::{
     PluginCreateContext, PluginDependent, PluginHolder, PluginInfo, PluginRegistry,
@@ -27,7 +27,13 @@ pub trait PluginResolver {
         target_tag: &str,
         expected_plugin_type: &str,
     ) -> Result<Arc<dyn Executor>>;
-    fn matcher(&self, source_tag: &str, field: &str, target_tag: &str) -> Result<Arc<dyn Matcher>>;
+    fn matcher_ref(
+        &self,
+        source_tag: &str,
+        field: &str,
+        target_tag: &str,
+        reverse: bool,
+    ) -> Result<MatcherRef>;
     fn provider(
         &self,
         source_tag: &str,
@@ -95,9 +101,14 @@ impl<'a> PluginInitContext<'a> {
         )
     }
 
-    pub fn matcher(&self, field: &str, target_tag: &str) -> Result<Arc<dyn Matcher>> {
+    /// Resolve a configured matcher expression with its runtime control.
+    ///
+    /// `reverse` represents the expression-level `!` modifier. Runtime modes
+    /// determine the matcher base result first, then this modifier is applied,
+    /// so consumers must keep evaluation inside the returned [`MatcherRef`].
+    pub fn matcher_ref(&self, field: &str, target_tag: &str, reverse: bool) -> Result<MatcherRef> {
         self.registry
-            .get_matcher_dependency(&self.tag, field, target_tag)
+            .get_matcher_ref_dependency(&self.tag, field, target_tag, reverse)
     }
 
     pub fn provider(&self, field: &str, target_tag: &str) -> Result<Arc<dyn Provider>> {
@@ -152,8 +163,14 @@ impl PluginResolver for PluginRegistry {
         self.get_executor_dependency_of_type(source_tag, field, target_tag, expected_plugin_type)
     }
 
-    fn matcher(&self, source_tag: &str, field: &str, target_tag: &str) -> Result<Arc<dyn Matcher>> {
-        self.get_matcher_dependency(source_tag, field, target_tag)
+    fn matcher_ref(
+        &self,
+        source_tag: &str,
+        field: &str,
+        target_tag: &str,
+        reverse: bool,
+    ) -> Result<MatcherRef> {
+        self.get_matcher_ref_dependency(source_tag, field, target_tag, reverse)
     }
 
     fn provider(

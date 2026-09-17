@@ -15,9 +15,6 @@
 //! This keeps downstream resolution consistent with redirected target while
 //! still returning a client-facing CNAME chain.
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-
 use ahash::AHashMap;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use async_trait::async_trait;
@@ -28,6 +25,7 @@ use serde_yaml_ng::Value;
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result};
+use crate::infra::io::{LineClassifier, TextLocation, TextSource};
 use crate::plugin::executor::{ExecStep, Executor, ExecutorNext};
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::proto::{CNAME, DNSClass, Name, Question, RData, Record};
@@ -60,7 +58,7 @@ struct RedirectRule {
 #[derive(Debug)]
 struct RedirectExecutor {
     tag: String,
-    rules: Vec<RedirectRule>,
+    targets: Vec<Name>,
     index: RuleIndex,
 }
 
@@ -72,6 +70,14 @@ struct RuleIndex {
     keyword_rule_indices: Vec<usize>,
     regex_matcher: Option<RegexSet>,
     regex_rule_indices: Vec<usize>,
+}
+
+#[derive(Debug, Default)]
+struct RuleIndexBuilder {
+    targets: Vec<Name>,
+    index: RuleIndex,
+    keyword_patterns: Vec<String>,
+    regex_patterns: Vec<String>,
 }
 
 #[async_trait]
@@ -157,12 +163,12 @@ impl RedirectExecutor {
 
         let Some(rule) = self
             .index
-            .match_rule(&self.rules, question.name().normalized())
+            .match_target(&self.targets, question.name().normalized())
         else {
             return Ok(None);
         };
 
-        Ok(Some((question.name().clone(), rule.target.clone())))
+        Ok(Some((question.name().clone(), rule.clone())))
     }
 }
 
@@ -177,11 +183,11 @@ impl PluginFactory for RedirectFactory {
         _init_context: &crate::plugin::PluginInitContext<'_>,
     ) -> Result<UninitializedPlugin> {
         let cfg = parse_config(plugin_config.args.clone())?;
-        let (rules, index) = build_rules(&cfg)?;
+        let (targets, index) = build_rules(&cfg)?;
 
         Ok(UninitializedPlugin::Executor(Box::new(RedirectExecutor {
             tag: plugin_config.tag.clone(),
-            rules,
+            targets,
             index,
         })))
     }
@@ -196,77 +202,46 @@ fn parse_config(args: Option<Value>) -> Result<RedirectConfig> {
         .map_err(|e| DnsError::plugin(format!("failed to parse redirect config: {}", e)))
 }
 
-fn build_rules(cfg: &RedirectConfig) -> Result<(Vec<RedirectRule>, RuleIndex)> {
-    let mut out = Vec::new();
-
-    for (idx, rule) in cfg.rules.iter().enumerate() {
-        out.push(parse_redirect_rule(rule).map_err(|e| {
-            DnsError::plugin(format!("invalid redirect rule #{} '{}': {}", idx, rule, e))
-        })?);
-    }
-
-    for file in &cfg.files {
-        if file.trim().is_empty() {
-            continue;
-        }
-        let handle = File::open(file).map_err(|e| {
-            DnsError::plugin(format!("failed to open redirect file '{}': {}", file, e))
-        })?;
-        let mut reader = BufReader::new(handle);
-        let mut line = String::new();
-        let mut line_no = 0usize;
-        loop {
-            line.clear();
-            let n = reader.read_line(&mut line).map_err(|e| {
-                DnsError::plugin(format!(
-                    "failed to read redirect file '{}' at line {}: {}",
-                    file,
-                    line_no + 1,
-                    e
-                ))
-            })?;
-            if n == 0 {
-                break;
-            }
-            line_no += 1;
-
-            let raw = line.trim();
-            if raw.is_empty() || raw.starts_with('#') {
-                continue;
-            }
-            let raw = raw
-                .split_once('#')
-                .map(|(left, _)| left)
-                .unwrap_or(raw)
-                .trim();
-            if raw.is_empty() {
-                continue;
-            }
-
-            out.push(parse_redirect_rule(raw).map_err(|e| {
-                DnsError::plugin(format!(
-                    "invalid redirect file '{}' line {} '{}': {}",
-                    file, line_no, raw, e
-                ))
-            })?);
-        }
-    }
-
-    let index = build_rule_index(&out)?;
-    Ok((out, index))
+fn build_rules(cfg: &RedirectConfig) -> Result<(Vec<Name>, RuleIndex)> {
+    let mut builder = RuleIndexBuilder::default();
+    TextSource::new("args.rules", &cfg.rules, &cfg.files)
+        .scan(
+            &LineClassifier::new(&["#"]),
+            |line| -> std::result::Result<(), String> {
+                let rule_text = match line.location() {
+                    TextLocation::Inline { .. } => line.raw().trim(),
+                    TextLocation::File { .. } => {
+                        if line.annotations().blank || line.annotations().leading_comment.is_some()
+                        {
+                            return Ok(());
+                        }
+                        let raw = line.raw();
+                        raw.split_once('#').map_or(raw, |(left, _)| left).trim()
+                    }
+                };
+                let rule = parse_redirect_rule(rule_text)
+                    .map_err(|error| format!("invalid redirect rule '{rule_text}': {error}"))?;
+                builder.add_rule(rule);
+                Ok(())
+            },
+        )
+        .map_err(|error| DnsError::plugin(error.to_string()))?;
+    builder.build()
 }
 
 fn parse_redirect_rule(raw: &str) -> std::result::Result<RedirectRule, String> {
-    let fields: Vec<&str> = raw.split_whitespace().collect();
-    if fields.len() != 2 {
-        return Err(format!(
-            "redirect rule requires exactly 2 fields, got {}",
-            fields.len()
-        ));
+    let mut fields = raw.split_whitespace();
+    let matcher_raw = fields
+        .next()
+        .ok_or_else(|| "redirect rule requires exactly 2 fields, got 0".to_string())?;
+    let target_raw = fields
+        .next()
+        .ok_or_else(|| "redirect rule requires exactly 2 fields, got 1".to_string())?;
+    if fields.next().is_some() {
+        return Err("redirect rule requires exactly 2 fields, got more".to_string());
     }
-
-    let matcher = parse_rule_matcher(fields[0])?;
-    let target = parse_name(fields[1])?;
+    let matcher = parse_rule_matcher(matcher_raw)?;
+    let target = parse_name(target_raw)?;
 
     Ok(RedirectRule { matcher, target })
 }
@@ -290,58 +265,62 @@ fn parse_rule_matcher(raw_rule: &str) -> std::result::Result<RuleMatcher, String
     Ok(RuleMatcher::Full(normalize_name(raw_rule)))
 }
 
-fn build_rule_index(rules: &[RedirectRule]) -> Result<RuleIndex> {
-    let mut index = RuleIndex::default();
-    let mut keyword_patterns = Vec::new();
-    let mut regex_patterns = Vec::new();
-
-    for (rule_idx, rule) in rules.iter().enumerate() {
-        match &rule.matcher {
-            RuleMatcher::Full(v) => {
-                index
+impl RuleIndexBuilder {
+    fn add_rule(&mut self, rule: RedirectRule) {
+        let rule_idx = self.targets.len();
+        self.targets.push(rule.target);
+        match rule.matcher {
+            RuleMatcher::Full(value) => {
+                self.index
                     .full_rules
-                    .entry(v.clone().into_boxed_str())
+                    .entry(value.into_boxed_str())
                     .or_insert(rule_idx);
             }
-            RuleMatcher::Domain(v) => {
-                index
+            RuleMatcher::Domain(value) => {
+                self.index
                     .domain_rules
-                    .entry(v.clone().into_boxed_str())
+                    .entry(value.into_boxed_str())
                     .or_insert(rule_idx);
             }
-            RuleMatcher::Keyword(v) => {
-                keyword_patterns.push(v.clone());
-                index.keyword_rule_indices.push(rule_idx);
+            RuleMatcher::Keyword(value) => {
+                self.keyword_patterns.push(value);
+                self.index.keyword_rule_indices.push(rule_idx);
             }
-            RuleMatcher::Regexp(v) => {
-                regex_patterns.push(v.clone());
-                index.regex_rule_indices.push(rule_idx);
+            RuleMatcher::Regexp(value) => {
+                self.regex_patterns.push(value);
+                self.index.regex_rule_indices.push(rule_idx);
             }
         }
     }
 
-    if !keyword_patterns.is_empty() {
-        index.keyword_matcher = Some(
-            AhoCorasickBuilder::new()
-                .ascii_case_insensitive(false)
-                .build(&keyword_patterns)
-                .map_err(|e| {
-                    DnsError::plugin(format!("failed to build redirect keyword matcher: {}", e))
-                })?,
-        );
-    }
+    fn build(mut self) -> Result<(Vec<Name>, RuleIndex)> {
+        if !self.keyword_patterns.is_empty() {
+            self.index.keyword_matcher = Some(
+                AhoCorasickBuilder::new()
+                    .ascii_case_insensitive(false)
+                    .build(&self.keyword_patterns)
+                    .map_err(|e| {
+                        DnsError::plugin(format!("failed to build redirect keyword matcher: {}", e))
+                    })?,
+            );
+        }
 
-    if !regex_patterns.is_empty() {
-        index.regex_matcher = Some(RegexSetBuilder::new(&regex_patterns).build().map_err(|e| {
-            DnsError::plugin(format!("failed to build redirect regex matcher: {}", e))
-        })?);
-    }
+        if !self.regex_patterns.is_empty() {
+            self.index.regex_matcher = Some(
+                RegexSetBuilder::new(&self.regex_patterns)
+                    .build()
+                    .map_err(|e| {
+                        DnsError::plugin(format!("failed to build redirect regex matcher: {}", e))
+                    })?,
+            );
+        }
 
-    Ok(index)
+        Ok((self.targets, self.index))
+    }
 }
 
 impl RuleIndex {
-    fn match_rule<'a>(&self, rules: &'a [RedirectRule], domain: &str) -> Option<&'a RedirectRule> {
+    fn match_target<'a>(&self, targets: &'a [Name], domain: &str) -> Option<&'a Name> {
         let mut best: Option<usize> = None;
 
         if let Some(rule_idx) = self.full_rules.get(domain) {
@@ -374,7 +353,7 @@ impl RuleIndex {
             }
         }
 
-        best.map(|idx| &rules[idx])
+        best.map(|idx| &targets[idx])
     }
 }
 
@@ -407,7 +386,10 @@ fn _question_name(question: &Question) -> &Name {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::net::{Ipv4Addr, SocketAddr};
+
+    use tempfile::NamedTempFile;
 
     use super::*;
     use crate::core::context::DnsContext;
@@ -419,6 +401,25 @@ mod tests {
     fn test_parse_redirect_rule_validation() {
         assert!(parse_redirect_rule("bad_rule").is_err());
         assert!(parse_redirect_rule("full:example.com target.example.com").is_ok());
+    }
+
+    #[test]
+    fn inline_regexp_preserves_hash_while_file_comments_are_stripped() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "# ignored").unwrap();
+        writeln!(file, "full:file.test file-target.example # trailing").unwrap();
+        let cfg = RedirectConfig {
+            rules: vec!["regexp:^[a-z#]+\\.example$ target.example".to_string()],
+            files: vec![file.path().display().to_string()],
+        };
+        let (targets, index) = build_rules(&cfg).expect("inline regexp should build");
+
+        assert!(index.match_target(&targets, "abc.example").is_some());
+        assert!(index.match_target(&targets, "a#b.example").is_some());
+        assert_eq!(
+            index.match_target(&targets, "file.test").unwrap().to_fqdn(),
+            "file-target.example."
+        );
     }
 
     fn make_context(name: &str) -> DnsContext {
@@ -433,11 +434,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_redirect_with_next_full_flow() {
-        let rules = vec![parse_redirect_rule("full:example.com target.example.com").unwrap()];
-        let index = build_rule_index(&rules).expect("rule index should build");
+        let mut builder = RuleIndexBuilder::default();
+        builder.add_rule(parse_redirect_rule("full:example.com target.example.com").unwrap());
+        let (targets, index) = builder.build().expect("rule index should build");
         let plugin = RedirectExecutor {
             tag: "redirect".to_string(),
-            rules,
+            targets,
             index,
         };
 
@@ -472,18 +474,20 @@ mod tests {
         let response = ctx.response().expect("response should exist");
         assert_eq!(response.questions()[0].name().to_fqdn(), "example.com.");
         assert_eq!(response.answers().len(), 2);
-        // CNAME must be first so glibc resolvers can follow the chain correctly.
+        // CNAME must be first so glibc resolvers can follow the chain
+        // correctly.
         assert_eq!(response.answers()[0].rr_type(), RecordType::CNAME);
         assert_eq!(response.answers()[1].rr_type(), RecordType::A);
     }
 
     #[test]
     fn test_finish_redirect_restores_query_name_when_next_errors() {
-        let rules = vec![parse_redirect_rule("full:example.com target.example.com").unwrap()];
-        let index = build_rule_index(&rules).expect("rule index should build");
+        let mut builder = RuleIndexBuilder::default();
+        builder.add_rule(parse_redirect_rule("full:example.com target.example.com").unwrap());
+        let (targets, index) = builder.build().expect("rule index should build");
         let plugin = RedirectExecutor {
             tag: "redirect".to_string(),
-            rules,
+            targets,
             index,
         };
         let mut ctx = make_context("example.com.");
@@ -509,5 +513,20 @@ mod tests {
                 .to_fqdn(),
             "example.com."
         );
+    }
+
+    #[test]
+    fn first_rule_wins_across_matcher_families_and_file_sources() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "full:api.example.com file-target.example").unwrap();
+        let cfg = RedirectConfig {
+            rules: vec!["keyword:api inline-target.example".to_string()],
+            files: vec![file.path().display().to_string()],
+        };
+        let (targets, index) = build_rules(&cfg).unwrap();
+        let target = index
+            .match_target(&targets, "api.example.com")
+            .expect("rule should match");
+        assert_eq!(target.to_fqdn(), "inline-target.example.");
     }
 }

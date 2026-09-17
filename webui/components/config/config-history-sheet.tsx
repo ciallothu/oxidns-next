@@ -43,8 +43,9 @@ export function ConfigHistorySheet({
   open,
   onOpenChange,
 }: ConfigHistorySheetProps) {
-  const { t } = useI18n();
+  const { t, formatDateTime } = useI18n();
   const configHistory = useAppStore((s) => s.configHistory);
+  const configText = useAppStore((s) => s.configText);
   const configVersion = useAppStore((s) => s.configVersion);
   const runningVersion = useAppStore((s) => s.runningVersion);
   const rollbackToSnapshot = useAppStore((s) => s.rollbackToSnapshot);
@@ -52,12 +53,6 @@ export function ConfigHistorySheet({
   const clearConfigHistory = useAppStore((s) => s.clearConfigHistory);
 
   const [diffEntry, setDiffEntry] = useState<ConfigSnapshot | null>(null);
-
-  // Live status is derived from what's actually running / on disk, never from
-  // a frozen per-entry flag.
-  const runningContent = configHistory.find(
-    (s) => s.version === runningVersion,
-  )?.content;
 
   const handleRollback = async (id: string) => {
     onOpenChange(false);
@@ -100,7 +95,14 @@ export function ConfigHistorySheet({
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-sm font-medium">
-                          {new Date(entry.createdAt).toLocaleString()}
+                          {formatDateTime(entry.createdAt, {
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
                         </span>
                         {isRunning && (
                           <Badge
@@ -247,12 +249,12 @@ export function ConfigHistorySheet({
           onOpenChange={(o) => {
             if (!o) setDiffEntry(null);
           }}
-          original={runningContent ?? diffEntry.content}
-          modified={diffEntry.content}
-          originalTitle={t(WEBUI.configEditor.runningTitle)}
-          modifiedTitle={t(WEBUI.configEditor.snapshotTitle, {
+          original={diffEntry.content}
+          modified={configText}
+          originalTitle={t(WEBUI.configEditor.snapshotTitle, {
             version: diffEntry.version.slice(0, 8),
           })}
+          modifiedTitle={t(WEBUI.configEditor.currentEditor)}
         />
       )}
     </Sheet>

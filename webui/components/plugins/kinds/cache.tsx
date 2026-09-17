@@ -72,7 +72,7 @@ function CachePluginCard({
     <PluginCardTemplate
       plugin={plugin}
       compact={compact}
-      icon={<DatabaseZap className="h-4 w-4 text-primary" />}
+      icon={<DatabaseZap className="h-4 w-4" />}
     >
       <div className="space-y-2 text-xs text-muted-foreground">
         <div>{t(WEBUI.cache.cardDescription)}</div>
@@ -127,7 +127,7 @@ function CacheEntriesPanel({ tag }: { tag: string }) {
 }
 
 function CacheEntriesPanelInner({ tag }: { tag: string }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [entries, setEntries] = useState<CacheEntryRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [total, setTotal] = useState(0);
@@ -432,11 +432,13 @@ function CacheEntriesPanelInner({ tag }: { tag: string }) {
                           title={formatCacheFullTime(
                             entry.last_access_unix_ms,
                             entry.last_access_ms,
+                            locale,
                           )}
                         >
                           {formatCacheShortTime(
                             entry.last_access_unix_ms,
                             entry.last_access_ms,
+                            locale,
                           )}
                         </span>
                         {entry.ecs_scope && (
@@ -654,7 +656,7 @@ function CacheEntryDetailDialog({
   entry: CacheEntryRow | null;
   onClose: () => void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   return (
     <DnsRecordDetailDialog
       open={Boolean(entry)}
@@ -670,6 +672,7 @@ function CacheEntryDetailDialog({
               time: formatCacheFullTime(
                 entry.cache_time_unix_ms,
                 entry.cache_time_ms,
+                locale,
               ),
             })
           : undefined
@@ -738,6 +741,7 @@ function CacheEntryDetailDialog({
                 value: formatCacheFullTime(
                   entry.cache_time_unix_ms,
                   entry.cache_time_ms,
+                  locale,
                 ),
                 title: `runtime +${entry.cache_time_ms}ms`,
                 mono: true,
@@ -748,6 +752,7 @@ function CacheEntryDetailDialog({
                 value: formatCacheFullTime(
                   entry.expire_at_unix_ms,
                   entry.expire_at_ms,
+                  locale,
                 ),
                 title: `runtime +${entry.expire_at_ms}ms`,
                 mono: true,
@@ -758,6 +763,7 @@ function CacheEntryDetailDialog({
                 value: formatCacheFullTime(
                   entry.last_access_unix_ms,
                   entry.last_access_ms,
+                  locale,
                 ),
                 title: `runtime +${entry.last_access_ms}ms`,
                 mono: true,
@@ -860,11 +866,15 @@ function rcodeBadge(rcode: string) {
   return <Badge variant="outline">{rcode}</Badge>;
 }
 
-function formatCacheShortTime(ms?: number, runtimeMs?: number) {
+function formatCacheShortTime(
+  ms: number | undefined,
+  runtimeMs: number | undefined,
+  locale: ReturnType<typeof useI18n>["locale"],
+) {
   if (typeof ms !== "number") {
     return typeof runtimeMs === "number" ? formatRuntimeMs(runtimeMs) : "-";
   }
-  return new Date(ms).toLocaleString([], {
+  return new Date(ms).toLocaleString(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -873,11 +883,15 @@ function formatCacheShortTime(ms?: number, runtimeMs?: number) {
   });
 }
 
-function formatCacheFullTime(ms?: number, runtimeMs?: number) {
+function formatCacheFullTime(
+  ms: number | undefined,
+  runtimeMs: number | undefined,
+  locale: ReturnType<typeof useI18n>["locale"],
+) {
   if (typeof ms !== "number") {
     return typeof runtimeMs === "number" ? formatRuntimeMs(runtimeMs) : "-";
   }
-  return new Date(ms).toLocaleString([], {
+  return new Date(ms).toLocaleString(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

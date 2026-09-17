@@ -23,6 +23,8 @@ mod client;
 #[cfg(feature = "_tls-server")]
 mod server;
 
+#[cfg(any(feature = "plugin-ros-address-list", feature = "plugin-ros-route"))]
+pub(crate) use client::secure_client_config_with_additional_roots;
 #[cfg(feature = "_tls-client")]
 pub(crate) use client::{insecure_client_config, secure_client_config};
 #[cfg(feature = "_tls-server")]

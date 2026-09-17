@@ -7,10 +7,10 @@
 //! executors, rule downloads, and release upgrades. It centralizes TLS policy,
 //! SOCKS5 dialing, redirects, response draining, and atomic file downloads.
 
-use std::fmt;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::task::{Context, Poll};
+use std::{fmt, io};
 
 use bytes::Bytes;
 use futures::future::BoxFuture;
@@ -384,28 +384,28 @@ where
     })?;
 
     let tmp_path = temp_path_for(path);
-    let mut file = File::create(&tmp_path).await.map_err(|err| {
-        DnsError::plugin(format!(
-            "failed to create temp file '{}': {}",
-            tmp_path.display(),
-            err
-        ))
-    })?;
+    let mut temp_file = TemporaryDownloadFile::create(tmp_path.clone())
+        .await
+        .map_err(|err| {
+            DnsError::plugin(format!(
+                "failed to create temp file '{}': {}",
+                tmp_path.display(),
+                err
+            ))
+        })?;
     let mut downloaded = 0u64;
     progress(DownloadProgress { downloaded, total });
     while let Some(frame_result) = body.frame().await {
         let frame = match frame_result {
             Ok(frame) => frame,
             Err(err) => {
-                let _ = fs::remove_file(&tmp_path).await;
                 return Err(DnsError::plugin(format!(
                     "failed to read response body: {err}"
                 )));
             }
         };
         if let Ok(data) = frame.into_data() {
-            if let Err(err) = file.write_all(&data).await {
-                let _ = fs::remove_file(&tmp_path).await;
+            if let Err(err) = temp_file.file_mut().write_all(&data).await {
                 return Err(DnsError::plugin(format!(
                     "failed to write temp file '{}': {}",
                     tmp_path.display(),
@@ -416,14 +416,14 @@ where
             progress(DownloadProgress { downloaded, total });
         }
     }
-    file.sync_all().await.map_err(|err| {
+    temp_file.file_mut().sync_all().await.map_err(|err| {
         DnsError::plugin(format!(
             "failed to sync temp file '{}': {}",
             tmp_path.display(),
             err
         ))
     })?;
-    drop(file);
+    temp_file.close();
 
     if let Err(err) = fs::rename(&tmp_path, path).await {
         let rename_fallback = matches!(
@@ -431,7 +431,6 @@ where
             std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
         );
         if !rename_fallback {
-            let _ = fs::remove_file(&tmp_path).await;
             return Err(DnsError::plugin(format!(
                 "failed to replace target file '{}': {}",
                 path.display(),
@@ -442,7 +441,6 @@ where
         if fs::try_exists(path).await.unwrap_or(false)
             && let Err(err) = fs::remove_file(path).await
         {
-            let _ = fs::remove_file(&tmp_path).await;
             return Err(DnsError::plugin(format!(
                 "failed to remove existing target file '{}': {}",
                 path.display(),
@@ -457,8 +455,65 @@ where
             ))
         })?;
     }
+    temp_file.persisted();
 
     Ok(())
+}
+
+/// Owns an incomplete download until it has been atomically persisted.
+///
+/// The synchronous cleanup in [`Drop`] is intentional: callers can wrap a
+/// download in `tokio::time::timeout`, which cancels the future without giving
+/// asynchronous cleanup code another chance to run.
+struct TemporaryDownloadFile {
+    path: Option<PathBuf>,
+    file: Option<File>,
+}
+
+impl TemporaryDownloadFile {
+    async fn create(path: PathBuf) -> io::Result<Self> {
+        tokio::task::spawn_blocking(move || {
+            let file = std::fs::File::create(&path)?;
+            Ok(Self {
+                path: Some(path),
+                file: Some(File::from_std(file)),
+            })
+        })
+        .await
+        .map_err(|err| io::Error::other(format!("temp file creation task failed: {err}")))?
+    }
+
+    fn file_mut(&mut self) -> &mut File {
+        self.file
+            .as_mut()
+            .expect("temporary download file must be open while writing")
+    }
+
+    fn close(&mut self) {
+        self.file.take();
+    }
+
+    fn persisted(&mut self) {
+        self.path.take();
+    }
+}
+
+impl Drop for TemporaryDownloadFile {
+    fn drop(&mut self) {
+        self.close();
+        let Some(path) = self.path.take() else {
+            return;
+        };
+        if let Err(err) = std::fs::remove_file(&path)
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            tracing::warn!(
+                path = %path.display(),
+                error = %err,
+                "failed to remove incomplete download temp file"
+            );
+        }
+    }
 }
 
 fn content_length(headers: &HeaderMap) -> Option<u64> {
@@ -522,6 +577,16 @@ pub fn format_status(status: StatusCode) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::future::pending;
+    use std::net::{Ipv4Addr, SocketAddr};
+    use std::time::Duration;
+
+    use tempfile::TempDir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio::time::timeout;
+
     use super::*;
 
     #[test]
@@ -575,5 +640,107 @@ mod tests {
         );
         assert_eq!(parse_uri_host_ip_literal("::1"), None);
         assert_eq!(parse_uri_host_ip_literal("example.com"), None);
+    }
+
+    #[tokio::test]
+    async fn test_download_timeout_removes_temp_file() {
+        let (server_addr, server_task) = start_stalled_http_server().await;
+        let dir = TempDir::new().expect("temp directory should be created");
+        let target_path = dir.path().join("rules.dat");
+        std::fs::write(&target_path, b"existing rules")
+            .expect("existing target file should be written");
+        let download_path = target_path.clone();
+        let (progress_tx, progress_rx) = oneshot::channel();
+        let mut progress_tx = Some(progress_tx);
+        let client = HttpClient::new(HttpClientOptions::new(false, None));
+
+        let task = tokio::spawn(async move {
+            let result = timeout(
+                Duration::from_millis(250),
+                client.download_with_progress(
+                    HttpRequestOptions::from_url(format!("http://{server_addr}/rules.dat")),
+                    &download_path,
+                    move |progress| {
+                        if progress.downloaded > 0
+                            && let Some(progress_tx) = progress_tx.take()
+                        {
+                            let _ = progress_tx.send(());
+                        }
+                    },
+                ),
+            )
+            .await;
+            assert!(result.is_err(), "stalled download should time out");
+        });
+
+        timeout(Duration::from_secs(1), progress_rx)
+            .await
+            .expect("partial download should arrive before test timeout")
+            .expect("download task should report partial progress");
+        assert_eq!(
+            std::fs::read(&target_path).expect("existing target should remain readable"),
+            b"existing rules"
+        );
+        let temp_files = download_temp_files(dir.path());
+        assert_eq!(temp_files.len(), 1);
+
+        timeout(Duration::from_secs(1), task)
+            .await
+            .expect("download timeout should complete within the test bound")
+            .expect("download task should exit normally after timing out");
+        assert!(download_temp_files(dir.path()).is_empty());
+        assert_eq!(
+            std::fs::read(&target_path).expect("existing target should remain after timeout"),
+            b"existing rules"
+        );
+
+        server_task.abort();
+        let server_error = server_task
+            .await
+            .expect_err("stalled server task should be cancelled by the test");
+        assert!(server_error.is_cancelled());
+    }
+
+    fn download_temp_files(dir: &Path) -> Vec<std::fs::DirEntry> {
+        std::fs::read_dir(dir)
+            .expect("download directory should be readable")
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .expect("download directory entries should be readable")
+            .into_iter()
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect()
+    }
+
+    async fn start_stalled_http_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .await
+            .expect("test HTTP listener should bind");
+        let addr = listener
+            .local_addr()
+            .expect("test HTTP listener should have a local address");
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("test HTTP listener should accept a request");
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 512];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let count = stream
+                    .read(&mut buffer)
+                    .await
+                    .expect("test HTTP request should be readable");
+                assert!(count > 0, "test HTTP client closed before sending headers");
+                request.extend_from_slice(&buffer[..count]);
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nConnection: close\r\n\r\npartial",
+                )
+                .await
+                .expect("partial test HTTP response should be writable");
+            pending::<()>().await;
+        });
+        (addr, task)
     }
 }

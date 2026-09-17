@@ -41,7 +41,7 @@ jobs:
           version: 10
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -122,6 +122,14 @@ jobs:
             make_deb: false
             upx_kind: linux
 
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            exe: oxidns-next
+            archive_ext: tar.gz
+            build_tool: cross
+            make_deb: false
+            upx_kind: linux
+
           - os: macos-latest
             target: x86_64-apple-darwin
             exe: oxidns-next
@@ -182,7 +190,8 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          # The automatic key describes the host toolchain, not the cross target.
+          key: ${{ matrix.target }}-full
 
       - name: Download WebUI artifact
         uses: actions/download-artifact@v8
@@ -340,6 +349,7 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
+          # Both target and feature bundle affect reusable dependency artifacts.
           key: ${{ matrix.target }}-${{ matrix.bundle }}
 
       - name: Install cross
@@ -362,6 +372,14 @@ jobs:
             --target "${{ matrix.target }}" \
             --no-default-features \
             --features "${{ matrix.bundle }}"
+
+      - name: Run UPX
+        continue-on-error: true
+        uses: crazy-max/ghaction-upx@v4
+        with:
+          version: v5.0.2
+          files: target/${{ matrix.target }}/release/oxidns-next
+          args: -q --best --lzma
 
       - name: Package slim release
         shell: bash
@@ -453,6 +471,24 @@ jobs:
       - name: List artifacts
         run: |
           find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.deb" \) | sort
+
+      - name: Validate release notes
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          RELEASE_NOTES_PATH="RELEASE_NOTES.md"
+          if [[ ! -s "$RELEASE_NOTES_PATH" ]]; then
+            echo "::error::Missing release notes: ${RELEASE_NOTES_PATH}"
+            exit 1
+          fi
+
+          EXPECTED_TITLE="# OxiDNS Next ${VERSION}"
+          ACTUAL_TITLE=$(head -n 1 "$RELEASE_NOTES_PATH")
+          if [[ "$ACTUAL_TITLE" != "$EXPECTED_TITLE" ]]; then
+            echo "::error::Expected '${EXPECTED_TITLE}' as the first line of ${RELEASE_NOTES_PATH}"
+            exit 1
+          fi
 
       - name: Create release
         uses: softprops/action-gh-release@v3

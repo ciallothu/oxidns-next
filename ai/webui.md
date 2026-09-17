@@ -35,7 +35,7 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 - Use `formatNumber()` and `formatDateTime()` for user-visible numbers and timestamps when the active locale matters. Avoid direct `toLocaleString()` calls unless the locale is explicitly supplied.
 - Keep plugin config schemas in `lib/plugin-definitions/` domain-focused and language-neutral where possible. Put localized plugin names, descriptions, field labels, placeholders, option labels, metric labels/help, derived metric labels, and quick-setup placeholders in `lib/i18n/locales/*/plugin-defined.ts`.
 - Put localized field-level documentation in `lib/i18n/locales/*/docs.ts`. When a plugin kind, config field, metric, or docs entry is added/renamed, update both `zh-CN` and `en-US` resources together.
-- Use locale-aware plugin helpers such as `getLocalizedPluginKindDefinitions()`, `getLocalizedPluginKindDefinition()`, `pluginTypeLabel()`, `pluginStatusLabel()`, and `getPluginSearchText()` for catalogs, forms, search, Monaco completions, cards, and detail views.
+- Use locale-aware plugin helpers such as `getLocalizedPluginKindDefinitions()`, `getLocalizedPluginKindDefinition()`, `pluginTypeLabel()`, `pluginStatusLabel()`, and `getPluginSearchText()` for catalogs, forms, search, CodeMirror completions, cards, and detail views.
 - Search indexes, placeholders, empty states, validation messages, toast/dialog copy, accessibility labels, `sr-only` text, tooltips, document title, and meta description are all user-facing and should be localized.
 - Leave machine-readable values unlocalized: YAML field names, plugin `kind` values, tags, API payload keys, route paths, enum values sent to the backend, Prometheus metric identifiers, DNS qtypes/rcodes, and configuration examples that users must paste verbatim.
 
@@ -54,6 +54,8 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 - New or changed plugin definitions still need i18n resources for user-facing labels, descriptions, field text, metric text, and docs. Update `lib/i18n/locales/zh-CN/` and `lib/i18n/locales/en-US/` alongside the schema change.
 - Two optional follow-up steps exist for richer UI: (1) create `components/plugins/kinds/<kind>.tsx` with custom `Card`/`Detail` components and register it in `components/plugins/registry.ts`; (2) add fallback field-level docs to `lib/plugin-definitions/docs.ts` when a non-localized fallback is useful. Both fall back gracefully if omitted.
 - Use `ConfigField` schemas for plugin configuration instead of hand-built one-off forms whenever possible. This keeps create/edit behavior consistent and preserves YAML/plugin concepts like references, arrays, objects, records, durations, and JSON fields.
+- Use `ConfigField.advanced` for optional tuning, timeout, queue, cache, transport override, lifecycle, and legacy compatibility fields. Keep required fields, primary targets, rule data, chain-control fields such as `short_circuit`, and safety-significant behavior visible. The generic editor honors this metadata at the top level and inside nested object/array-object schemas; custom plugin editors must reuse `AdvancedSettingsSection` for the same behavior.
+- New-plugin forms keep advanced sections collapsed and display schema defaults without materializing them for untouched advanced fields. Existing plugin forms automatically reveal a section when its serialized YAML explicitly contains any advanced field, including an explicit default, `false`, `0`, or an empty object. Collapsing a section must never remove or rewrite its values.
 - Use `referenceTypes`, `referencePrefix`, and `allowInvert` for fields that point to other plugins or matcher expressions. Do not encode `$tag` and `!$tag` handling in individual plugin components unless the schema editor cannot represent the shape.
 - Put optional custom plugin visuals in `components/plugins/kinds/<kind>.tsx` and register them in `components/plugins/registry.ts`. If a custom component does not add meaningful clarity, rely on `PluginCardTemplate` and `PluginDetailTemplate`.
 - Keep plugin cards focused on scanability: name, category, kind, status/primary metric, and compact operational controls. Push detailed configuration, charts, and destructive actions into the detail sheet.
@@ -71,6 +73,7 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 - Keep typography compact: page headings around `text-lg`, operational labels at `text-sm`/`text-xs`, plugin tags and config keys in mono where useful. Do not use oversized hero typography inside the console.
 - Ensure responsive behavior for desktop and narrow screens with stable grids (`sm`, `lg`, `xl`) and fixed-width side panels only when there is enough viewport room. Avoid layouts where labels, buttons, or badges can overlap.
 - Use semantic status color sparingly: primary for active/healthy emphasis, destructive for dangerous actions, yellow/amber only for unsaved or warning states, muted foreground for secondary metadata.
+- Use the shared `warning` color token for `always_false`, and the `destructive` token for the higher-risk `always_true` mode. Represent fixed Boolean values with off/on toggle icons; use a neutral controls icon for `normal`. Both fixed modes require confirmation, while restoring `normal` does not. Confirmation copy must state how positive and negated references behave.
 - Do not add gradient blobs, decorative illustrations, or broad one-color themes. The interface should feel like a precise control surface for OxiDNS Next.
 
 ## Testing & Documentation
@@ -79,3 +82,9 @@ Paths in this guide are relative to `webui/` unless stated otherwise.
 - For visual WebUI changes, verify the affected route in both light and dark themes, and check narrow and desktop widths for overflow, clipped labels, and broken grid/card layouts.
 - If a Rust plugin is added, renamed, or its config shape changes, update the appropriate file in `lib/plugin-definitions/`, the matching i18n resources under `lib/i18n/locales/*/plugin-defined.ts` and `lib/i18n/locales/*/docs.ts`, and optionally `lib/plugin-definitions/docs.ts` in the same change so the console stays aligned with runtime behavior. Custom kind components under `components/plugins/kinds/` only need updating if they reference removed or renamed fields.
 - If WebUI architecture, styling tokens, plugin schema conventions, or console workflows change, update this `ai/webui.md` file.
+
+## Analytics charts
+
+- Use `components/ui/analytics-chart.tsx` for analytics rendering, theme, resize observation and disposal. Chart initialization must wait for a nonzero container size, including sheets and hidden tabs.
+- Build options in `lib/analytics-options.ts`; use absolute UTC timestamps, unsmoothed DNS trends and `dataZoom.filterMode: "none"`. Counts are zero-filled; latency with no samples is null. Use rich-text confined tooltips and explicit wheel modifiers to preserve page scrolling.
+- Keep range mapping in `lib/query-recorder-ranges.ts` aligned with all SQL backends. Calendar months cannot be represented by a fixed millisecond duration.

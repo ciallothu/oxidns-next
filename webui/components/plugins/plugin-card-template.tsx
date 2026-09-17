@@ -10,9 +10,17 @@ import { WEBUI } from "@/lib/i18n";
 import { pluginTypeLabel } from "@/lib/i18n/plugin-defined";
 import { useI18n } from "@/lib/i18n/provider";
 import type { PluginCardTemplateProps } from "./types";
-import { pluginTypeColors, pluginTypeIcons } from "./display";
+import { pluginTypeColors, pluginTypeIconText } from "./display";
 import { getPluginCatalogItem, renderPluginKindIcon } from "./catalog";
 import { PluginDeleteButton } from "./plugin-delete-button";
+import { MatcherRuntimeControl } from "./matcher-runtime-control";
+import { ProviderRuntimeControl } from "./provider-runtime-control";
+import {
+  PluginCardItemGrid,
+  PluginCardItemSurface,
+} from "./plugin-card-item-grid";
+
+const MAX_CARD_METRICS = 6;
 
 export function PluginCardTemplate({
   plugin,
@@ -24,8 +32,16 @@ export function PluginCardTemplate({
   const { locale, t } = useI18n();
   const { setSelectedPlugin, setDetailOpen } = useAppStore();
   const series = useAppStore((s) => s.pluginMetrics[plugin.name]);
+  const matcherControl = useAppStore((s) =>
+    plugin.type === "matcher" ? s.matcherControls[plugin.name] : undefined,
+  );
   const buildInfo = useAppStore((s) => s.buildInfo);
-  const cardMetrics = selectCardMetrics(series, plugin.pluginKind, 4, locale);
+  const cardMetrics = selectCardMetrics(
+    series,
+    plugin.pluginKind,
+    MAX_CARD_METRICS,
+    locale,
+  );
   const showFallbackContent = cardMetrics.length === 0 && Boolean(children);
   const definition = getPluginCatalogItem(plugin.pluginKind, locale);
   const supported = isPluginKindSupported(
@@ -33,11 +49,17 @@ export function PluginCardTemplate({
     plugin.type,
     plugin.pluginKind,
   );
+  const matcherAlwaysFalse =
+    matcherControl?.availability === "ready" &&
+    matcherControl.mode === "always_false";
+  const matcherAlwaysTrue =
+    matcherControl?.availability === "ready" &&
+    matcherControl.mode === "always_true";
   const resolvedIcon =
     icon ??
     (definition
       ? renderPluginKindIcon(definition.icon, {
-          className: "h-4 w-4 text-primary",
+          className: "size-4",
         })
       : null);
 
@@ -49,84 +71,115 @@ export function PluginCardTemplate({
   return (
     <Card
       className={cn(
-        "group flex h-full min-h-[9.25rem] cursor-pointer flex-col transition-all hover:border-primary/50 hover:shadow-md",
+        "group relative flex h-full min-h-[10.75rem] cursor-pointer flex-col gap-0 overflow-hidden py-0 transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-px hover:border-primary/40 hover:shadow-md",
+        plugin.pinned && "border-primary/30",
+        matcherAlwaysFalse &&
+          "border-warning/40 bg-warning/5 hover:border-warning/60",
+        matcherAlwaysTrue &&
+          "border-destructive/40 bg-destructive/5 hover:border-destructive/60",
         !supported && "border-dashed opacity-70",
       )}
       aria-disabled={!supported}
       onClick={handleClick}
     >
-      <CardHeader className="flex flex-row items-start justify-between gap-2 px-3 pb-2 pt-1">
+      <CardHeader className="flex min-h-[4.75rem] flex-row items-start justify-between gap-3 px-3.5 pb-2.5 pt-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {resolvedIcon}
-            <span className="truncate font-mono text-sm font-medium">
-              {plugin.name}
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                "flex size-5 shrink-0 items-center justify-center [&>svg]:size-[18px]",
+                pluginTypeIconText[plugin.type],
+              )}
+            >
+              {resolvedIcon}
             </span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                className="min-w-0 truncate font-mono text-[13px] font-semibold leading-5 tracking-[-0.01em]"
+                title={plugin.name}
+              >
+                {plugin.name}
+              </span>
+            </div>
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          <div className="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden">
             <Badge
               variant="outline"
-              className={cn("gap-1 text-xs", pluginTypeColors[plugin.type])}
+              className={cn(
+                "h-[18px] max-w-[45%] rounded-md px-1.5 py-0 text-[10px] leading-none font-medium",
+                pluginTypeColors[plugin.type],
+              )}
             >
-              {pluginTypeIcons[plugin.type]}
-              {pluginTypeLabel(plugin.type, locale)}
+              <span className="truncate">
+                {pluginTypeLabel(plugin.type, locale)}
+              </span>
             </Badge>
-            <Badge variant="outline" className="text-xs">
+            <span
+              aria-hidden="true"
+              className="size-0.5 shrink-0 rounded-full bg-muted-foreground/50"
+            />
+            <span
+              className="min-w-0 truncate text-[11px] leading-none text-muted-foreground"
+              title={definition?.name ?? plugin.pluginKind}
+            >
               {definition?.name ?? plugin.pluginKind}
-            </Badge>
+            </span>
             {!supported && (
-              <Badge variant="outline" className="text-xs">
+              <Badge
+                variant="outline"
+                className="h-[18px] rounded-md px-1.5 py-0 text-[10px] leading-none"
+              >
                 {t(WEBUI.common.notCompiled)}
               </Badge>
             )}
           </div>
           {definition?.description && !compact && !children && (
-            <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+            <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
               {definition.description}
             </p>
           )}
         </div>
-        <div className="flex shrink-0 items-start gap-1">
+        <div className="flex shrink-0 items-start gap-0.5 rounded-lg p-0.5 transition-colors group-hover:bg-muted/45">
           {primaryMetric && (
-            <div className="mr-1 rounded-md bg-muted/35 px-2 py-1.5 text-right">
-              <div className="font-mono text-lg font-semibold leading-none">
+            <div className="mr-0.5 rounded-md bg-muted/45 px-2 py-1 text-right ring-1 ring-inset ring-border/35">
+              <div className="font-mono text-base leading-none font-semibold tabular-nums">
                 {primaryMetric.value}
               </div>
-              <div className="mt-1 text-[10px] text-muted-foreground">
+              <div className="mt-1 text-[9px] leading-none text-muted-foreground">
                 {primaryMetric.label}
               </div>
             </div>
           )}
+          {plugin.type === "matcher" ? (
+            <MatcherRuntimeControl plugin={plugin} />
+          ) : null}
+          {plugin.type === "provider" ? (
+            <ProviderRuntimeControl plugin={plugin} />
+          ) : null}
+
           <PluginDeleteButton
             plugin={plugin}
-            className="h-7 w-7 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+            className="size-6 shrink-0 rounded-md opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:text-destructive"
+            size="icon-xs"
           />
         </div>
       </CardHeader>
       {cardMetrics.length > 0 && (
-        <CardContent className="px-3 pb-1 pt-0">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md bg-muted/25 px-2.5 py-2">
-            {cardMetrics.map((metric) => (
-              <div
-                key={metric.label}
-                className="flex min-w-0 items-baseline justify-between gap-2"
-              >
-                <span className="truncate text-[10px] text-muted-foreground">
-                  {metric.label}
-                </span>
-                <span className="shrink-0 font-mono text-xs font-medium tabular-nums">
-                  {metric.value}
-                </span>
-              </div>
-            ))}
-          </div>
+        <CardContent className="mt-auto px-3.5 pb-3 pt-0">
+          <PluginCardItemSurface>
+            <PluginCardItemGrid
+              items={cardMetrics.map((metric) => ({
+                key: metric.label,
+                label: metric.label,
+                value: metric.value,
+              }))}
+            />
+          </PluginCardItemSurface>
         </CardContent>
       )}
       {showFallbackContent && (
-        <CardContent className="px-3 pb-1 pt-0">
-          <div className="min-h-[4.75rem] rounded-md bg-muted/25 px-2.5 py-2">
-            {children}
-          </div>
+        <CardContent className="mt-auto px-3.5 pb-3 pt-0">
+          <PluginCardItemSurface>{children}</PluginCardItemSurface>
         </CardContent>
       )}
     </Card>

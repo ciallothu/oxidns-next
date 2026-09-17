@@ -4,7 +4,8 @@ import type { LocaleResourceShape } from "../../types";
 export const enUSWebui = {
   metadata: {
     title: "OxiDNS Next - Console",
-    description: "Management console for the programmable OxiDNS Next DNS system",
+    description:
+      "Management console for the programmable OxiDNS Next DNS system",
   },
   locale: {
     toggleToEnglish: "Switch to English",
@@ -14,6 +15,7 @@ export const enUSWebui = {
     all: "All",
     back: "Back",
     cancel: "Cancel",
+    close: "Close",
     clear: "Clear",
     clearSearch: "Clear search",
     delete: "Delete",
@@ -21,6 +23,8 @@ export const enUSWebui = {
     fields: "Fields",
     loading: "Loading...",
     logLevel: "Log level",
+    key: "Key",
+    more: "More",
     name: "Name",
     plugin: "Plugin",
     readOnly: "Current config is read-only",
@@ -73,6 +77,10 @@ export const enUSWebui = {
     switchToEditor: "Switch to editor mode",
     switchToConsole: "Switch to console mode",
     toggleTheme: "Toggle theme",
+    breadcrumb: "Breadcrumb",
+    sidebar: "Sidebar",
+    sidebarDescription: "Displays the mobile sidebar.",
+    toggleSidebar: "Toggle sidebar",
   },
   plugins: {
     centerTitle: "Plugins",
@@ -96,7 +104,8 @@ export const enUSWebui = {
     tryAdjustSearch: "Try adjusting the search terms or",
     configureTitle: "Configure {name}",
     instanceName: "Instance Name",
-    instanceNameHint: "Use lowercase letters, numbers, and underscores",
+    instanceNameHint:
+      "Use ASCII letters, digits, underscores (_), hyphens (-), and dots (.)",
     instanceNamePlaceholder: "Example: {kind}_main",
     configTitle: "Plugin Config",
     pin: "Pin",
@@ -123,6 +132,7 @@ export const enUSWebui = {
     applying: "Applying",
     restarting: "Restarting",
     noConfigFields: "This plugin has no standalone configuration fields.",
+    advancedSettings: "Advanced settings",
     yamlMustBeObject: "Plugin config must be a YAML object",
     invertMatch: "Invert match",
     referencePlaceholder: "Select plugin reference",
@@ -135,6 +145,7 @@ export const enUSWebui = {
     missingReference: "Referenced plugin '{tag}' does not exist",
     missingPluginType: "Plugin type '{kind}' does not exist",
     metricsTitle: "Runtime Metrics",
+    metricCount: "{count} metrics",
     cardBadge: "Card",
     emptyConfigItems: "No config items yet. Click below to add one.",
     addConfigItem: "Add config item",
@@ -153,6 +164,70 @@ export const enUSWebui = {
     valueLabel: "Value",
     docsDefaultGroup: "Notes",
     resetDisplayOrder: "Reset default order",
+    unrestricted: "Unrestricted",
+    unrestrictedDates: "Any date",
+    everyDay: "Every day",
+    workdays: "Weekdays",
+    weekends: "Weekends",
+    specifiedDates: "Specific dates",
+    nextDay: "next day",
+    timeRange: "Time range",
+    unrestrictedTime: "Any time",
+    setTimeRange: "Set time range",
+    selectedWeekdays: "{count} days selected",
+    selectedMonthdays: "{count} dates selected",
+    selectAll: "Select all",
+    clearSelection: "Clear",
+    selectedCount: "{count} selected",
+    timeRangeIncomplete: "Start and end time must be set together",
+    timeRangeEqual: "Start and end time must be different",
+    timeRangeInvalid: "Time must use the HH:MM format",
+    matcherRuntimeControl: "Runtime control",
+    matcherRuntimeNormal: "Participating normally",
+    matcherRuntimeNormalDescription:
+      "This matcher is participating in rule evaluation as configured.",
+    matcherAlwaysFalse: "Fixed to false",
+    matcherAlwaysFalseDescription:
+      "This matcher's base result is fixed to false; each reference still applies its own negation.",
+    matcherAlwaysFalseAction: "Fix to false",
+    matcherAlwaysTrue: "Fixed to true",
+    matcherAlwaysTrueDescription:
+      "This matcher's base result is fixed to true; each reference still applies its own negation.",
+    matcherAlwaysTrueAction: "Fix to true",
+    matcherModeActions: "Matcher runtime mode",
+    matcherRestoreAction: "Restore matching",
+    matcherAlwaysFalseConfirmTitle: "Fix {tag}'s base result to false?",
+    matcherAlwaysFalseConfirmDescription:
+      "This skips the internal predicate, affects only the current runtime, and does not modify configuration.",
+    matcherAlwaysFalseImpact:
+      "{positive} will miss; {negative} will match after negation.",
+    matcherAlwaysFalseConfirmAction: "Confirm fixed false",
+    matcherAlwaysTrueConfirmTitle: "Fix {tag}'s base result to true?",
+    matcherAlwaysTrueConfirmDescription:
+      "This skips the internal predicate, may activate policy branches that reference it, and affects only the current runtime.",
+    matcherAlwaysTrueImpact:
+      "{positive} will match; {negative} will miss after negation.",
+    matcherAlwaysTrueConfirmAction: "Confirm fixed true",
+    matcherModeResetHint:
+      "An application reload or process restart restores normal matching.",
+    matcherControlLoading: "Loading matcher runtime state",
+    matcherControlUnavailable:
+      "The matcher runtime API is unavailable; apply the config or check the backend version",
+    matcherControlFailed: "Failed to update matcher runtime state",
+    providerRuntimeControl: "Runtime control",
+    providerReloadDescription:
+      "Reread this provider's data using its startup configuration without rebuilding other plugins.",
+    providerReloadReady: "Ready to reload",
+    providerReloadAction: "Reload data",
+    providerReloadPending: "Reloading data",
+    providerReloadSuccess: "Reloaded successfully",
+    providerReloadFailed: "Reload failed",
+    providerReloadBusy: "This provider is already reloading; try again shortly",
+    providerReloadNotApplied: "Apply the current configuration first",
+    providerReloadSkipped: "This provider is not used by the runtime",
+    providerReloadUnavailable: "Unavailable in offline mode",
+    providerReloadTopologyHint:
+      "This does not apply YAML, tag, or dependency-topology changes; those changes still require an application reload.",
   },
   pluginTypes: {
     server: "Server",
@@ -241,6 +316,7 @@ export const enUSWebui = {
     paramLabel: "Param",
     builtinLabel: "Builtin",
     invertedLabel: "Inverted",
+    always: "Always",
   },
   sequence: {
     modeReference: "Reference",
@@ -288,6 +364,7 @@ export const enUSWebui = {
     unconfiguredAction: "Unconfigured action",
     arrangement: "Sequence",
     ruleCount: "Rules",
+    ruleCountValue: "{count} rules",
     paramOptional: "Parameter (optional)",
     notCompiled: "Not compiled",
   },
@@ -360,6 +437,10 @@ export const enUSWebui = {
     eventCount: "{count} events",
     matched: "Matched",
     notMatched: "Not matched",
+    alwaysTrueMatched: "Fixed true · matched",
+    alwaysTrueNotMatched: "Fixed true · negated miss",
+    alwaysFalseMatched: "Fixed false · negated match",
+    alwaysFalseNotMatched: "Fixed false · missed",
     unchecked: "Unchecked",
     topologyUnavailable:
       "Config topology is unavailable; showing events in recorded order.",
@@ -453,6 +534,18 @@ export const enUSWebui = {
     expiredBadge: "Expired",
   },
   queryRecorder: {
+    resetZoom: "Reset zoom",
+    rangePreset7d: "Week",
+    rangePreset30d: "Month",
+    rangePreset1y: "Year",
+    bucketSizeDay: "Daily buckets",
+    bucketSizeMonth: "Calendar months",
+    noResponseSeries: "No response",
+    chartInteractionHint:
+      "Drag the slider to select a range; Ctrl + wheel or pinch to zoom, drag to pan. Times are in UTC.",
+    retainedHistoryHint:
+      "Only retained query records are included. Missing latency means no records in that bucket; history length depends on retention_days.",
+
     pageTitle: "Query Log",
     sourceLabel: "Recorder",
     noRecorderTitle: "Query logging is not configured",
@@ -510,7 +603,9 @@ export const enUSWebui = {
     loadingRecords: "Loading query records...",
     noRecords: "No query records",
     matcherStatsTitle: "Matcher hit rate",
+    matcherColumn: "Matcher",
     sampleCount: "{count} samples",
+    topCount: "Top {count}",
     matcherCount: "{count} matchers",
     clearMatcherFilterTitle: "Clear selected matcher filter",
     selectedMatcher: "Filtered: {matcher}",
@@ -529,7 +624,7 @@ export const enUSWebui = {
     rangePreset24h: "Last 24 hours",
     rangePresetAll: "All",
     insightsViewTitle: "Aggregate view",
-    insightsIndependent: "Independent from the Statistics tab filters",
+    insightsIndependent: "Independent from query record filters",
     clientsTab: "Clients",
     domainsTab: "Domains",
     latencyTab: "Latency",
@@ -702,6 +797,17 @@ export const enUSWebui = {
     unsafeReferences:
       "Some references cannot be removed safely. Use replacement or fix them manually in the editor.",
     pluginNameRequired: "Plugin name is required",
+    pluginNameInvalid: "Plugin name must be a path-safe plugin tag",
+    pluginNameTooLong: "Plugin name must be at most 64 ASCII characters",
+    pluginNameNonAscii: "Plugin name must contain ASCII characters only",
+    pluginNameInvalidCharacter:
+      "Plugin name can only contain ASCII letters, digits, underscores (_), hyphens (-), and dots (.)",
+    pluginNameEmptySegment:
+      "Plugin name cannot start or end with a dot, or contain consecutive dots",
+    pluginNameInvalidSegmentBoundary:
+      "Each dot-separated plugin name segment must start and end with a letter or digit",
+    pluginNameReserved:
+      "Plugin names cannot start with qs.exec., qs.match., or qs.cron.",
     pluginNameUnchanged: "Plugin name is unchanged",
     pluginNameExists: "Plugin name already exists",
     configHasErrorsBeforeRename:
@@ -737,9 +843,17 @@ export const enUSWebui = {
     checkServer: "Server",
     cpuUsage: "CPU Usage",
     cpuUsageDesc: "Process CPU usage",
+    dnsQps: "DNS QPS",
+    qpsWindow: "Average over {seconds}s",
+    processCpu: "CPU {value}",
+    requestTotal: "{value} total requests",
     memUsage: "Memory Usage",
-    memTotal: "Total {total} · {pct}%",
+    memUsed: "{pct}% used",
+    memTotal: "Total {total}",
     processRss: "Process RSS",
+    processPrivateWorkingSet: "Private working set",
+    processPrivateCommit: "Process private commit (commit charge)",
+    processWorkingSet: "Working set (includes shared)",
     pluginTotal: "Plugin Total",
     serverCount: "{count} servers",
     configError: "Config error",
@@ -763,6 +877,13 @@ export const enUSWebui = {
     pause: "Pause",
     waiting: "Waiting for logs…",
     connectingBackend: "Connecting to backend…",
+    timeFormat: "Time format",
+    timeFormatDescription:
+      "Supports YYYY, MM, DD, HH, mm, ss, and SSS. Time only by default.",
+    timeFormatPreview: "Preview: {value}",
+    showElapsed: "Show process elapsed time",
+    showElapsedDescription:
+      "Show time since startup with adaptive units and millisecond precision.",
   },
   restartOverlay: {
     title: "Restarting OxiDNS Next service",
@@ -924,6 +1045,8 @@ export const enUSWebui = {
       "Configure resolver nameservers and SOCKS5 proxy for this profile.",
     removeOutboundProfile: "Remove outbound profile",
     outboundProfileName: "Profile Name",
+    outboundProfileNameRequired: "Outbound profile name cannot be empty",
+    outboundProfileNameDuplicate: "Duplicate outbound profile name '{name}'",
     outboundProfileSocks5: "Profile SOCKS5 Proxy",
     resolverMode: "Resolver Mode",
     resolverModeSystem: "System resolver",
@@ -1019,6 +1142,7 @@ export const enUSWebui = {
     checkUpdates: "Check for Updates",
     upgrading: "Upgrading…",
     upgradeNow: "Upgrade Now",
+    forceUpgradeNow: "Force Upgrade",
     upgradeProgressTitle: "Upgrading OxiDNS Next",
     upgradeProgressDesc:
       "The backend is applying the new release and will reconnect automatically. Do not refresh or close this page.",
@@ -1052,9 +1176,15 @@ export const enUSWebui = {
     allowPrerelease: "Allow Pre-release Versions",
     allowPrereleaseDesc:
       "Includes pre-release tags such as alpha, beta, and rc",
+    forceUpgrade: "Force upgrade",
+    forceUpgradeDesc:
+      "Ignore version comparison and reinstall the selected release.",
+    cleanupAfterUpgrade: "Clean up after upgrade",
+    cleanupAfterUpgradeDesc:
+      "Delete download caches and upgrade backups after success; disable to keep rollback files.",
     autoCheck: "Auto-check for Updates",
     autoCheckDesc:
-      "Automatically check for the latest version on each backend connection",
+      "Check on connection only when due; successful checks are reused for 24 hours",
     cliCommand: "Equivalent CLI Command",
     cliCommandDesc:
       "Run on the server as root or a privileged user. Automatically downloads and replaces the current binary. To avoid leaks, the command shows only a token placeholder.",

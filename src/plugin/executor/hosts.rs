@@ -17,8 +17,6 @@
 //!
 //! Unprefixed rules default to `full:`.
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +31,7 @@ use serde_yaml_ng::Value;
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result};
+use crate::infra::io::{LineClassifier, TextLocation, TextSource};
 use crate::infra::observability::metrics::{
     MetricLabel, MetricSample, MetricSink, MetricSource, register_metric_source,
     unregister_metric_source,
@@ -279,78 +278,42 @@ fn parse_config(args: Option<Value>) -> Result<HostsConfig> {
 
 fn build_rule_index(cfg: &HostsConfig) -> Result<RuleIndex> {
     let mut builder = RuleIndexBuilder::default();
-
-    for (idx, entry) in cfg.entries.iter().enumerate() {
-        let rule = parse_hosts_line(entry).map_err(|e| {
-            DnsError::plugin(format!("invalid hosts entry #{} '{}': {}", idx, entry, e))
-        })?;
-        builder.add_rule(rule);
-    }
-
-    for file in &cfg.files {
-        if file.trim().is_empty() {
-            continue;
-        }
-
-        let file_handle = File::open(file).map_err(|e| {
-            DnsError::plugin(format!("failed to open hosts file '{}': {}", file, e))
-        })?;
-        let mut reader = BufReader::new(file_handle);
-        let mut line = String::new();
-        let mut line_no = 0usize;
-
-        loop {
-            line.clear();
-            let n = reader.read_line(&mut line).map_err(|e| {
-                DnsError::plugin(format!(
-                    "failed to read hosts file '{}' at line {}: {}",
-                    file,
-                    line_no + 1,
-                    e
-                ))
-            })?;
-            if n == 0 {
-                break;
-            }
-            line_no += 1;
-
-            let raw = line.trim();
-            if raw.is_empty() || raw.starts_with('#') {
-                continue;
-            }
-            let line_no_comment = raw
-                .split_once('#')
-                .map(|(left, _)| left)
-                .unwrap_or(raw)
-                .trim();
-            if line_no_comment.is_empty() {
-                continue;
-            }
-
-            let rule = parse_hosts_line(line_no_comment).map_err(|e| {
-                DnsError::plugin(format!(
-                    "invalid hosts file '{}' line {} '{}': {}",
-                    file, line_no, line_no_comment, e
-                ))
-            })?;
-            builder.add_rule(rule);
-        }
-    }
+    TextSource::new("args.entries", &cfg.entries, &cfg.files)
+        .scan(
+            &LineClassifier::new(&["#"]),
+            |line| -> std::result::Result<(), String> {
+                let rule_text = match line.location() {
+                    TextLocation::Inline { .. } => line.raw().trim(),
+                    TextLocation::File { .. } => {
+                        if line.annotations().blank || line.annotations().leading_comment.is_some()
+                        {
+                            return Ok(());
+                        }
+                        let raw = line.raw();
+                        raw.split_once('#').map_or(raw, |(left, _)| left).trim()
+                    }
+                };
+                let rule = parse_hosts_line(rule_text)
+                    .map_err(|error| format!("invalid hosts rule '{rule_text}': {error}"))?;
+                builder.add_rule(rule);
+                Ok(())
+            },
+        )
+        .map_err(|error| DnsError::plugin(error.to_string()))?;
 
     builder.build()
 }
 
 fn parse_hosts_line(raw: &str) -> std::result::Result<HostsRule, String> {
-    let fields: Vec<&str> = raw.split_whitespace().collect();
-    if fields.len() < 2 {
+    let mut fields = raw.split_whitespace();
+    let Some(matcher_raw) = fields.next() else {
         return Err("hosts rule must include domain rule and at least one IP".to_string());
-    }
-
-    let matcher = parse_rule_matcher(fields[0])?;
+    };
+    let matcher = parse_rule_matcher(matcher_raw)?;
 
     let mut ipv4 = Vec::new();
     let mut ipv6 = Vec::new();
-    for token in &fields[1..] {
+    for token in fields {
         match token.parse::<IpAddr>() {
             Ok(IpAddr::V4(v4)) => ipv4.push(Arc::new(RData::A(A(v4)))),
             Ok(IpAddr::V6(v6)) => ipv6.push(Arc::new(RData::AAAA(AAAA(v6)))),
@@ -666,6 +629,23 @@ mod tests {
         assert!(parse_hosts_line("").is_err());
         assert!(parse_hosts_line("full:example.com").is_err());
         assert!(parse_hosts_line("full:example.com 1.1.1.1").is_ok());
+    }
+
+    #[test]
+    fn inline_regexp_preserves_hash_while_file_comments_are_stripped() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "# ignored").unwrap();
+        writeln!(file, "full:file.example 192.0.2.2 # trailing").unwrap();
+        let cfg = HostsConfig {
+            entries: vec!["regexp:^[a-z#]+\\.example$ 192.0.2.1".to_string()],
+            files: vec![file.path().display().to_string()],
+            short_circuit: false,
+        };
+        let index = build_rule_index(&cfg).expect("inline regexp should build");
+
+        assert!(index.match_answers("abc.example").is_some());
+        assert!(index.match_answers("a#b.example").is_some());
+        assert!(index.match_answers("file.example").is_some());
     }
 
     fn make_context(name: &str, qtype: RecordType) -> DnsContext {

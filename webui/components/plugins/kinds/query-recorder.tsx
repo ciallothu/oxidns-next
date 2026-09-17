@@ -18,21 +18,13 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { AnalyticsChart } from "@/components/ui/analytics-chart";
+import { distributionOption, timeseriesOption } from "@/lib/analytics-options";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  INSIGHTS_RANGES,
+  queryRecorderRange,
+  type InsightsRange,
+} from "@/lib/query-recorder-ranges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -92,7 +84,6 @@ import {
   type QueryRecorderDistributionResponse,
   type QueryRecorderLatencySummary,
   type QueryRecorderPluginStatsRow,
-  type QueryRecorderTimeseriesBucket,
   type QueryRecorderTimeseriesResponse,
   type QueryRecorderTopResponse,
 } from "@/lib/oxidns-next-api";
@@ -210,25 +201,6 @@ const RCODE_OPTIONS = [
   "Not Implemented",
 ];
 
-const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-];
-const CHART_TOOLTIP_PROPS = {
-  isAnimationActive: false,
-  contentStyle: {
-    backgroundColor: "var(--popover)",
-    border: "1px solid var(--border)",
-    borderRadius: 8,
-    color: "var(--popover-foreground)",
-    fontSize: 12,
-  },
-  itemStyle: { color: "var(--popover-foreground)" },
-  labelStyle: { color: "var(--popover-foreground)" },
-} as const;
 const TOP_PAGE_SIZE = 20;
 // Per-row height for the horizontal Top-N bar charts. Recharts' category axis
 // drops tick labels when bars are packed too tightly, so the chart container
@@ -255,7 +227,7 @@ export function QueryRecordsPanel({ tag }: { tag: string }) {
 }
 
 function QueryRecordsPanelInner({ tag }: { tag: string }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [records, setRecords] = useState<QueryRecordRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [matcherStats, setMatcherStats] = useState<
@@ -868,7 +840,7 @@ function QueryRecordsPanelInner({ tag }: { tag: string }) {
                       {record.client_ip}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
-                      {formatTime(record.created_at_ms)}
+                      {formatTime(record.created_at_ms, locale)}
                     </TableCell>
                     <TableCell>{queryStatusBadge(record)}</TableCell>
                     <TableCell className="max-w-[20rem]">
@@ -1007,7 +979,7 @@ function MatcherStatsCard({
           <Table className="min-w-[680px]">
             <TableHeader>
               <TableRow className="bg-muted/30 hover:bg-muted/30">
-                <TableHead>Matcher</TableHead>
+                <TableHead>{t(WEBUI.queryRecorder.matcherColumn)}</TableHead>
                 <TableHead>{t(WEBUI.queryRecorder.checkedColumn)}</TableHead>
                 <TableHead>{t(WEBUI.queryRecorder.hitColumn)}</TableHead>
                 <TableHead>{t(WEBUI.queryRecorder.hitRateColumn)}</TableHead>
@@ -1094,38 +1066,29 @@ function MatcherStatsCard({
 // filter form. Only knob is a preset time range; sub-tabs render charts.
 // ---------------------------------------------------------------------------
 
-type InsightsRangeKey = "10m" | "1h" | "24h" | "all";
 type TFn = (
   key: string,
   params?: Record<string, string | number | boolean | null | undefined>,
 ) => string;
-
-const RANGE_PRESET_KEYS: InsightsRangeKey[] = ["10m", "1h", "24h", "all"];
-
-function rangePresetLabel(range: InsightsRangeKey, t: TFn) {
-  switch (range) {
-    case "10m":
-      return t(WEBUI.queryRecorder.rangePreset10m);
-    case "1h":
-      return t(WEBUI.queryRecorder.rangePreset1h);
-    case "24h":
-      return t(WEBUI.queryRecorder.rangePreset24h);
-    case "all":
-      return t(WEBUI.queryRecorder.rangePresetAll);
-  }
+type InsightsRangeKey = InsightsRange;
+const RANGE_PRESET_KEYS = INSIGHTS_RANGES;
+function rangePresetLabel(range: InsightsRangeKey, t: (key: string) => string) {
+  return t(
+    {
+      "1h": WEBUI.queryRecorder.rangePreset1h,
+      "24h": WEBUI.queryRecorder.rangePreset24h,
+      "7d": WEBUI.queryRecorder.rangePreset7d,
+      "30d": WEBUI.queryRecorder.rangePreset30d,
+      "1y": WEBUI.queryRecorder.rangePreset1y,
+    }[range],
+  );
 }
-
-function rangeToFilters(range: InsightsRangeKey): QueryRecordFilters {
-  if (range === "all") return {};
-  const now = Date.now();
-  const minutes = range === "10m" ? 10 : range === "1h" ? 60 : 24 * 60;
-  return { sinceMs: now - minutes * 60_000, untilMs: now };
-}
-
-function defaultBucketForRange(
+function rangeToFilters(
   range: InsightsRangeKey,
-): QueryRecorderTimeseriesBucket {
-  return range === "24h" || range === "all" ? "hour" : "minute";
+  now: number,
+): QueryRecordFilters {
+  const { sinceMs, untilMs } = queryRecorderRange(range, now);
+  return { sinceMs, untilMs };
 }
 
 export function QueryRecorderInsightsPanel({ tag }: { tag: string }) {
@@ -1138,11 +1101,12 @@ export function QueryRecorderInsightsPanel({ tag }: { tag: string }) {
 
 function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
   const { t } = useI18n();
-  const [range, setRange] = useState<InsightsRangeKey>("1h");
+  const [range, setRange] = useState<InsightsRangeKey>("24h");
   // `nonce` lets the user force a refresh of every sub-tab without changing
   // the range; we bump it on the toolbar refresh button.
-  const [nonce, setNonce] = useState(0);
-  const filters = useMemo(() => rangeToFilters(range), [range]);
+  const [nonce, setNonce] = useState(() => Date.now());
+  const refresh = () => setNonce(Date.now());
+  const filters = useMemo(() => rangeToFilters(range, nonce), [range, nonce]);
   const rangeLabel = useMemo(() => rangePresetLabel(range, t), [range, t]);
 
   return (
@@ -1163,13 +1127,15 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <PresetRangePicker value={range} onChange={setRange} />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setNonce((value) => value + 1)}
-            >
+          <div className="flex flex-wrap items-center gap-2">
+            <PresetRangePicker
+              value={range}
+              onChange={(next) => {
+                setRange(next);
+                refresh();
+              }}
+            />
+            <Button variant="outline" size="sm" onClick={refresh}>
               <RefreshCw className="h-4 w-4" />
               {t(WEBUI.common.refresh)}
             </Button>
@@ -1177,8 +1143,8 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
         </CardHeader>
       </Card>
 
-      <Tabs defaultValue="clients">
-        <TabsList className="flex w-full flex-nowrap justify-start gap-1 overflow-x-auto overflow-y-hidden">
+      <Tabs defaultValue="timeseries">
+        <TabsList className="grid w-full auto-rows-8 grid-cols-3 gap-1 group-data-horizontal/tabs:h-auto sm:grid-cols-6">
           <TabsTrigger value="clients" className="shrink-0">
             <Users className="h-3.5 w-3.5" />
             {t(WEBUI.queryRecorder.clientsTab)}
@@ -1259,10 +1225,11 @@ function QueryRecorderInsightsPanelInner({ tag }: { tag: string }) {
         </TabsContent>
         <TabsContent value="timeseries" className="min-h-[40rem]">
           <TimeseriesCard
-            key={`timeseries-${tag}-${range}-${nonce}`}
+            key={`timeseries-${tag}-${range}`}
             tag={tag}
             filters={filters}
-            defaultBucket={defaultBucketForRange(range)}
+            range={range}
+            onRefresh={refresh}
           />
         </TabsContent>
       </Tabs>
@@ -1279,7 +1246,7 @@ function PresetRangePicker({
 }) {
   const { t } = useI18n();
   return (
-    <div className="inline-flex h-8 items-center rounded-md border bg-muted/30 p-0.5">
+    <div className="inline-flex min-h-8 flex-wrap items-center rounded-md border bg-muted/30 p-0.5">
       {RANGE_PRESET_KEYS.map((presetKey) => {
         const active = presetKey === value;
         return (
@@ -1287,6 +1254,7 @@ function PresetRangePicker({
             key={presetKey}
             type="button"
             onClick={() => onChange(presetKey)}
+            aria-pressed={active}
             className={cn(
               "rounded px-2 py-1 text-xs transition-colors",
               active
@@ -1384,9 +1352,7 @@ function TopBucketsCard({
     [data],
   );
   const hasMoreRows = chartData.length >= limit;
-  // Vertical bar chart: each row needs its own vertical slot or recharts'
-  // category axis silently drops labels to avoid overlap (issue #137). Size
-  // the chart by row count so every Top-N entry keeps a readable, 1:1 label.
+  // Keep one readable slot per category; the surrounding panel scrolls.
   const chartHeight = Math.max(
     CHART_MIN_HEIGHT,
     chartData.length * CHART_ROW_HEIGHT + CHART_VERTICAL_PADDING,
@@ -1407,7 +1373,7 @@ function TopBucketsCard({
               })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              Top {chartData.length}
+              {t(WEBUI.queryRecorder.topCount, { count: chartData.length })}
             </span>
           </div>
         </div>
@@ -1433,53 +1399,11 @@ function TopBucketsCard({
             style={{ maxHeight: CHART_MAX_HEIGHT }}
           >
             <div className="w-full" style={{ height: chartHeight }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  layout="vertical"
-                  margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="var(--border)"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    stroke="var(--muted-foreground)"
-                    fontSize={11}
-                    allowDecimals={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="key"
-                    stroke="var(--muted-foreground)"
-                    fontSize={11}
-                    width={180}
-                    interval={0}
-                    tickFormatter={(value: string) => truncateMiddle(value, 28)}
-                  />
-                  <RechartsTooltip
-                    {...CHART_TOOLTIP_PROPS}
-                    cursor={{ fill: "var(--muted)", opacity: 0.3 }}
-                    formatter={(value: number, _name, props) => [
-                      t(WEBUI.queryRecorder.timesWithPercent, {
-                        count: value,
-                        pct: formatPercent(
-                          (props.payload?.share as number) ?? 0,
-                        ),
-                      }),
-                      keyLabel,
-                    ]}
-                  />
-                  <Bar
-                    dataKey="count"
-                    fill="var(--chart-1)"
-                    isAnimationActive={false}
-                    radius={[0, 4, 4, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <AnalyticsChart
+                label={title}
+                option={distributionOption(chartData, keyLabel, "horizontal")}
+                height={chartHeight}
+              />
             </div>
           </div>
         )}
@@ -1645,77 +1569,15 @@ function DistributionCard({
         )}
         {rows.length > 0 && (
           <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              {preferBarChart ? (
-                <BarChart
-                  data={rows}
-                  margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis
-                    dataKey="key"
-                    stroke="var(--muted-foreground)"
-                    fontSize={11}
-                  />
-                  <YAxis
-                    stroke="var(--muted-foreground)"
-                    fontSize={11}
-                    allowDecimals={false}
-                  />
-                  <RechartsTooltip
-                    {...CHART_TOOLTIP_PROPS}
-                    cursor={{ fill: "var(--muted)", opacity: 0.3 }}
-                    formatter={(value: number, _name, props) => [
-                      t(WEBUI.queryRecorder.timesWithPercent, {
-                        count: value,
-                        pct: formatPercent(
-                          (props.payload?.share as number) ?? 0,
-                        ),
-                      }),
-                      keyLabel,
-                    ]}
-                  />
-                  <Bar
-                    dataKey="count"
-                    fill="var(--chart-1)"
-                    isAnimationActive={false}
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              ) : (
-                <PieChart>
-                  <RechartsTooltip
-                    {...CHART_TOOLTIP_PROPS}
-                    formatter={(value: number, _name, props) => [
-                      t(WEBUI.queryRecorder.timesWithPercent, {
-                        count: value,
-                        pct: formatPercent(
-                          (props.payload?.share as number) ?? 0,
-                        ),
-                      }),
-                      props.payload?.key ?? keyLabel,
-                    ]}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Pie
-                    data={rows}
-                    dataKey="count"
-                    nameKey="key"
-                    outerRadius={90}
-                    innerRadius={42}
-                    paddingAngle={2}
-                    isAnimationActive={false}
-                  >
-                    {rows.map((entry, index) => (
-                      <Cell
-                        key={entry.key}
-                        fill={CHART_COLORS[index % CHART_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                </PieChart>
+            <AnalyticsChart
+              label={title}
+              option={distributionOption(
+                rows,
+                keyLabel,
+                preferBarChart ? "bar" : "pie",
               )}
-            </ResponsiveContainer>
+              height={280}
+            />
           </div>
         )}
         <div className="overflow-hidden rounded-md border">
@@ -1893,37 +1755,15 @@ function LatencyCard({
         </div>
         {histogram.length > 0 && (
           <div className="h-[260px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={histogram}
-                margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis
-                  dataKey="label"
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                />
-                <YAxis
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                  allowDecimals={false}
-                />
-                <RechartsTooltip
-                  {...CHART_TOOLTIP_PROPS}
-                  cursor={{ fill: "var(--muted)", opacity: 0.3 }}
-                />
-                <Bar
-                  dataKey="count"
-                  isAnimationActive={false}
-                  radius={[4, 4, 0, 0]}
-                >
-                  {histogram.map((entry) => (
-                    <Cell key={entry.label} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <AnalyticsChart
+              label={t(WEBUI.queryRecorder.latencyTab)}
+              option={distributionOption(
+                histogram.map((row) => ({ key: row.label, count: row.count })),
+                t(WEBUI.queryRecorder.countColumn),
+                "bar",
+              )}
+              height={260}
+            />
           </div>
         )}
         <div>
@@ -1991,21 +1831,20 @@ function LatencyCard({
 function TimeseriesCard({
   tag,
   filters,
-  defaultBucket,
+  range,
+  onRefresh,
 }: {
   tag: string;
   filters: QueryRecordFilters;
-  defaultBucket: QueryRecorderTimeseriesBucket;
+  range: InsightsRangeKey;
+  onRefresh: () => void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
+  const [zoomVersion, setZoomVersion] = useState(0);
   const [data, setData] = useState<QueryRecorderTimeseriesResponse | null>(
     null,
   );
-  // `defaultBucket` only seeds the initial state. The parent re-keys this
-  // component on range change, so a new range remounts with the new default
-  // while preserving user selection within a single range.
-  const [bucket, setBucket] =
-    useState<QueryRecorderTimeseriesBucket>(defaultBucket);
+  const { bucket, buckets } = queryRecorderRange(range, filters.untilMs ?? 0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -2020,7 +1859,7 @@ function TimeseriesCard({
       const response = await fetchQueryRecorderTimeseries(tag, {
         ...filters,
         bucket,
-        buckets: bucket === "minute" ? 60 : 48,
+        buckets,
         signal: controller.signal,
       });
       if (controller.signal.aborted || abortRef.current !== controller) {
@@ -2042,7 +1881,7 @@ function TimeseriesCard({
         setLoading(false);
       }
     }
-  }, [tag, filters, bucket, t]);
+  }, [tag, filters, bucket, buckets, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2054,13 +1893,21 @@ function TimeseriesCard({
     };
   }, [load]);
 
-  const points = useMemo(() => {
-    const items = data?.points ?? [];
-    return items.map((point) => ({
-      ...point,
-      label: formatBucketLabel(point.bucket_ms, bucket),
-    }));
-  }, [data, bucket]);
+  const points = data?.points ?? [];
+  const option = useMemo(
+    () =>
+      timeseriesOption(
+        data?.points ?? [],
+        {
+          total: t(WEBUI.queryRecorder.totalQueriesSeries),
+          errors: t(WEBUI.queryRecorder.errorSeries),
+          missing: t(WEBUI.queryRecorder.noResponseSeries),
+          average: t(WEBUI.queryRecorder.avgMetricLabel),
+        },
+        locale,
+      ),
+    [data, t, locale],
+  );
 
   return (
     <Card className="mt-3">
@@ -2077,37 +1924,31 @@ function TimeseriesCard({
               })}
             </span>
             <span className="rounded-full border bg-muted/30 px-2 py-0.5">
-              {bucket === "minute"
-                ? t(WEBUI.queryRecorder.bucketSizeMinute)
-                : t(WEBUI.queryRecorder.bucketSizeHour)}
+              {t(
+                {
+                  minute: WEBUI.queryRecorder.bucketSizeMinute,
+                  hour: WEBUI.queryRecorder.bucketSizeHour,
+                  day: WEBUI.queryRecorder.bucketSizeDay,
+                  month: WEBUI.queryRecorder.bucketSizeMonth,
+                }[bucket],
+              )}{" "}
+              · UTC
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Select
-            value={bucket}
-            onValueChange={(value) => {
-              abortRef.current?.abort();
-              setBucket(value as QueryRecorderTimeseriesBucket);
-            }}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setZoomVersion((value) => value + 1)}
           >
-            <SelectTrigger className="h-8 w-[110px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="minute">
-                {t(WEBUI.queryRecorder.byMinuteOption)}
-              </SelectItem>
-              <SelectItem value="hour">
-                {t(WEBUI.queryRecorder.byHourOption)}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+            {t(WEBUI.queryRecorder.resetZoom)}
+          </Button>
           <Button
             variant="outline"
             size="sm"
             disabled={loading}
-            onClick={() => void load()}
+            onClick={onRefresh}
           >
             <RefreshCw className="h-4 w-4" />
             {t(WEBUI.common.refresh)}
@@ -2120,68 +1961,20 @@ function TimeseriesCard({
             {error}
           </div>
         )}
+        <p className="text-xs text-muted-foreground">
+          {t(WEBUI.queryRecorder.chartInteractionHint)}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {t(WEBUI.queryRecorder.retainedHistoryHint)}
+        </p>
         {points.length > 0 ? (
-          <div className="h-[320px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={points}
-                margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis
-                  dataKey="label"
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                  minTickGap={20}
-                />
-                <YAxis
-                  yAxisId="left"
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                  allowDecimals={false}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                  allowDecimals={false}
-                />
-                <RechartsTooltip {...CHART_TOOLTIP_PROPS} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="total"
-                  name={t(WEBUI.queryRecorder.totalQueriesSeries)}
-                  stroke="var(--chart-1)"
-                  dot={false}
-                  strokeWidth={2}
-                  isAnimationActive={false}
-                />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="error_count"
-                  name={t(WEBUI.queryRecorder.errorSeries)}
-                  stroke="var(--chart-5)"
-                  dot={false}
-                  strokeWidth={2}
-                  isAnimationActive={false}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="p95_ms"
-                  name="P95 (ms)"
-                  stroke="var(--chart-3)"
-                  dot={false}
-                  strokeWidth={1.5}
-                  strokeDasharray="4 2"
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="min-w-0 w-full">
+            <AnalyticsChart
+              key={zoomVersion}
+              label={t(WEBUI.queryRecorder.trendTitle)}
+              option={option}
+              height={360}
+            />
           </div>
         ) : (
           <div className="rounded-md border bg-muted/20 px-3 py-8 text-center text-sm text-muted-foreground">
@@ -2269,7 +2062,7 @@ function RecordDetailDialog({
   record: QueryRecordDetail | null;
   onClose: () => void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const dependencyGraph = useAppStore((state) => state.dependencyGraph);
   const plugins = useAppStore((state) => state.plugins);
 
@@ -2278,7 +2071,9 @@ function RecordDetailDialog({
       open={Boolean(record)}
       onOpenChange={(open) => !open && onClose()}
       title={t(WEBUI.queryRecorder.detailTitle, { id: record?.id ?? "" })}
-      subtitle={record ? formatFullTime(record.created_at_ms) : undefined}
+      subtitle={
+        record ? formatFullTime(record.created_at_ms, locale) : undefined
+      }
       status={record ? queryStatusBadge(record) : undefined}
       summaryItems={
         record
@@ -2571,7 +2366,9 @@ function recordMatchesFilters(
       !steps?.some(
         (step) =>
           step.kind === "matcher" &&
-          step.outcome === "matched" &&
+          (step.outcome === "matched" ||
+            step.outcome === "always_true_matched" ||
+            step.outcome === "always_false_matched") &&
           step.tag === filters.matcherTag,
       )
     ) {
@@ -2609,34 +2406,19 @@ function flag(value: unknown) {
   return value ? "1" : "0";
 }
 
-function formatTime(ms: number) {
-  return new Date(ms).toLocaleTimeString([], {
+function formatTime(ms: number, locale: ReturnType<typeof useI18n>["locale"]) {
+  return new Date(ms).toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
   });
 }
 
-function formatFullTime(ms: number) {
-  return new Date(ms).toLocaleString();
-}
-
-function formatBucketLabel(ms: number, bucket: QueryRecorderTimeseriesBucket) {
-  const date = new Date(ms);
-  if (bucket === "hour") {
-    return date.toLocaleString([], {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-    });
-  }
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function truncateMiddle(value: string, max: number) {
-  if (value.length <= max) return value;
-  const half = Math.max(2, Math.floor((max - 1) / 2));
-  return `${value.slice(0, half)}…${value.slice(value.length - half)}`;
+function formatFullTime(
+  ms: number,
+  locale: ReturnType<typeof useI18n>["locale"],
+) {
+  return new Date(ms).toLocaleString(locale);
 }
 
 function truncateText(value: string, max = 160) {

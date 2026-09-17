@@ -11,7 +11,7 @@ use http::{Request, StatusCode};
 use serde::Serialize;
 
 use crate::api::{ApiHandler, ApiRegister, json_error, json_ok};
-use crate::infra::build_info::BuildInfo;
+use crate::build_info::BuildInfo;
 use crate::infra::error::Result;
 
 #[derive(Debug, Serialize)]
@@ -26,7 +26,7 @@ struct BuildInfoHandler;
 #[async_trait]
 impl ApiHandler for BuildInfoHandler {
     async fn handle(&self, _request: Request<Bytes>) -> crate::api::ApiResponse {
-        match crate::infra::build_info::snapshot() {
+        match crate::build_info::snapshot() {
             Ok(build) => json_ok(StatusCode::OK, &BuildInfoResponse { ok: true, build }),
             Err(err) => json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,

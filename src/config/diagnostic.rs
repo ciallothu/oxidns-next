@@ -24,6 +24,8 @@ pub struct ConfigLocation {
 pub fn locate_in_config(config_text: &str, message: &str) -> Option<ConfigLocation> {
     let token = token_after(message, "Unknown plugin type: ")
         .or_else(|| quoted_after(message, "Unknown plugin type '"))
+        .or_else(|| quoted_after(message, "Invalid plugin tag '"))
+        .or_else(|| quoted_after(message, "Plugin tag '"))
         .or_else(|| quoted_after(message, "Duplicate plugin tag '"))
         .or_else(|| quoted_after(message, "references missing plugin '"))
         .or_else(|| quoted_after(message, "but '"))
@@ -64,4 +66,36 @@ fn locate_token(config_text: &str, token: &str) -> Option<(usize, usize, usize)>
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locates_invalid_plugin_tag() {
+        let config = "plugins:\n  - tag: cache..cn\n    type: cache\n";
+        let location = locate_in_config(
+            config,
+            "Invalid plugin tag 'cache..cn': contains an empty dot-separated segment",
+        )
+        .expect("invalid tag should be located");
+
+        assert_eq!(location.line, 2);
+        assert_eq!(location.column, 10);
+        assert_eq!(location.end_column, 19);
+    }
+
+    #[test]
+    fn locates_reserved_plugin_tag() {
+        let config = "plugins:\n  - tag: qs.exec.seq.0.cache\n    type: cache\n";
+        let location = locate_in_config(
+            config,
+            "Plugin tag 'qs.exec.seq.0.cache' uses a reserved quick-setup prefix",
+        )
+        .expect("reserved tag should be located");
+
+        assert_eq!(location.line, 2);
+        assert_eq!(location.column, 10);
+    }
 }

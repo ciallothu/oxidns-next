@@ -15,9 +15,10 @@ use super::api::{RulesListResponse, register_api};
 use super::config::DynamicDomainSetConfig;
 use super::rules::{DynamicDomainMutation, DynamicDomainRuleKind, canonicalize_rules};
 use super::storage::{append_rule_file, read_rule_file, rewrite_rule_file};
-use crate::core::rule_matcher::DomainRuleMatcher;
+use crate::core::rule_matcher::{DomainRuleKind, DomainRuleMatcher, split_domain_rule_expression};
 use crate::infra::clock::AppClock;
 use crate::infra::error::{DnsError, Result as DnsResult};
+use crate::infra::task::{spawn_blocking_result, spawn_isolated_build};
 use crate::proto::{Name, Question};
 
 /// Immutable state published to matchers.
@@ -36,8 +37,8 @@ pub(super) struct DynamicDomainSetSnapshot {
 /// by writer/API paths where preserving file order and exact rule text matters.
 #[derive(Debug, Default)]
 struct RuleState {
-    rules: Vec<String>,
-    known: HashSet<String>,
+    rules: Vec<Arc<str>>,
+    known: HashSet<Arc<str>>,
 }
 
 type MutationReply = oneshot::Sender<DnsResult<DynamicDomainMutation>>;
@@ -73,7 +74,7 @@ enum WorkerCommand {
 /// Append batch item kept in memory until `batch_size` or `flush_interval_ms`.
 #[derive(Debug)]
 struct PendingAppend {
-    rules: Vec<String>,
+    rules: Vec<Arc<str>>,
     wait: Option<MutationReply>,
 }
 
@@ -85,7 +86,7 @@ struct PendingAppend {
 #[derive(Debug)]
 pub(super) struct DynamicDomainSetBackend {
     tag: String,
-    config: DynamicDomainSetConfig,
+    config: Arc<DynamicDomainSetConfig>,
     /// Canonical source of truth for ordered rules and duplicate checks.
     state: Mutex<RuleState>,
     /// Lock-free read side for matcher hot paths.
@@ -101,7 +102,7 @@ impl DynamicDomainSetBackend {
     pub(super) fn new(tag: String, config: DynamicDomainSetConfig) -> Self {
         Self {
             tag,
-            config,
+            config: Arc::new(config),
             state: Mutex::new(RuleState::default()),
             snapshot: ArcSwap::from_pointee(DynamicDomainSetSnapshot::default()),
             tx: Mutex::new(None),
@@ -118,9 +119,16 @@ impl DynamicDomainSetBackend {
         // Startup is the only place that applies bootstrap rules. After this
         // point the file itself is authoritative, including external edits that
         // become visible through explicit provider reload.
-        self.bootstrap_file_if_needed()?;
-        let rules = read_rule_file(&self.config.path)?;
-        self.install_rules(rules)?;
+        let config = self.config.clone();
+        let (rules, snapshot) =
+            spawn_isolated_build("dynamic_domain_set startup build", move || {
+                bootstrap_file_if_needed(&config)?;
+                let rules = read_rule_file(&config.path)?;
+                let snapshot = build_snapshot(&rules)?;
+                Ok((rules, snapshot))
+            })
+            .await?;
+        self.install_compiled_rules(rules, snapshot)?;
         let (tx, rx) = mpsc::channel(self.config.queue_size);
         {
             let mut slot = self
@@ -361,7 +369,10 @@ impl DynamicDomainSetBackend {
         let total = state.rules.len();
         let start = cursor.min(total);
         let end = start.saturating_add(limit).min(total);
-        let rules = state.rules[start..end].to_vec();
+        let rules = state.rules[start..end]
+            .iter()
+            .map(|rule| rule.to_string())
+            .collect();
         let next_cursor = (end < total).then_some(end);
         Ok(RulesListResponse::new(total, next_cursor, rules))
     }
@@ -392,29 +403,34 @@ impl DynamicDomainSetBackend {
             .rules
             .len())
     }
+}
 
-    fn bootstrap_file_if_needed(&self) -> DnsResult<()> {
-        if self.config.path.exists() {
-            return Ok(());
-        }
-        if let Some(parent) = self.config.path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent)?;
-        }
-        let rules = canonicalize_rules(
-            self.config.bootstrap_rules.clone(),
-            DynamicDomainRuleKind::Domain,
-            "bootstrap_rules",
-        )?;
-        // Bootstrap writes canonical rules immediately so later API rewrites do
-        // not have to preserve a separate "initial rules" concept.
-        rewrite_rule_file(&self.config.path, &rules)?;
-        Ok(())
+fn bootstrap_file_if_needed(config: &DynamicDomainSetConfig) -> DnsResult<()> {
+    if config.path.exists() {
+        return Ok(());
     }
+    if let Some(parent) = config.path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    let rules = canonicalize_rules(
+        config.bootstrap_rules.clone(),
+        DynamicDomainRuleKind::Domain,
+        "bootstrap_rules",
+    )?;
+    // Bootstrap writes canonical rules immediately so later API rewrites do
+    // not have to preserve a separate "initial rules" concept.
+    rewrite_rule_file(&config.path, &rules)?;
+    Ok(())
+}
 
-    fn install_rules(&self, rules: Vec<String>) -> DnsResult<DynamicDomainMutation> {
-        let snapshot = build_snapshot(&rules)?;
+impl DynamicDomainSetBackend {
+    fn install_compiled_rules(
+        &self,
+        rules: Vec<Arc<str>>,
+        snapshot: DynamicDomainSetSnapshot,
+    ) -> DnsResult<DynamicDomainMutation> {
         let total = rules.len();
         {
             // State and snapshot are updated in this order so API list output
@@ -443,6 +459,7 @@ impl DynamicDomainSetBackend {
                 .lock()
                 .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?;
             for rule in rules {
+                let rule: Arc<str> = Arc::from(rule);
                 // Insert into both structures while holding one lock so the
                 // ordered list and duplicate set cannot drift apart.
                 if state.known.insert(rule.clone()) {
@@ -462,19 +479,21 @@ impl DynamicDomainSetBackend {
         })
     }
 
-    fn rollback_staged_rules(&self, rules: &[String]) {
+    fn rollback_staged_rules(&self, rules: &[Arc<str>]) {
         if rules.is_empty() {
             return;
         }
         if let Ok(mut state) = self.state.lock() {
             for rule in rules {
-                state.known.remove(rule);
+                state.known.remove(rule.as_ref());
             }
-            state.rules.retain(|rule| !rules.iter().any(|v| v == rule));
+            state
+                .rules
+                .retain(|rule| !rules.iter().any(|value| value.as_ref() == rule.as_ref()));
         }
     }
 
-    fn flush_appends(&self, pending: &mut Vec<PendingAppend>) {
+    async fn flush_appends(&self, pending: &mut Vec<PendingAppend>) {
         if pending.is_empty() {
             return;
         }
@@ -485,18 +504,30 @@ impl DynamicDomainSetBackend {
             .iter()
             .flat_map(|item| item.rules.iter().cloned())
             .collect::<Vec<_>>();
-        let result: DnsResult<(usize, DynamicDomainSetSnapshot)> = (|| {
-            let rules = self
-                .state
-                .lock()
-                .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?
-                .rules
-                .clone();
-            let total = rules.len();
+        let rules = match self.state.lock() {
+            Ok(state) => state.rules.clone(),
+            Err(_) => {
+                let error = DnsError::runtime("dynamic_domain_set state lock poisoned");
+                self.rollback_staged_rules(&appended_rules);
+                let message = error.to_string();
+                for item in pending.drain(..) {
+                    if let Some(wait) = item.wait {
+                        let _ = wait.send(Err(DnsError::plugin(message.clone())));
+                    }
+                }
+                return;
+            }
+        };
+        let total = rules.len();
+        let path = self.config.path.clone();
+        let appended_for_task = appended_rules.clone();
+        let result = spawn_blocking_result("dynamic_domain_set append build", move || {
             let snapshot = build_snapshot(&rules)?;
-            append_rule_file(&self.config.path, &appended_rules)?;
-            Ok((total, snapshot))
-        })();
+            append_rule_file(&path, &appended_for_task)?;
+            Ok(snapshot)
+        })
+        .await
+        .map(|snapshot| (total, snapshot));
         match result {
             Ok((total, snapshot)) => {
                 self.snapshot.store(Arc::new(snapshot));
@@ -536,12 +567,9 @@ impl DynamicDomainSetBackend {
         }
     }
 
-    fn remove_rules(&self, rules: Vec<String>) -> DnsResult<DynamicDomainMutation> {
-        // Hold the state lock until the rewrite succeeds. Append staging also
-        // uses this lock, so this prevents a concurrently learned rule from
-        // being inserted into state between the delete's read and commit.
-        let (removed, total, snapshot) = {
-            let mut state = self
+    async fn remove_rules(&self, rules: Vec<String>) -> DnsResult<DynamicDomainMutation> {
+        let (current_rules, before) = {
+            let state = self
                 .state
                 .lock()
                 .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?;
@@ -550,7 +578,7 @@ impl DynamicDomainSetBackend {
             let current_rules = state
                 .rules
                 .iter()
-                .filter(|rule| !remove_set.contains(rule.as_str()))
+                .filter(|rule| !remove_set.contains(rule.as_ref()))
                 .cloned()
                 .collect::<Vec<_>>();
             let removed = before.saturating_sub(current_rules.len());
@@ -562,19 +590,26 @@ impl DynamicDomainSetBackend {
                     total,
                 });
             }
-
-            // Build the replacement snapshot before touching disk. If rule
-            // compilation ever fails, the file, list API, and hot matcher all
-            // keep serving the previous consistent state.
-            let snapshot = build_snapshot(&current_rules)?;
-            // Deletes rewrite the machine-managed file so removed rules cannot
-            // reappear on the next provider reload. State is committed only
-            // after this durable step succeeds.
-            rewrite_rule_file(&self.config.path, &current_rules)?;
-            state.known = current_rules.iter().cloned().collect();
-            state.rules = current_rules;
-            (removed, total, snapshot)
+            (current_rules, before)
         };
+        let removed = before.saturating_sub(current_rules.len());
+        let total = current_rules.len();
+        let committed_rules = current_rules.clone();
+        let path = self.config.path.clone();
+        let snapshot = spawn_isolated_build("dynamic_domain_set remove build", move || {
+            let snapshot = build_snapshot(&current_rules)?;
+            rewrite_rule_file(&path, &current_rules)?;
+            Ok(snapshot)
+        })
+        .await?;
+        {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?;
+            state.known = committed_rules.iter().cloned().collect();
+            state.rules = committed_rules;
+        }
         self.snapshot.store(Arc::new(snapshot));
         Ok(DynamicDomainMutation {
             added: 0,
@@ -583,21 +618,28 @@ impl DynamicDomainSetBackend {
         })
     }
 
-    fn clear_rules(&self) -> DnsResult<DynamicDomainMutation> {
-        let (removed, snapshot) = {
+    async fn clear_rules(&self) -> DnsResult<DynamicDomainMutation> {
+        let removed = self
+            .state
+            .lock()
+            .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?
+            .rules
+            .len();
+        let path = self.config.path.clone();
+        let snapshot = spawn_isolated_build("dynamic_domain_set clear build", move || {
+            let snapshot = build_snapshot::<Arc<str>>(&[])?;
+            rewrite_rule_file::<Arc<str>>(&path, &[])?;
+            Ok(snapshot)
+        })
+        .await?;
+        {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| DnsError::runtime("dynamic_domain_set state lock poisoned"))?;
-            let removed = state.rules.len();
-            let snapshot = build_snapshot(&[])?;
-            // Clear has the same consistency requirement as remove: keep the
-            // old state and snapshot visible if the file rewrite fails.
-            rewrite_rule_file(&self.config.path, &[])?;
             state.rules.clear();
             state.known.clear();
-            (removed, snapshot)
-        };
+        }
         self.snapshot.store(Arc::new(snapshot));
         Ok(DynamicDomainMutation {
             added: 0,
@@ -606,10 +648,17 @@ impl DynamicDomainSetBackend {
         })
     }
 
-    fn reload_from_file(&self) -> DnsResult<DynamicDomainMutation> {
-        let rules = read_rule_file(&self.config.path)?;
+    async fn reload_from_file(&self) -> DnsResult<DynamicDomainMutation> {
+        let path = self.config.path.clone();
+        let (rules, snapshot) =
+            spawn_isolated_build("dynamic_domain_set reload build", move || {
+                let rules = read_rule_file(&path)?;
+                let snapshot = build_snapshot(&rules)?;
+                Ok((rules, snapshot))
+            })
+            .await?;
         let total = rules.len();
-        self.install_rules(rules)?;
+        self.install_compiled_rules(rules, snapshot)?;
         Ok(DynamicDomainMutation {
             added: 0,
             removed: 0,
@@ -627,11 +676,11 @@ impl DynamicDomainSetBackend {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    self.flush_appends(&mut pending);
+                    self.flush_appends(&mut pending).await;
                 }
                 command = rx.recv() => {
                     let Some(command) = command else {
-                        self.flush_appends(&mut pending);
+                        self.flush_appends(&mut pending).await;
                         break;
                     };
                     match command {
@@ -650,7 +699,7 @@ impl DynamicDomainSetBackend {
                                     });
                                     let pending_count: usize = pending.iter().map(|item| item.rules.len()).sum();
                                     if flush_now || pending_count >= self.config.batch_size {
-                                        self.flush_appends(&mut pending);
+                                        self.flush_appends(&mut pending).await;
                                     }
                                 }
                                 Err(err) => {
@@ -669,19 +718,19 @@ impl DynamicDomainSetBackend {
                             // Full-file mutations must see all earlier appends
                             // first, otherwise a pending learned rule could be
                             // appended after a delete/clear/reload reordered it.
-                            self.flush_appends(&mut pending);
-                            let _ = wait.send(self.remove_rules(rules));
+                            self.flush_appends(&mut pending).await;
+                            let _ = wait.send(self.remove_rules(rules).await);
                         }
                         WorkerCommand::Clear { wait } => {
-                            self.flush_appends(&mut pending);
-                            let _ = wait.send(self.clear_rules());
+                            self.flush_appends(&mut pending).await;
+                            let _ = wait.send(self.clear_rules().await);
                         }
                         WorkerCommand::Reload { wait } => {
-                            self.flush_appends(&mut pending);
-                            let _ = wait.send(self.reload_from_file());
+                            self.flush_appends(&mut pending).await;
+                            let _ = wait.send(self.reload_from_file().await);
                         }
                         WorkerCommand::Shutdown { done } => {
-                            self.flush_appends(&mut pending);
+                            self.flush_appends(&mut pending).await;
                             let _ = done.send(());
                             break;
                         }
@@ -696,16 +745,29 @@ impl DynamicDomainSetBackend {
 #[derive(Debug)]
 struct StagedRules {
     mutation: DynamicDomainMutation,
-    rules: Vec<String>,
+    rules: Vec<Arc<str>>,
 }
 
-pub(super) fn build_snapshot(rules: &[String]) -> DnsResult<DynamicDomainSetSnapshot> {
+pub(super) fn build_snapshot<T: AsRef<str>>(rules: &[T]) -> DnsResult<DynamicDomainSetSnapshot> {
     let start_ms = AppClock::elapsed_millis();
     let mut matcher = DomainRuleMatcher::default();
+    let mut full = 0usize;
+    let mut keyword = 0usize;
+    let mut regexp = 0usize;
+    for rule in rules {
+        match split_domain_rule_expression(rule.as_ref()).0 {
+            DomainRuleKind::Full => full += 1,
+            DomainRuleKind::Keyword => keyword += 1,
+            DomainRuleKind::Regexp => regexp += 1,
+            DomainRuleKind::Domain => {}
+        }
+    }
+    matcher.reserve_rules(full, keyword, regexp);
     for (idx, rule) in rules.iter().enumerate() {
-        matcher
-            .add_expression(rule, &format!("dynamic_domain_set.rules[{idx}]"))
-            .map_err(DnsError::plugin)?;
+        let (kind, value) = split_domain_rule_expression(rule.as_ref());
+        matcher.add_rule(kind, value, "").map_err(|error| {
+            DnsError::plugin(format!("invalid dynamic_domain_set.rules[{idx}]: {error}"))
+        })?;
     }
     matcher.finalize().map_err(DnsError::plugin)?;
     let elapsed_ms = AppClock::elapsed_millis().saturating_sub(start_ms);

@@ -5,13 +5,43 @@ sidebar_position: 7
 
 import Admonition from '@theme/Admonition';
 
-<Admonition type="tip" title="Highly Compatible">
+<Admonition type="tip" title="Compatible model, but runtime semantics still need validation">
 
-Most mosdns v5 configuration files can be **copied and used directly**. If errors appear on startup, fix the affected fields based on the error messages.
+OxiDNS and mosdns v5 share a plugin-oriented configuration model, so common configurations are useful migration inputs. Do not replace a production service without validation: plugin availability, defaults, edge semantics, platform support, and runtime paths can still differ.
 
 </Admonition>
 
 OxiDNS Next and mosdns v5 share almost the same plugin model and configuration structure: the `plugins` array, `sequence` orchestration, `jump` / `goto` / `accept` / `return` / `reject` control flow, and plugins such as `forward` / `cache` / `hosts` / `domain_set` / `ip_set` / `geosite` / `geoip` / `ipset` / `fallback` — including their field names — are all highly compatible.
+
+## Recommended Migration Workflow
+
+1. Back up the original config, rule files, cache/database files, and service definition. Record listener addresses and expected upstream behavior.
+2. Select an OxiDNS bundle containing the required plugins and protocols, then inspect the binary capabilities:
+
+   ```bash
+   oxidns build-info
+   ```
+
+3. Run static validation with the same working directory used in production and inspect the dependency graph:
+
+   ```bash
+   oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns --graph
+   ```
+
+4. Resolve plugin type, tag, field, and reference errors. Do not silence validation by deleting entries that change the policy chain.
+5. Start on non-production ports and verify positive answers, NXDOMAIN/NODATA, CNAME, TTL, cache hits, fallback, rule updates, and external side effects.
+6. Before switching traffic, check `/api/readyz`, logs, and critical metrics, and keep a tested rollback path to the original service.
+
+Review these migration boundaries:
+
+| Area | What to verify |
+| --- | --- |
+| Compiled capabilities | Plugins and protocols may be gated by Cargo features/bundles; use `oxidns build-info` as the authority. |
+| Plugin tags | Tags must satisfy OxiDNS's ASCII path grammar and must not use reserved Quick Setup prefixes. |
+| Relative paths | Runtime-relative rule, log, SQLite, and WebUI paths use `-d/--working-dir`; `include` paths are relative to the file declaring them. |
+| Platform capabilities | System integrations such as `ipset` / `nftset` depend on the operating system and privileges. |
+| Same-name fields | Matching plugin and field names do not guarantee identical defaults or error-response semantics; verify with real queries. |
+| Outbound networking | With `network.outbound.default`, upstreams without an explicit outbound inherit the default profile. |
 
 ## Syntax Differences to Check During Migration
 
@@ -92,7 +122,7 @@ The legacy `path` form remains supported. PostgreSQL/MySQL configuration and Com
 
 ### `short_circuit`: Stop on Match
 
-Executor plugins including `forward`, `cache`, `hosts`, `fallback`, `black_hole`, and `dual_selector` all support a `short_circuit` option. When enabled, the plugin immediately ends the current sequence's remaining steps upon a hit — no extra `has_resp` + `accept` needed.
+Executor plugins including `forward`, `cache`, `hosts`, `fallback`, `black_hole`, `prefer_ipv4`, and `prefer_ipv6` all support a `short_circuit` option. When enabled, the plugin immediately ends the current sequence's remaining steps upon a hit — no extra `has_resp` + `accept` needed.
 
 ```yaml
 - tag: cache_main
@@ -126,7 +156,7 @@ Configuration files support `${VAR}` and `${VAR:-default}` placeholders so sensi
 
 ### `ros_address_list`: RouterOS Route Sync
 
-Syncs resolved IPs to a MikroTik RouterOS address-list in real time, enabling DNS-driven traffic routing alongside routing policy rules. See [MikroTik Policy Routing](mikrotik-policy-routing.md).
+Syncs resolved IPs to a MikroTik RouterOS address-list in real time, enabling DNS-driven traffic routing alongside routing policy rules. See [`ros_address_list`](plugin-reference/executor/integrations.mdx#ros_address_list).
 
 ---
 

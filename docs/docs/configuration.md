@@ -3,7 +3,7 @@ title: 配置总览
 sidebar_position: 2
 ---
 
-## 写在最前
+OxiDNS Next 使用 YAML 描述运行参数、管理接口、共享网络设置和插件执行链。本页用于选择正确的配置主题；完整可运行示例仍以仓库根目录的 `config.yaml` 为准。
 
 OxiDNS Next 的配置文件是 YAML。日常修改配置时，可以先把它理解为七个顶层部分：
 
@@ -63,23 +63,15 @@ plugins:
 oxidns-next check -c config.yaml
 ```
 
-如果配置中使用了相对路径，并且实际工作目录不是配置文件所在目录，可以配合 `-d` 指定工作目录。`-d` 是日志、SQLite、规则文件、`api.http.webui.root` 等所有运行期相对路径的统一基准，不会因为配置文件位于 `/etc/oxidns-next` 而自动改到配置目录：
+如果部署把配置与运行数据分开，校验时必须提供真实工作目录。例如 Debian 默认布局使用：
 
 ```bash
 oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
-Debian 默认布局中，配置文件放在 `/etc/oxidns-next/config.yaml`，运行期相对路径资源放在 `/var/lib/oxidns-next`。
+## 章节导航
 
-尚未确定插件组合方式时，建议先阅读《[常见策略场景](scenarios.md)》，再回到本页查询字段含义。
-
-## 环境变量替换
-
-OxiDNS Next 在启动、`oxidns-next check`、管理 API 配置校验和保存前校验时，先把 YAML **解析成数据结构**，再在字符串标量内部展开 `${VAR}` 占位符。`config.yaml` 文件本身不会被改写；WebUI 读取和保存配置时看到的仍然是原始占位符。
-
-支持的写法：
-
-| 写法 | 行为 |
+| 主题 | 包含内容 |
 | --- | --- |
 | `${VAR}` | 使用进程环境变量 `VAR` 的值；未定义时报错 |
 | `${VAR:-default}` | `VAR` 未定义或为空字符串时使用 `default` |
@@ -395,291 +387,13 @@ api:
 
 作用：接收 DNS 请求并把请求送入某个执行器入口。
 
-特点：
+## 配置所有权
 
-- 不负责复杂策略判断。
-- 核心配置通常是监听地址、TLS 参数、入口执行器。
+- 本章解释所有插件共享的配置模型，不重复维护各插件的字段表。
+- 插件专属参数以[插件参考](plugin-reference/overview.md)为准。
+- CLI 参数以[命令行工具](cli.md)为准，HTTP 结构以[管理 API](api.mdx)为准。
+- 发布包中的 `config.yaml` 是当前版本的规范可运行示例；升级后应使用新二进制重新执行 `oxidns-next check`。
 
-### `executor`
+<span id="include"></span><span id="runtime"></span><span id="log"></span><span id="network"></span><span id="api"></span><span id="plugins"></span>
 
-作用：执行动作。
-
-典型动作包括：
-
-- 查询上游
-- 生成本地响应
-- 缓存读写
-- TTL 调整
-- ECS 处理
-- 回退和并发竞争
-- 观测与系统联动
-
-### `matcher`
-
-作用：做条件判断，供 `sequence` 规则使用。
-
-典型判断维度包括：
-
-- 查询域名
-- 查询类型
-- 客户端 IP
-- 应答 IP
-- 应答码
-- 环境变量
-- 采样命中
-- 限流状态
-
-### `provider`
-
-作用：提供可复用规则集，供 `matcher` 或其它插件引用。
-
-当前主要有：
-
-- `domain_set`
-- `ip_set`
-- `geoip`
-- `geosite`
-- `adguard_rule`
-
-## sequence 编排模型
-
-`sequence` 是 OxiDNS Next 的策略中枢。绝大多数非平凡配置都会以它作为总入口。
-
-示例：
-
-```yaml
-- tag: seq_main
-  type: sequence
-  args:
-    - matches:
-        - "$lan_clients"
-        - "qtype A,28"
-      exec: "$cache_main"
-    - matches: "!has_resp"
-      exec: "$forward_main"
-    - exec: "accept"
-```
-
-每条规则支持两个核心字段：
-
-- `matches`
-  - 一个 matcher 表达式或表达式数组。
-  - 数组中的所有条件都成立时，本条规则才命中。
-- `exec`
-  - 命中后执行的动作。
-
-## 引用插件与 quick setup
-
-### 引用已有插件
-
-使用 `$tag` 引用已定义插件：
-
-```yaml
-- exec: "$forward_main"
-- matches:
-    - "$is_internal"
-    - "!has_resp"
-  exec: "$cache_main"
-```
-
-### quick setup
-
-如果 `sequence` 中写的不是 `$tag`，而是 `type + 参数` 形式，OxiDNS Next 会即时构造临时插件。
-
-示例：
-
-```yaml
-- exec: "forward 1.1.1.1 8.8.8.8"
-- matches: "qname domain:example.com"
-  exec: "ttl 300"
-```
-
-当前常见 quick setup：
-
-- matcher
-  - `_true`
-  - `_false`
-  - `qname ...`
-  - `qtype ...`
-  - `qclass ...`
-  - `client_ip ...`
-  - `resp_ip ...`
-  - `ptr_ip ...`
-  - `cname ...`
-  - `mark ...`
-  - `env ...`
-  - `random ...`
-  - `rate_limiter ...`
-  - `rcode ...`
-  - `has_resp`
-  - `has_wanted_ans`
-  - `string_exp ...`
-- executor
-  - `forward ...`
-  - `cache ...`
-  - `ttl ...`
-  - `prefer_ipv4`
-  - `prefer_ipv6`
-  - `sleep ...`
-  - `debug_print ...`
-  - `query_summary ...`
-  - `metrics_collector ...`
-  - `black_hole ...`
-  - `drop_resp`
-  - `ecs_handler ...`
-  - `forward_edns0opt ...`
-  - `ipset ...`
-  - `nftset ...`
-  - `upgrade ...`
-  - `download ...`
-  - `reload_provider ...`
-  - `reload`
-
-## sequence 内建控制流
-
-除了调用插件，`sequence.args[].exec` 还可以直接写内建控制流：
-
-### `accept`
-
-- 立即结束当前 `sequence`。
-- 这是一次明确的提前停止，因此调用方不会继续执行后续规则。
-- 不会自动生成响应。
-- 典型用法：
-  - `cache`、`hosts`、`arbitrary` 等前置 executor 已经写入 response 后，直接收口。
-  - 命中某个分支后明确不希望再进入后续 `forward` / 副作用逻辑。
-
-### `return`
-
-- 立即结束当前 `sequence`，把控制权交回调用方。
-- 不会自动生成响应。
-- 如果当前 `sequence` 是被 `jump` 调用的，调用方会从 `jump` 后一条规则继续执行。
-- 如果当前 `sequence` 是顶层入口，它等价于“提前结束当前规则链”。
-
-### `reject [rcode]`
-
-- 立即基于当前 request 构造一个 DNS 响应，并结束当前 `sequence`。
-- 默认 `rcode` 为 `REFUSED`，所以 `reject` 等价于拒绝请求。
-- 可以显式写十进制数值或英文 RCODE 名称；英文名称大小写不敏感。常见映射与含义见 [DNS 编码速查表](dns-codes.md#rcode-响应码)，例如：
-  - `reject 2` => `SERVFAIL`
-  - `reject SERVFAIL` / `reject servfail` => `SERVFAIL`
-  - `reject 3` => `NXDOMAIN`
-  - `reject NXDOMAIN` => `NXDOMAIN`
-- `reject` 只支持基础 DNS RCODE `0..15`；扩展 RCODE 需要 EDNS OPT，不会由该内建动作自动生成。
-- `reject 0` 只返回普通 `NOERROR` 响应，不会自动附加 SOA。
-- 调用方不会继续执行后续规则。
-- 典型用法是直接返回指定错误码，例如：
-
-```yaml
-- matches: "qtype HTTPS"
-  exec: "reject NXDOMAIN"
-```
-
-### `mark ...`
-
-- 向 `DnsContext.marks` 写入一个或多个无符号整数 mark。
-- 支持写法：
-  - `mark 1`
-  - `mark 1 2 3`
-  - `mark 1,2,3`
-- 写入后会继续执行当前 `sequence` 的下一条规则。
-- 它本身不会生成响应，也不会终止当前 `sequence`。
-
-### `jump seq_tag`
-
-- 调用另一个 `sequence`，语义上类似“子过程调用”。
-- 参数必须是目标 `sequence` 的 tag，且不能写 `$` 前缀。
-- 被调用的 `sequence` 如果：
-  - 正常执行到尾部，当前 `sequence` 会从 `jump` 的下一条规则继续。
-  - 中途执行了 `return`，当前 `sequence` 也会从 `jump` 的下一条规则继续。
-  - 中途执行了 `accept`、`reject` 或其它返回 `Stop` 的操作，当前 `sequence` 也会一起停止，不再继续后续规则。
-
-### `goto seq_tag`
-
-- 直接把控制权转交给另一个 `sequence`，语义上类似“单向跳转”。
-- 参数必须是目标 `sequence` 的 tag，且不能写 `$` 前缀。
-- 当前 `sequence` 在执行 `goto` 后不会恢复：
-  - 目标 `sequence` 正常跑到尾部，不回到 `goto` 后面的规则。
-  - 目标 `sequence` 执行 `return`，该 `return` 会继续向外层传播，但同样不回到 `goto` 后面的规则。
-  - 目标 `sequence` 执行 `accept` / `reject` / 其它 `Stop`，结果也直接向外层传播。
-- 适合把请求永久移交给另一个策略分支。
-
-示例：
-
-```yaml
-- matches: "$rate_ok"
-  exec: "mark 100"
-- matches: "!$rate_ok"
-  exec: "reject 2"
-```
-
-`jump` / `goto` 的区别示例：
-
-```yaml
-- tag: child_seq
-  type: sequence
-  args:
-    - exec: "mark 2"
-    - exec: "return"
-
-- tag: parent_jump
-  type: sequence
-  args:
-    - exec: "mark 1"
-    - exec: "jump child_seq"
-    - exec: "mark 3"
-
-- tag: parent_goto
-  type: sequence
-  args:
-    - exec: "mark 1"
-    - exec: "goto child_seq"
-    - exec: "mark 3"
-```
-
-- `parent_jump` 最终会留下 `1,2,3`，因为 `jump` 调用结束后会继续执行下一条。
-- `parent_goto` 最终只会留下 `1,2`，因为控制权不会回到 `goto` 之后。
-
-## 通用规则语法
-
-### 域名规则
-
-以下规则会出现在 `qname`、`cname`、`domain_set`、`hosts`、`redirect` 等插件中：
-
-- `full:example.com`
-  - 完整匹配。
-- `domain:example.com`
-  - 后缀匹配。
-- `keyword:cdn`
-  - 子串匹配。
-- `regexp:^api[0-9]+\\.example\\.com$`
-  - 正则匹配。
-- `example.com`
-  - 未写前缀时，`qname`、`cname`、`domain_set` 等通用域名规则通常等价于 `domain:example.com`；`hosts` 和 `redirect` 按 `full:example.com` 精确匹配处理。
-
-### IP 规则
-
-以下规则会出现在 `client_ip`、`resp_ip`、`ptr_ip`、`ip_set` 等插件中：
-
-- 单个 IP：`1.1.1.1`
-- 网段：`192.168.0.0/16`
-- IPv6 网段：`2400:3200::/32`
-
-### provider 引用
-
-支持在 matcher 或 provider 参数中引用 provider：
-
-- `$tag`
-  - 引用已定义且具备对应匹配能力的 provider。
-  - 例如域名场景可引用 `domain_set`、`geosite`。
-  - 例如 IP 场景可引用 `ip_set`、`geoip`。
-- `&/path/to/file`
-  - 直接从文件加载规则。
-
-示例：
-
-```yaml
-args:
-  - "domain:example.com"
-  - "$core_domains"
-  - "&/etc/oxidns-next/domains.txt"
-```
+从旧版书签进入本页时，请使用上表跳转到拆分后的主题页。

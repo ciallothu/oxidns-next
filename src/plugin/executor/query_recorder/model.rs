@@ -493,12 +493,16 @@ pub(super) struct TimeseriesResponse {
     pub(super) sample_size: u64,
     pub(super) bucket_ms: i64,
     pub(super) points: Vec<TimeseriesPoint>,
+    pub(super) since_ms: u64,
+    pub(super) until_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TimeseriesBucket {
     Minute,
     Hour,
+    Day,
+    Month,
 }
 
 impl TimeseriesBucket {
@@ -506,6 +510,9 @@ impl TimeseriesBucket {
         match self {
             Self::Minute => 60_000,
             Self::Hour => 3_600_000,
+            Self::Day => 86_400_000,
+            // Calendar months have variable duration; point timestamps are authoritative.
+            Self::Month => 0,
         }
     }
 }

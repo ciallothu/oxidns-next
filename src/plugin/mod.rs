@@ -58,6 +58,7 @@ pub mod executor;
 pub mod matcher;
 pub mod provider;
 pub mod registry;
+pub(crate) mod runtime_control;
 pub mod server;
 
 pub(crate) mod dependency;
@@ -430,10 +431,17 @@ pub struct PluginInfo {
 
     /// Plugin-specific configuration arguments
     pub args: Option<Value>,
+
+    /// Optional category-specific runtime management control.
+    runtime_control: Option<runtime_control::PluginRuntimeControl>,
 }
 
 #[allow(unused)]
 impl PluginInfo {
+    pub(crate) fn runtime_control(&self) -> Option<runtime_control::PluginRuntimeControl> {
+        self.runtime_control.clone()
+    }
+
     /// Get Arc clone of the executor (panics if not an Executor plugin)
     pub fn to_executor(&self) -> Arc<dyn Executor> {
         match &self.plugin_holder {

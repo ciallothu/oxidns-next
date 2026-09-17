@@ -1,26 +1,34 @@
 "use client";
 
-import { useEffect } from "react";
+import { AppHeader } from "@/components/shell/app-header";
 import { SystemMetrics } from "@/components/dashboard/system-metrics";
 import { PluginWorkspace } from "@/components/plugins/plugin-workspace";
-import { AppHeader } from "@/components/shell/app-header";
+import { useAppStore } from "@/lib/store";
 import { WEBUI } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/provider";
-import { useAppStore } from "@/lib/store";
+import { useAuthStore } from "@/lib/auth-store";
+import { useVisiblePolling } from "@/hooks/use-visible-polling";
+import { DASHBOARD_HEALTH_POLL_INTERVAL_MS, DASHBOARD_SYSTEM_POLL_INTERVAL_MS } from "@/lib/polling-policy";
 
 export default function DashboardPage() {
   const { t } = useI18n();
-  const plugins = useAppStore((state) => state.plugins);
-  const refreshRuntimeState = useAppStore(
-    (state) => state.refreshRuntimeState,
+  const plugins = useAppStore((s) => s.plugins);
+  const refreshHealthState = useAppStore((s) => s.refreshHealthState);
+  const refreshSystemState = useAppStore((s) => s.refreshSystemState);
+  const isConnected = useAuthStore((s) => s.isConnected);
+  const sessionGeneration = useAuthStore((s) => s.sessionGeneration);
+  useVisiblePolling(
+    refreshSystemState,
+    DASHBOARD_SYSTEM_POLL_INTERVAL_MS,
+    isConnected,
+    sessionGeneration,
   );
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      void refreshRuntimeState();
-    }, 3_000);
-    return () => clearInterval(id);
-  }, [refreshRuntimeState]);
+  useVisiblePolling(
+    refreshHealthState,
+    DASHBOARD_HEALTH_POLL_INTERVAL_MS,
+    isConnected,
+    sessionGeneration,
+  );
 
   return (
     <>

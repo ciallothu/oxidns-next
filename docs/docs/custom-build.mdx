@@ -13,8 +13,8 @@ feature 开关。需要小体积 / 特定平台 / 特定插件组合的二进制
 | 方式 | 适合场景 | 需要本地 Rust 工具链? |
 |---|---|---|
 | [可复用工作流 + GitHub Actions](#方式一可复用-github-actions) | 不维护 fork，在自己的仓库手动或按自定计划生成 release | ❌ |
-| [本地 `cargo build`](#方式二本地-cargo-build) | 手头有 Rust 环境,只需要一次性产出一个定制二进制 | ✅ |
-| [fork 整个项目](#方式三fork-项目) | 需要持续修改源码 / 长期偏离上游 | ✅ |
+| [本地 `cargo build`](#local-build) | 手头有 Rust 环境,只需要一次性产出一个定制二进制 | ✅ |
+| [fork 整个项目](#fork-build) | 需要持续修改源码 / 长期偏离上游 | ✅ |
 
 <Admonition type="tip" title="Cargo 默认 feature">
 
@@ -25,7 +25,7 @@ feature 开关。需要小体积 / 特定平台 / 特定插件组合的二进制
 
 ---
 
-## Bundles 预设组合
+## Bundles 预设组合 \{#preset-capability-matrix}
 
 | Bundle | 定位 | 相对体积 |
 |---|---|---|
@@ -37,6 +37,10 @@ feature 开关。需要小体积 / 特定平台 / 特定插件组合的二进制
 
 自行组合 feature 时,实际能力以 `oxidns-next build-info` 或 `GET /api/build` 的
 返回值为准。下面列出的是**官方预设**的具体内容。
+
+二进制大小会随 Rust 工具链、依赖版本、目标平台、链接方式和 UPX
+处理变化。需要容量规划时,应测量目标 release asset 或相同构建参数下的
+本地产物,不要把历史版本的大小当成固定承诺。
 
 </Admonition>
 
@@ -52,7 +56,8 @@ hyper / rustls / quinn / h2 / h3 / sqlite / sqlx / redis / zoneparser,是体积�
 - Provider:`domain_set`、`ip_set`
 - Matcher:全部
 - Executor:`sequence`、`forward`、`cache`、`fallback`、`hosts`、`redirect`、
-  `dual_selector`、`ecs_handler`、`ttl`、`drop_resp`、`black_hole`、
+  `prefer_ipv4`、`prefer_ipv6`、`ecs_handler`、`ttl`、
+  `drop_resp`、`black_hole`、
   `debug_print`、`reload`
 - 进程内 metric 计数器(不暴露 HTTP 端点)
 
@@ -82,8 +87,8 @@ hyper / rustls / quinn / h2 / h3 / sqlite / sqlx / redis / zoneparser,是体积�
 
 **额外包含**
 
-- 入站 / 上游:DoH HTTP/3
-- Executor:`ros_address_list`(MikroTik)、`ipset`、`nftset`
+- 入站 / 上游 / `network.outbound` resolver:DoH HTTP/3
+- Executor:`ros_address_list` / `ros_route` (MikroTik)、`ipset`、`nftset`
 
 ### 官方发布物对照
 
@@ -108,6 +113,10 @@ hyper / rustls / quinn / h2 / h3 / sqlite / sqlx / redis / zoneparser,是体积�
 | `server-doh` | 启用 DoH(HTTP/1.1 / HTTP/2 over TLS)入站服务器,依赖 hyper 服务端 + rustls |
 | `server-doq` | 启用 DoQ(QUIC)入站服务器,依赖 `quinn` |
 | `server-doh3` | 在 DoH 服务器上启用 HTTP/3 路径(需 `server-doh`),额外依赖 `h3` / `h3-quinn` / `quinn` |
+| `resolver-dot` | 允许 `network.outbound.resolver.nameservers` 使用 DoT |
+| `resolver-doh` | 允许 `network.outbound.resolver.nameservers` 使用 DoH (HTTP/2) |
+| `resolver-doq` | 允许 `network.outbound.resolver.nameservers` 使用 DoQ |
+| `resolver-doh3` | 允许 `network.outbound.resolver.nameservers` 使用 DoH HTTP/3(需 `resolver-doh`) |
 | `upstream-dot` | 启用 DoT upstream(`tls://` scheme) |
 | `upstream-doh` | 启用 DoH(HTTP/2)upstream(`https://` scheme) |
 | `upstream-doq` | 启用 DoQ upstream(`quic://` / `doq://` scheme) |
@@ -146,8 +155,12 @@ upstream-dot`,而不是直接崩溃。
 | `storage-redis` | `cache` Redis L2 与 `query_recorder` API 短缓存使用的共享 Redis 连接 | `redis` |
 | `plugin-ipset` | `ipset` + `nftset` | `ripset`(Linux only) |
 | `plugin-cron` | `cron` | `cronexpr` |
+| `plugin-dynamic-domain` | `dynamic_domain_set` provider + `learn_domain` executor | — |
+| `plugin-ip-selector` | `ip_selector` | — |
 | `plugin-script` | `script` | — |
+| `plugin-client-ip-from-ecs` | `client_ip_from_ecs` | — |
 | `plugin-arbitrary` | `arbitrary` | `oxidns-next-zoneparser` |
+| `plugin-response` | `response` | `oxidns-next-zoneparser` |
 | `plugin-download` | `download` | — |
 | `plugin-http-request` | `http_request` | — |
 | `plugin-reverse-lookup` | `reverse_lookup` | — |
@@ -276,7 +289,7 @@ plugins:
 
 - `x86_64-unknown-linux-gnu` / `x86_64-unknown-linux-musl`
 - `aarch64-unknown-linux-gnu` / `aarch64-unknown-linux-musl`
-- `i686-unknown-linux-musl` / `arm-unknown-linux-musleabihf`
+- `i686-unknown-linux-musl` / `arm-unknown-linux-musleabihf` / `armv7-unknown-linux-musleabihf`
 - `x86_64-apple-darwin` / `aarch64-apple-darwin`
 - `x86_64-unknown-freebsd`
 - `x86_64-pc-windows-msvc` / `i686-pc-windows-msvc` / `aarch64-pc-windows-msvc`
@@ -285,7 +298,7 @@ plugins:
 
 ---
 
-## 方式二:本地 `cargo build`
+## 方式二:本地 `cargo build` \{#local-build}
 
 手头有 Rust 环境,只是想一次性产一个定制二进制时,直接本地 cargo:
 
@@ -299,8 +312,11 @@ cargo build --release --no-default-features --features minimal
 # 家用路由器(含 API、DoT/DoH/DoQ、geo、adguard 等)
 cargo build --release --no-default-features --features standard
 
-# 只在 minimal 上加 MikroTik 集成
+# 只在 minimal 上同时加入两个 MikroTik 插件
 cargo build --release --no-default-features --features "minimal,plugin-mikrotik"
+
+# 也可以只加入其中一个插件
+cargo build --release --no-default-features --features "minimal,plugin-ros-address-list"
 
 # 只要纯转发 + 管理 API,不要任何重型插件
 cargo build --release --no-default-features --features "minimal,api"
@@ -311,7 +327,7 @@ WebUI 静态资源需要单独编译，见《[WebUI 部署](webui.md)》。
 
 ---
 
-## 方式三:fork 项目
+## 方式三:fork 项目 \{#fork-build}
 
 需要长期修改源码时:
 

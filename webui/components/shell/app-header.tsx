@@ -39,7 +39,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const { locale, t, toggleLocale } = useI18n();
   const router = useRouter();
   const editorMode = useAppStore((s) => s.editorMode);
@@ -187,7 +187,9 @@ export function AppHeader({ title, breadcrumbs = [] }: AppHeaderProps) {
                 variant="ghost"
                 size="icon-sm"
                 className="rounded-md"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                onClick={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
               >
                 <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
                 <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />

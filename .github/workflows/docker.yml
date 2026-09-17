@@ -150,8 +150,12 @@ jobs:
         if: needs.prepare.outputs.push != 'true'
         shell: bash
         run: |
+          set -euo pipefail
           docker run --rm oxidns-next-ci:amd64 --version
-          docker run --rm --entrypoint test oxidns-next-ci:amd64 -f /etc/oxidns-next/webui/index.html
+          container="$(docker create oxidns-next-ci:amd64)"
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          docker cp "$container:/etc/oxidns-next/webui/index.html" /tmp/oxidns-next-webui-index-amd64.html
+          test -s /tmp/oxidns-next-webui-index-amd64.html
 
       - name: Build and push amd64 by digest
         if: needs.prepare.outputs.push == 'true'
@@ -251,8 +255,12 @@ jobs:
         if: needs.prepare.outputs.push != 'true'
         shell: bash
         run: |
+          set -euo pipefail
           docker run --rm --platform linux/arm64 oxidns-next-ci:arm64 --version
-          docker run --rm --platform linux/arm64 --entrypoint test oxidns-next-ci:arm64 -f /etc/oxidns-next/webui/index.html
+          container="$(docker create --platform linux/arm64 oxidns-next-ci:arm64)"
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          docker cp "$container:/etc/oxidns-next/webui/index.html" /tmp/oxidns-next-webui-index-arm64.html
+          test -s /tmp/oxidns-next-webui-index-arm64.html
 
       - name: Build and push arm64 by digest
         if: needs.prepare.outputs.push == 'true'

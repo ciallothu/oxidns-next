@@ -24,9 +24,11 @@ use serde::Deserialize;
 use tracing::{debug, info};
 
 use crate::config::types::PluginConfig;
-use crate::core::rule_matcher::DomainRuleMatcher;
+use crate::core::rule_matcher::{DomainRuleMatcher, split_domain_rule_expression};
 use crate::infra::clock::AppClock;
 use crate::infra::error::{DnsError, Result as DnsResult};
+use crate::infra::io::{LineClassifier, TextLocation, TextSource};
+use crate::infra::task::spawn_isolated_build;
 use crate::plugin::dependency::DependencySpec;
 use crate::plugin::provider::Provider;
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
@@ -54,22 +56,25 @@ struct DomainSetSnapshot {
 #[derive(Debug)]
 pub struct DomainSet {
     tag: String,
-    args: DomainSetArgs,
+    args: Arc<DomainSetArgs>,
     referenced_sets: Vec<Arc<dyn Provider>>,
     snapshot: ArcSwap<DomainSetSnapshot>,
 }
 
 impl DomainSet {
-    #[hotpath::measure]
-    fn build_local_snapshot(&self) -> DnsResult<DomainSetSnapshot> {
+    fn build_local_snapshot(tag: &str, args: &DomainSetArgs) -> DnsResult<DomainSetSnapshot> {
         let start_ms = AppClock::elapsed_millis();
-        let mut rules = self.args.exps.clone();
-        for file in &self.args.files {
-            append_rules_from_file(&mut rules, file)?;
-        }
-
         let mut matcher = DomainRuleMatcher::default();
-        load_domain_rules(&mut matcher, &rules)?;
+        let mut local_rules = 0usize;
+        TextSource::new("args.exps", &args.exps, &args.files)
+            .scan(&LineClassifier::new(&["#"]), |line| {
+                if line.annotations().blank || line.annotations().leading_comment.is_some() {
+                    return Ok(());
+                }
+                local_rules += 1;
+                add_domain_rule_from_source(&mut matcher, line.trimmed(), line.location())
+            })
+            .map_err(|error| DnsError::plugin(format!("failed to load domain rules: {error}")))?;
         matcher.finalize().map_err(DnsError::plugin)?;
 
         let has_domain_rules = matcher.has_rules();
@@ -79,9 +84,9 @@ impl DomainSet {
         let total_regex_rules = matcher.regexp_rule_count();
         let elapsed_ms = AppClock::elapsed_millis().saturating_sub(start_ms);
         info!(
-            tag = %self.tag,
-            local_rules = rules.len(),
-            referenced_sets = self.args.sets.len(),
+            tag = %tag,
+            local_rules,
+            referenced_sets = args.sets.len(),
             full_rules = total_full_rules,
             domain_rules = total_domain_rules,
             keyword_rules = total_keyword_rules,
@@ -158,7 +163,12 @@ impl Provider for DomainSet {
 
     #[hotpath::measure]
     async fn reload(&self) -> DnsResult<()> {
-        let snapshot = self.build_local_snapshot()?;
+        let tag = self.tag.clone();
+        let args = self.args.clone();
+        let snapshot = spawn_isolated_build("domain_set snapshot build", move || {
+            Self::build_local_snapshot(&tag, &args)
+        })
+        .await?;
         self.snapshot.store(Arc::new(snapshot));
         Ok(())
     }
@@ -210,31 +220,25 @@ impl PluginFactory for DomainSetFactory {
 
         Ok(UninitializedPlugin::Provider(Box::new(DomainSet {
             tag: plugin_config.tag.clone(),
-            args,
+            args: Arc::new(args),
             referenced_sets: Vec::new(),
             snapshot: ArcSwap::from_pointee(DomainSetSnapshot::default()),
         })))
     }
 }
 
-fn append_rules_from_file(rules: &mut Vec<String>, path: &str) -> DnsResult<()> {
-    crate::plugin::provider::provider_utils::for_each_nonempty_rule_line(
-        path,
-        "domain rules",
-        |raw, _| {
-            rules.push(raw.to_string());
-            Ok(())
-        },
-    )
+fn add_domain_rule_from_source(
+    matcher: &mut DomainRuleMatcher,
+    exp: &str,
+    source: TextLocation<'_>,
+) -> DnsResult<()> {
+    let (kind, value) = split_domain_rule_expression(exp);
+    matcher
+        .add_rule(kind, value, "")
+        .map_err(|error| DnsError::plugin(format!("invalid domain rule in {source}: {error}")))
 }
 
-fn load_domain_rules(matcher: &mut DomainRuleMatcher, rules: &[String]) -> DnsResult<()> {
-    for (idx, rule) in rules.iter().enumerate() {
-        add_domain_rule(matcher, rule, &format!("rules[{}]", idx))?;
-    }
-    Ok(())
-}
-
+#[cfg(test)]
 fn add_domain_rule(matcher: &mut DomainRuleMatcher, exp: &str, source: &str) -> DnsResult<()> {
     matcher
         .add_expression(exp, source)
@@ -246,7 +250,6 @@ mod tests {
     use std::net::IpAddr;
 
     use super::*;
-    use crate::plugin::provider::provider_utils::for_each_nonempty_rule_text;
     use crate::proto::Name;
 
     fn load_rules_text(
@@ -254,10 +257,14 @@ mod tests {
         source_name: &str,
         content: &str,
     ) -> DnsResult<()> {
-        for_each_nonempty_rule_text(content, |raw, line_no| {
-            let source = format!("file '{}', line {}", source_name, line_no);
-            add_domain_rule(matcher, raw, &source)
-        })
+        for (line_no, raw) in content.lines().enumerate() {
+            if raw.trim().is_empty() || raw.trim_start().starts_with('#') {
+                continue;
+            }
+            let source = format!("file '{}', line {}", source_name, line_no + 1);
+            add_domain_rule(matcher, raw.trim(), &source)?;
+        }
+        Ok(())
     }
 
     #[test]
@@ -338,6 +345,10 @@ mod tests {
             self
         }
 
+        async fn reload(&self) -> DnsResult<()> {
+            Ok(())
+        }
+
         fn contains_name(&self, name: &Name) -> bool {
             name.as_str().eq_ignore_ascii_case(&self.domain)
         }
@@ -359,7 +370,7 @@ mod tests {
 
         let ds = DomainSet {
             tag: "test".to_string(),
-            args: DomainSetArgs::default(),
+            args: Arc::new(DomainSetArgs::default()),
             referenced_sets: vec![shared.clone()],
             snapshot: ArcSwap::from_pointee(DomainSetSnapshot { matcher: local }),
         };

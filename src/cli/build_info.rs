@@ -8,7 +8,7 @@ use crate::infra::error::Result;
 pub fn run() -> Result<()> {
     println!(
         "{}",
-        serde_json::to_string_pretty(&crate::infra::build_info::snapshot()?)?
+        serde_json::to_string_pretty(&crate::build_info::snapshot()?)?
     );
     Ok(())
 }

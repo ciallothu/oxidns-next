@@ -10,8 +10,7 @@
 //!
 //! Architecture overview:
 //! - continuation pre-stage stays hot-path light.
-//! - continuation post-stage extracts normalized query domain and unique A/AAAA
-//!   IPs.
+//! - continuation post-stage extracts unique A/AAAA IPs.
 //! - address-list synchronization is delegated to a single-owner background
 //!   manager state machine.
 //! - RouterOS API details are isolated in `MikrotikApi` adapter
@@ -29,268 +28,38 @@
 //! - load persistent file-backed entries at startup and keep them fixed until
 //!   the plugin is reloaded.
 
-use std::fs;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use ahash::{AHashMap, AHashSet};
 use async_trait::async_trait;
-use serde::Deserialize;
-use serde_yaml_ng::Value;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tracing::warn;
 
-use self::api::{
-    DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_RECEIVE_TIMEOUT_SECS, DEFAULT_SEND_TIMEOUT_SECS,
-    MikrotikApi, MikrotikApiTimeouts, MikrotikRsClient,
-};
+use self::api::{MikrotikApi, MikrotikRsClient};
+use self::config::{MikrotikConfig, parse_plugin_config, validate_comment_token};
 use self::manager::{
-    AddressListFamily, AddressListKey, AddressListManager, AddressListManagerConfig,
-    AddressListManagerRuntime, ManagerCommand, ObservedAddr,
+    AddressListManager, AddressListManagerConfig, AddressListManagerHandle,
+    AddressListManagerRuntime, ObserveEnqueueError,
 };
+use self::metrics::RosMetrics;
 use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result};
-use crate::infra::observability::metrics::{
-    MetricLabel, MetricSample, MetricSink, MetricSource, register_metric_source,
-    unregister_metric_source,
-};
+use crate::infra::observability::metrics::{register_metric_source, unregister_metric_source};
+use crate::plugin::executor::routeros::throttle::ErrorLogThrottle;
+use crate::plugin::executor::routeros::{ObservedAddr, SHUTDOWN_TIMEOUT, collect_observed_addrs};
 use crate::plugin::executor::{ExecStep, Executor, ExecutorNext};
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
-use crate::proto::Rcode;
+use crate::proto::{Rcode, RecordType};
 use crate::{continue_next, plugin_factory};
 
 mod api;
+mod config;
 mod manager;
-
-/// Default lower TTL clamp for dynamic address-list entries.
-const DEFAULT_MIN_TTL: u32 = 60;
-/// Default upper TTL clamp for dynamic address-list entries.
-const DEFAULT_MAX_TTL: u32 = 3600;
-/// Default execution mode keeps RouterOS writes off the DNS request path.
-const DEFAULT_ASYNC_MODE: bool = true;
-/// Default shutdown behavior removes plugin-owned RouterOS entries.
-const DEFAULT_CLEANUP_ON_SHUTDOWN: bool = true;
-/// Default comment prefix used to mark OxiDNS Next-owned RouterOS rows.
-const DEFAULT_COMMENT_PREFIX: &str = "fdns";
-/// Maximum time sync mode waits for one observe command to finish.
-const SYNC_OBSERVE_TIMEOUT_SECS: u64 = 8;
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct MikrotikConfigArgs {
-    /// RouterOS API endpoint, usually `<host>:8728`.
-    address: Option<String>,
-    /// RouterOS login username.
-    username: Option<String>,
-    /// RouterOS login password.
-    password: Option<String>,
-    /// RouterOS API connection timeout in seconds.
-    connect_timeout: Option<u64>,
-    /// RouterOS API command send timeout in seconds.
-    send_timeout: Option<u64>,
-    /// RouterOS API response receive timeout in seconds.
-    receive_timeout: Option<u64>,
-    /// Whether post stage waits RouterOS writes (`false`) or queues work
-    /// (`true`).
-    #[serde(rename = "async")]
-    async_mode: Option<bool>,
-    /// IPv4 address-list name for observed IPv4 answers.
-    address_list4: Option<String>,
-    /// IPv6 address-list name for observed IPv6 answers.
-    address_list6: Option<String>,
-    /// Prefix used in RouterOS comments to mark OxiDNS Next-managed entries.
-    /// Defaults to `fdns` when omitted.
-    comment_prefix: Option<String>,
-    /// Always-present address-list items that should never expire.
-    persistent: Option<PersistentArgs>,
-    /// Minimum effective TTL clamp (seconds) for observed records.
-    min_ttl: Option<u32>,
-    /// Maximum effective TTL clamp (seconds) for observed records.
-    max_ttl: Option<u32>,
-    /// Optional fixed TTL override (seconds) for dynamic observed records.
-    /// `0` means do not set RouterOS timeout.
-    fixed_ttl: Option<u32>,
-    /// Whether to clean managed address-list entries on shutdown.
-    cleanup_on_shutdown: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct PersistentArgs {
-    /// Inline always-present IPs/CIDRs. Plain IP is normalized to host entry.
-    ips: Option<Vec<String>>,
-    /// File list that provides always-present IPs/CIDRs.
-    files: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone)]
-struct MikrotikConfig {
-    /// RouterOS API endpoint used by the shared client.
-    address: String,
-    /// Login username for RouterOS API.
-    username: String,
-    /// Login password for RouterOS API.
-    password: String,
-    /// RouterOS API operation timeouts.
-    api_timeouts: MikrotikApiTimeouts,
-    /// Async mode switch for post stage writes.
-    async_mode: bool,
-    /// IPv4 address-list name managed by this plugin.
-    address_list4: Option<String>,
-    /// IPv6 address-list name managed by this plugin.
-    address_list6: Option<String>,
-    /// Full persistent desired set after merging inline and file sources.
-    persistent_items: AHashSet<AddressListKey>,
-    /// Prefix used in RouterOS comments to mark plugin ownership.
-    comment_prefix: String,
-    /// Minimum TTL clamp for dynamic entries.
-    min_ttl: u32,
-    /// Maximum TTL clamp for dynamic entries.
-    max_ttl: u32,
-    /// Optional fixed TTL override for dynamic entries.
-    /// `0` means do not set RouterOS timeout.
-    fixed_ttl: Option<u32>,
-    /// Whether shutdown should remove owned entries from RouterOS.
-    cleanup_on_shutdown: bool,
-}
-
-impl MikrotikConfigArgs {
-    /// Validate user-facing config and normalize it into a runtime-ready form.
-    ///
-    /// This is also where persistent input sources are parsed into normalized
-    /// `AddressListKey` values so the manager does not need to re-interpret
-    /// human-facing YAML at runtime.
-    fn into_config(self, emit_warnings: bool) -> Result<MikrotikConfig> {
-        let address = required_non_empty(self.address, "address")?;
-        let username = required_non_empty(self.username, "username")?;
-        let password = required_non_empty(self.password, "password")?;
-        let api_timeouts = MikrotikApiTimeouts::from_secs(
-            timeout_secs(
-                self.connect_timeout,
-                "connect_timeout",
-                DEFAULT_CONNECT_TIMEOUT_SECS,
-            )?,
-            timeout_secs(self.send_timeout, "send_timeout", DEFAULT_SEND_TIMEOUT_SECS)?,
-            timeout_secs(
-                self.receive_timeout,
-                "receive_timeout",
-                DEFAULT_RECEIVE_TIMEOUT_SECS,
-            )?,
-        );
-        let address_list4 = optional_non_empty(self.address_list4);
-        let address_list6 = optional_non_empty(self.address_list6);
-        if address_list4.is_none() && address_list6.is_none() {
-            return Err(DnsError::plugin(
-                "ros_address_list requires at least one of address_list4 or address_list6",
-            ));
-        }
-
-        let comment_prefix = optional_non_empty(self.comment_prefix)
-            .unwrap_or_else(|| DEFAULT_COMMENT_PREFIX.to_string());
-        validate_comment_token("comment_prefix", &comment_prefix)?;
-
-        let min_ttl = self.min_ttl.unwrap_or(DEFAULT_MIN_TTL);
-        let max_ttl = self.max_ttl.unwrap_or(DEFAULT_MAX_TTL);
-        if min_ttl > max_ttl {
-            return Err(DnsError::plugin(format!(
-                "ros_address_list ttl range is invalid: min_ttl({min_ttl}) > max_ttl({max_ttl})"
-            )));
-        }
-        let fixed_ttl = self.fixed_ttl;
-
-        let parsed_persistent = parse_persistent_items(
-            self.persistent,
-            address_list4.as_deref(),
-            address_list6.as_deref(),
-        )?;
-        if emit_warnings && parsed_persistent.ignored_by_family > 0 {
-            warn!(
-                ignored = parsed_persistent.ignored_by_family,
-                "ros_address_list persistent ignored entries without corresponding address list family"
-            );
-        }
-
-        Ok(MikrotikConfig {
-            address,
-            username,
-            password,
-            api_timeouts,
-            async_mode: self.async_mode.unwrap_or(DEFAULT_ASYNC_MODE),
-            address_list4,
-            address_list6,
-            persistent_items: parsed_persistent.all_items,
-            comment_prefix,
-            min_ttl,
-            max_ttl,
-            fixed_ttl,
-            cleanup_on_shutdown: self
-                .cleanup_on_shutdown
-                .unwrap_or(DEFAULT_CLEANUP_ON_SHUTDOWN),
-        })
-    }
-}
-
-#[derive(Debug)]
-struct RosMetrics {
-    tag: String,
-    observe_total: AtomicU64,
-    dropped_total: AtomicU64,
-    sync_error_total: AtomicU64,
-    sync_timeout_total: AtomicU64,
-}
-
-impl RosMetrics {
-    fn new(tag: String) -> Self {
-        Self {
-            tag,
-            observe_total: AtomicU64::new(0),
-            dropped_total: AtomicU64::new(0),
-            sync_error_total: AtomicU64::new(0),
-            sync_timeout_total: AtomicU64::new(0),
-        }
-    }
-}
-
-impl MetricSource for RosMetrics {
-    fn tag(&self) -> &str {
-        &self.tag
-    }
-
-    fn plugin_type(&self) -> &'static str {
-        "ros_address_list"
-    }
-
-    fn collect(&self, sink: &mut dyn MetricSink) {
-        let labels = [MetricLabel::new("plugin_tag", self.tag.as_str())];
-        sink.emit(MetricSample::counter(
-            "ros_address_list_observe_total",
-            "Total domain observations submitted to the RouterOS address-list manager.",
-            &labels,
-            self.observe_total.load(Ordering::Relaxed),
-        ));
-        sink.emit(MetricSample::counter(
-            "ros_address_list_dropped_total",
-            "Total observations dropped in async mode (queue full or channel closed).",
-            &labels,
-            self.dropped_total.load(Ordering::Relaxed),
-        ));
-        sink.emit(MetricSample::counter(
-            "ros_address_list_sync_error_total",
-            "Total sync-mode observations that failed at the RouterOS manager.",
-            &labels,
-            self.sync_error_total.load(Ordering::Relaxed),
-        ));
-        sink.emit(MetricSample::counter(
-            "ros_address_list_sync_timeout_total",
-            "Total sync-mode observations that timed out enqueueing or waiting.",
-            &labels,
-            self.sync_timeout_total.load(Ordering::Relaxed),
-        ));
-    }
-}
+mod metrics;
+mod model;
+mod persistent;
 
 #[derive(Debug)]
 struct MikrotikExecutor {
@@ -302,11 +71,11 @@ struct MikrotikExecutor {
     config: MikrotikConfig,
     /// Pre-built manager consumed during `init()`.
     manager: Option<AddressListManager>,
-    /// Sender exposed to continuation post-stage after the background runtime
-    /// starts.
-    command_tx: Option<mpsc::Sender<ManagerCommand>>,
+    /// Coalescing mailbox handle exposed after the background runtime starts.
+    manager_handle: Option<AddressListManagerHandle>,
     /// Runtime handle stored so `destroy()` can stop worker tasks.
     runtime: Mutex<Option<AddressListManagerRuntime>>,
+    queue_logs: ErrorLogThrottle,
 }
 
 #[async_trait]
@@ -316,11 +85,9 @@ impl Plugin for MikrotikExecutor {
     }
 
     async fn init(&mut self, _context: &crate::plugin::PluginInitContext<'_>) -> Result<()> {
-        register_metric_source(self.metrics.clone())?;
-
         // `init()` may be called more than once by the plugin framework.
         // Keep it idempotent and only build the runtime once.
-        if self.manager.is_none() || self.command_tx.is_some() {
+        if self.manager.is_none() || self.manager_handle.is_some() {
             return Ok(());
         }
 
@@ -328,18 +95,31 @@ impl Plugin for MikrotikExecutor {
             return Ok(());
         };
 
+        register_metric_source(self.metrics.clone())?;
         let runtime = AddressListManagerRuntime::start(self.tag.clone(), manager);
-        self.command_tx = Some(runtime.sender());
+        let manager_handle = runtime.handle();
+        let mut runtime = Some(runtime);
         if let Ok(mut slot) = self.runtime.lock() {
-            *slot = Some(runtime);
+            *slot = runtime.take();
         }
+        if let Some(runtime) = runtime {
+            unregister_metric_source(&self.tag);
+            let _ = runtime.shutdown(false).await;
+            return Err(DnsError::plugin(
+                "ros_address_list runtime lock is poisoned during initialization",
+            ));
+        }
+        self.manager_handle = Some(manager_handle);
         Ok(())
     }
 
     async fn destroy(&self) -> Result<()> {
-        unregister_metric_source(&self.tag);
+        let deadline = tokio::time::Instant::now() + SHUTDOWN_TIMEOUT;
         if let Some(runtime) = self.runtime.lock().ok().and_then(|mut slot| slot.take()) {
-            runtime.shutdown(self.config.cleanup_on_shutdown).await;
+            unregister_metric_source(&self.tag);
+            return runtime
+                .shutdown_until(self.config.cleanup_on_shutdown, deadline)
+                .await;
         }
         Ok(())
     }
@@ -363,33 +143,31 @@ impl Executor for MikrotikExecutor {
         next: Option<ExecutorNext>,
     ) -> Result<ExecStep> {
         let step = continue_next!(next, context)?;
-        // If the runtime never started, the plugin stays side-effect free.
-        let Some(tx) = self.command_tx.as_ref() else {
+        let Some(handle) = self.manager_handle.as_ref() else {
             return Ok(step);
         };
 
-        // This executor only reacts to successful final answers containing A/AAAA data.
-        let Some((domain, addrs)) = extract_observation(context, &self.config) else {
+        // This executor only reacts to successful final answers containing
+        // A/AAAA data.
+        let Some(addrs) = extract_observation(context, &self.config) else {
             return Ok(step);
         };
         self.metrics.observe_total.fetch_add(1, Ordering::Relaxed);
 
         if self.config.async_mode {
             // Async mode keeps RouterOS I/O fully off the request path.
-            match tx.try_send(ManagerCommand::ObserveDomain {
-                domain,
-                addrs,
-                wait: None,
-            }) {
-                Ok(()) => {}
-                Err(mpsc::error::TrySendError::Full(_)) => {
+            match handle.try_observe(addrs, None) {
+                Ok(_) => {}
+                Err(ObserveEnqueueError::Full) => {
                     self.metrics.dropped_total.fetch_add(1, Ordering::Relaxed);
-                    warn!(
-                        plugin = %self.tag,
-                        "ros_address_list observe queue is full, observation dropped"
-                    );
+                    if self.queue_logs.should_log("full") {
+                        warn!(
+                            plugin = %self.tag,
+                            "ros_address_list observe queue is full, observation dropped"
+                        );
+                    }
                 }
-                Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(ObserveEnqueueError::Closed) => {
                     self.metrics.dropped_total.fetch_add(1, Ordering::Relaxed);
                     warn!(
                         plugin = %self.tag,
@@ -403,19 +181,10 @@ impl Executor for MikrotikExecutor {
         // Sync mode still preserves DNS behavior on RouterOS failures. The only
         // difference is that we wait for the manager to attempt the write.
         let (wait_tx, wait_rx) = oneshot::channel::<Result<()>>();
-        let send_cmd = ManagerCommand::ObserveDomain {
-            domain,
-            addrs,
-            wait: Some(wait_tx),
-        };
-        let send_outcome = tokio::time::timeout(
-            Duration::from_secs(SYNC_OBSERVE_TIMEOUT_SECS),
-            tx.send(send_cmd),
-        )
-        .await;
-        match send_outcome {
-            Ok(Ok(())) => {}
-            Ok(Err(_)) => {
+        let deadline = tokio::time::Instant::now() + self.config.wait_timeout;
+        match handle.try_observe(addrs, Some(wait_tx)) {
+            Ok(_) => {}
+            Err(_) => {
                 self.metrics
                     .sync_error_total
                     .fetch_add(1, Ordering::Relaxed);
@@ -425,21 +194,9 @@ impl Executor for MikrotikExecutor {
                 );
                 return Ok(step);
             }
-            Err(_) => {
-                self.metrics
-                    .sync_timeout_total
-                    .fetch_add(1, Ordering::Relaxed);
-                warn!(
-                    plugin = %self.tag,
-                    timeout_secs = SYNC_OBSERVE_TIMEOUT_SECS,
-                    "ros_address_list observe enqueue timed out in sync mode, DNS response is kept unchanged"
-                );
-                return Ok(step);
-            }
         }
 
-        let wait_outcome =
-            tokio::time::timeout(Duration::from_secs(SYNC_OBSERVE_TIMEOUT_SECS), wait_rx).await;
+        let wait_outcome = tokio::time::timeout_at(deadline, wait_rx).await;
         match wait_outcome {
             Ok(Ok(Ok(()))) => Ok(step),
             Ok(Ok(Err(e))) => {
@@ -469,7 +226,7 @@ impl Executor for MikrotikExecutor {
                     .fetch_add(1, Ordering::Relaxed);
                 warn!(
                     plugin = %self.tag,
-                    timeout_secs = SYNC_OBSERVE_TIMEOUT_SECS,
+                    timeout_ms = self.config.wait_timeout.as_millis(),
                     "ros_address_list observe timed out in sync mode, DNS response is kept unchanged"
                 );
                 Ok(step)
@@ -490,13 +247,11 @@ impl PluginFactory for MikrotikFactory {
     ) -> Result<UninitializedPlugin> {
         // Plugin tag is reused inside RouterOS comment ownership metadata.
         validate_comment_token("plugin tag", plugin_config.tag.as_str())?;
-        let config = parse_plugin_config(plugin_config.args.clone(), true)?;
-        let api = Arc::new(MikrotikRsClient::new(
-            config.address.clone(),
-            config.username.clone(),
-            config.password.clone(),
-            config.api_timeouts,
-        )) as Arc<dyn MikrotikApi>;
+        let mut config = parse_plugin_config(plugin_config.args.clone(), true)?;
+        let connection = config.connection.take().ok_or_else(|| {
+            DnsError::plugin("ros_address_list connection config already consumed")
+        })?;
+        let api = Arc::new(MikrotikRsClient::new(connection)) as Arc<dyn MikrotikApi>;
 
         let manager_cfg = AddressListManagerConfig {
             plugin_tag: plugin_config.tag.clone(),
@@ -507,16 +262,19 @@ impl PluginFactory for MikrotikFactory {
             min_ttl: config.min_ttl,
             max_ttl: config.max_ttl,
             fixed_ttl: config.fixed_ttl,
+            queue_capacity: config.queue_capacity,
         };
-        let manager = AddressListManager::new(api, manager_cfg);
+        let metrics = Arc::new(RosMetrics::new(plugin_config.tag.clone()));
+        let manager = AddressListManager::with_metrics(api, manager_cfg, metrics.clone());
 
         Ok(UninitializedPlugin::Executor(Box::new(MikrotikExecutor {
             tag: plugin_config.tag.clone(),
-            metrics: Arc::new(RosMetrics::new(plugin_config.tag.clone())),
+            metrics,
             config,
             manager: Some(manager),
-            command_tx: None,
+            manager_handle: None,
             runtime: Mutex::new(None),
+            queue_logs: ErrorLogThrottle::default(),
         })))
     }
 }
@@ -524,302 +282,47 @@ impl PluginFactory for MikrotikFactory {
 fn extract_observation(
     context: &mut DnsContext,
     config: &MikrotikConfig,
-) -> Option<(String, Vec<ObservedAddr>)> {
-    // The first question is the authoritative domain label written to the
-    // RouterOS comment for dynamic entries. This is intentionally lightweight:
-    // we do not inspect CNAME chains or reconstruct canonical names here.
+) -> Option<Vec<ObservedAddr>> {
+    let question = context.request.first_question()?;
+    match question.qtype() {
+        RecordType::A | RecordType::AAAA => {}
+        _ => return None,
+    }
 
     let response = context.response()?;
     if response.rcode() != Rcode::NoError {
         return None;
     }
 
-    let domain = context
-        .request
-        .first_question()
-        .map(|question| question.name().normalized().to_string())?;
-
-    // Collapse duplicate IPs inside one DNS response before sending work to
-    // the manager. For duplicates we keep the largest TTL because the manager
-    // should observe the strongest expiry hint from this response batch.
-    let mut dedup = AHashMap::<IpAddr, u32>::new();
-    for answer in response.answers() {
-        if let Some(ip) = answer.ip_addr() {
-            let ttl_secs = answer.ttl();
-            match ip {
-                IpAddr::V4(_) if config.address_list4.is_none() => continue,
-                IpAddr::V6(_) if config.address_list6.is_none() => continue,
-                _ => {}
-            }
-
-            dedup
-                .entry(ip)
-                .and_modify(|ttl| *ttl = (*ttl).max(ttl_secs))
-                .or_insert(ttl_secs);
-        }
-    }
-
-    if dedup.is_empty() {
+    let addrs = collect_observed_addrs(&context.request, response, |ip| match ip {
+        IpAddr::V4(_) => config.address_list4.is_some(),
+        IpAddr::V6(_) => config.address_list6.is_some(),
+    });
+    if addrs.is_empty() {
         return None;
     }
-
-    let addrs = dedup
-        .into_iter()
-        .map(|(addr, ttl_secs)| ObservedAddr { addr, ttl_secs })
-        .collect::<Vec<_>>();
-    Some((domain, addrs))
-}
-
-fn parse_plugin_config(args: Option<Value>, emit_warnings: bool) -> Result<MikrotikConfig> {
-    let Some(args) = args else {
-        return Err(DnsError::plugin("ros_address_list plugin requires args"));
-    };
-    let raw = serde_yaml_ng::from_value::<MikrotikConfigArgs>(args)
-        .map_err(|e| DnsError::plugin(format!("failed to parse ros_address_list config: {e}")))?;
-    raw.into_config(emit_warnings)
-}
-
-fn required_non_empty(value: Option<String>, field: &str) -> Result<String> {
-    let Some(value) = value else {
-        return Err(DnsError::plugin(format!(
-            "ros_address_list '{field}' is required"
-        )));
-    };
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(DnsError::plugin(format!(
-            "ros_address_list '{field}' cannot be empty"
-        )));
-    }
-    Ok(trimmed.to_string())
-}
-
-fn optional_non_empty(value: Option<String>) -> Option<String> {
-    value
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}
-
-fn timeout_secs(value: Option<u64>, field: &str, default_secs: u64) -> Result<u64> {
-    match value {
-        Some(0) => Err(DnsError::plugin(format!(
-            "ros_address_list '{field}' must be greater than 0 seconds"
-        ))),
-        Some(value) => Ok(value),
-        None => Ok(default_secs),
-    }
-}
-
-#[inline]
-fn contains_comment_delimiter(value: &str) -> bool {
-    value.contains(';') || value.contains('=')
-}
-
-fn validate_comment_token(field: &str, value: &str) -> Result<()> {
-    if contains_comment_delimiter(value) {
-        return Err(DnsError::plugin(format!(
-            "ros_address_list '{field}' cannot contain ';' or '='"
-        )));
-    }
-    Ok(())
-}
-
-#[derive(Debug, Default)]
-struct ParsedPersistentItems {
-    /// Final desired set after merging inline and file sources.
-    all_items: AHashSet<AddressListKey>,
-    /// Count of items skipped because that family is not configured.
-    ignored_by_family: usize,
-}
-
-/// Parse `persistent` config into normalized address-list keys.
-///
-/// The parser performs all expensive normalization and validation at startup:
-/// plain IPs become host prefixes, CIDRs are masked to network form, and each
-/// item is bound to the correct IPv4/IPv6 address-list name.
-fn parse_persistent_items(
-    persistent: Option<PersistentArgs>,
-    address_list4: Option<&str>,
-    address_list6: Option<&str>,
-) -> Result<ParsedPersistentItems> {
-    let mut parsed = ParsedPersistentItems::default();
-    let Some(persistent) = persistent else {
-        return Ok(parsed);
-    };
-
-    if let Some(ips) = persistent.ips {
-        for (index, item) in ips.into_iter().enumerate() {
-            let source = format!("persistent.ips[{index}]");
-            let key = parse_persistent_item(
-                item.as_str(),
-                source.as_str(),
-                address_list4,
-                address_list6,
-            )?;
-            match key {
-                Some(key) => {
-                    parsed.all_items.insert(key);
-                }
-                None => {
-                    parsed.ignored_by_family = parsed.ignored_by_family.saturating_add(1);
-                }
-            }
-        }
-    }
-
-    let files = parse_persistent_files(persistent.files)?;
-    let (file_items, ignored_by_family) =
-        load_persistent_items_from_files(files.as_slice(), address_list4, address_list6)?;
-    parsed.ignored_by_family = parsed.ignored_by_family.saturating_add(ignored_by_family);
-    parsed.all_items.extend(file_items);
-    Ok(parsed)
-}
-
-fn parse_persistent_files(files: Option<Vec<String>>) -> Result<Vec<String>> {
-    let mut out = Vec::new();
-    let Some(files) = files else {
-        return Ok(out);
-    };
-    for (index, file_raw) in files.into_iter().enumerate() {
-        let file = file_raw.trim();
-        if file.is_empty() {
-            return Err(DnsError::plugin(format!(
-                "ros_address_list persistent.files[{index}] cannot be empty"
-            )));
-        }
-        out.push(file.to_string());
-    }
-    Ok(out)
-}
-
-/// Parse one file body into normalized persistent items.
-///
-/// Files use the same item grammar as inline YAML. Empty lines and `#` comments
-/// are ignored. Family-mismatched entries are skipped rather than failing
-/// startup so shared source files can contain both IPv4 and IPv6 items.
-fn load_persistent_items_from_content(
-    source_prefix: &str,
-    content: &str,
-    address_list4: Option<&str>,
-    address_list6: Option<&str>,
-) -> Result<(AHashSet<AddressListKey>, usize)> {
-    let mut out = AHashSet::new();
-    let mut ignored_by_family = 0usize;
-
-    for (line_no, line) in content.lines().enumerate() {
-        let token = line.split('#').next().unwrap_or_default().trim();
-        if token.is_empty() {
-            continue;
-        }
-
-        let source = format!("{source_prefix} line {}", line_no + 1);
-        match parse_persistent_item(token, source.as_str(), address_list4, address_list6)? {
-            Some(key) => {
-                out.insert(key);
-            }
-            None => {
-                ignored_by_family = ignored_by_family.saturating_add(1);
-            }
-        }
-    }
-
-    Ok((out, ignored_by_family))
-}
-
-fn load_persistent_items_from_files(
-    files: &[String],
-    address_list4: Option<&str>,
-    address_list6: Option<&str>,
-) -> Result<(AHashSet<AddressListKey>, usize)> {
-    let mut out = AHashSet::new();
-    let mut ignored_by_family = 0usize;
-
-    for (index, file) in files.iter().enumerate() {
-        let content = fs::read_to_string(file).map_err(|e| {
-            DnsError::plugin(format!(
-                "ros_address_list failed to read persistent file '{file}': {e}"
-            ))
-        })?;
-        let source_prefix = format!("persistent.files[{index}]");
-        let (loaded, ignored_delta) = load_persistent_items_from_content(
-            source_prefix.as_str(),
-            &content,
-            address_list4,
-            address_list6,
-        )?;
-        out.extend(loaded);
-        ignored_by_family = ignored_by_family.saturating_add(ignored_delta);
-    }
-
-    Ok((out, ignored_by_family))
-}
-
-/// Parse one human-facing persistent item and bind it to the correct list.
-///
-/// Return `Ok(None)` when the item is valid but its IP family has no configured
-/// target list, allowing callers to ignore mixed-family source files cleanly.
-fn parse_persistent_item(
-    raw: &str,
-    source: &str,
-    address_list4: Option<&str>,
-    address_list6: Option<&str>,
-) -> Result<Option<AddressListKey>> {
-    let value = raw.trim();
-    if value.is_empty() {
-        return Err(DnsError::plugin(format!(
-            "ros_address_list {source} is empty"
-        )));
-    }
-
-    let (ip, prefix) = if let Some((ip_raw, prefix_raw)) = value.split_once('/') {
-        let ip = ip_raw.trim().parse::<IpAddr>().map_err(|e| {
-            DnsError::plugin(format!(
-                "ros_address_list {source} has invalid ip '{ip_raw}': {e}"
-            ))
-        })?;
-        let prefix = prefix_raw.trim().parse::<u8>().map_err(|e| {
-            DnsError::plugin(format!(
-                "ros_address_list {source} has invalid prefix '{prefix_raw}': {e}"
-            ))
-        })?;
-        (ip, prefix)
-    } else {
-        let ip = value.parse::<IpAddr>().map_err(|e| {
-            DnsError::plugin(format!(
-                "ros_address_list {source} has invalid ip '{value}': {e}"
-            ))
-        })?;
-        let family = AddressListFamily::from_ip(ip);
-        (ip, family.host_prefix())
-    };
-
-    let family = AddressListFamily::from_ip(ip);
-    let list = match family {
-        AddressListFamily::Ipv4 => address_list4,
-        AddressListFamily::Ipv6 => address_list6,
-    };
-    let Some(list) = list else {
-        return Ok(None);
-    };
-
-    AddressListKey::new_with_prefix(ip, prefix, list.to_string())
-        .ok_or_else(|| {
-            DnsError::plugin(format!(
-                "ros_address_list {source} has invalid prefix /{prefix} for {ip}"
-            ))
-        })
-        .map(Some)
+    Some(addrs)
 }
 
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
 
+    use ahash::{AHashMap, AHashSet};
+    use serde_yaml_ng::Value;
+
+    use super::config::{
+        DEFAULT_COMMENT_PREFIX, DEFAULT_MAX_TTL, DEFAULT_MIN_TTL, DEFAULT_QUEUE_CAPACITY,
+        DEFAULT_WAIT_TIMEOUT,
+    };
+    use super::persistent::{load_persistent_items_from_content, parse_persistent_files};
     use super::*;
     use crate::infra::clock::AppClock;
-    use crate::plugin::executor::ros_address_list::api::RouterListEntry;
-    use crate::plugin::executor::ros_address_list::manager::{
-        OwnedCommentKind, decode_owned_comment, encode_comment,
+    use crate::plugin::executor::ros_address_list::api::{MikrotikApiTimeouts, RouterListEntry};
+    use crate::plugin::executor::ros_address_list::model::{
+        AddressListFamily, AddressListKey, OwnedCommentKind, decode_owned_comment, encode_comment,
     };
     use crate::proto::rdata::{A, AAAA};
     use crate::proto::{DNSClass, Message, Name, Question, RData, Rcode, Record, RecordType};
@@ -830,8 +333,10 @@ mod tests {
         next_id: u64,
         fail_next_upsert: bool,
         fail_healthcheck: bool,
+        list_entries_calls: u64,
         list_entries_delay: Option<Duration>,
         convert_persistent_to_dynamic_after_list: bool,
+        convert_owned_to_foreign_after_list: bool,
         upsert_v4: u64,
         upsert_v6: u64,
         update_ops: u64,
@@ -867,6 +372,52 @@ mod tests {
                 .map(|state| state.entries.len())
                 .unwrap_or_default()
         }
+
+        fn list_entries_calls(&self) -> u64 {
+            self.state
+                .lock()
+                .map(|state| state.list_entries_calls)
+                .unwrap_or_default()
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct PipelineMikrotikApi {
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+        attempts: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MikrotikApi for PipelineMikrotikApi {
+        async fn list_entries(
+            &self,
+            _list4: Option<&str>,
+            _list6: Option<&str>,
+        ) -> Result<Vec<RouterListEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn upsert_owned_entry(
+            &self,
+            _key: &AddressListKey,
+            _timeout: Option<&str>,
+            _comment: &str,
+            _comment_prefix: &str,
+            _plugin_tag: &str,
+            _refresh_timeout: bool,
+        ) -> Result<Option<()>> {
+            let active = self.active.fetch_add(1, Ordering::AcqRel) + 1;
+            self.max_active.fetch_max(active, Ordering::AcqRel);
+            self.attempts.fetch_add(1, Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            self.active.fetch_sub(1, Ordering::AcqRel);
+            Ok(Some(()))
+        }
+
+        async fn delete_entry_if_matches(&self, _expected: &RouterListEntry) -> Result<bool> {
+            Ok(false)
+        }
     }
 
     #[async_trait]
@@ -876,11 +427,17 @@ mod tests {
             list4: Option<&str>,
             list6: Option<&str>,
         ) -> Result<Vec<RouterListEntry>> {
-            let delay = self
-                .state
-                .lock()
-                .map_err(|_| DnsError::plugin("mock api lock poisoned"))?
-                .list_entries_delay;
+            let (fail_scan, delay) = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .map_err(|_| DnsError::plugin("mock api lock poisoned"))?;
+                state.list_entries_calls = state.list_entries_calls.saturating_add(1);
+                (state.fail_healthcheck, state.list_entries_delay)
+            };
+            if fail_scan {
+                return Err(DnsError::plugin("mock address-list scan failure"));
+            }
             if let Some(delay) = delay {
                 tokio::time::sleep(delay).await;
             }
@@ -914,25 +471,17 @@ mod tests {
                         "oxidns_next",
                         "mk",
                         OwnedCommentKind::Dynamic,
-                        Some("race.example"),
                     ));
+                }
+            }
+            if state.convert_owned_to_foreign_after_list {
+                state.convert_owned_to_foreign_after_list = false;
+                if let Some(entry) = state.entries.values_mut().next() {
+                    entry.comment = Some("operator-owned".to_string());
                 }
             }
 
             Ok(entries)
-        }
-
-        async fn list_entries_by_key(&self, key: &AddressListKey) -> Result<Vec<RouterListEntry>> {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| DnsError::plugin("mock api lock poisoned"))?;
-            Ok(state
-                .entries
-                .values()
-                .filter(|entry| entry.key == *key)
-                .cloned()
-                .collect())
         }
 
         async fn upsert_owned_entry(
@@ -1002,7 +551,7 @@ mod tests {
             Ok(Some(()))
         }
 
-        async fn delete_entry_by_id(&self, id: &str, _family: AddressListFamily) -> Result<()> {
+        async fn delete_entry_if_matches(&self, expected: &RouterListEntry) -> Result<bool> {
             let mut state = self
                 .state
                 .lock()
@@ -1010,23 +559,13 @@ mod tests {
             let key = state
                 .entries
                 .iter()
-                .find(|(_, entry)| entry.id == id)
+                .find(|(_, entry)| *entry == expected)
                 .map(|(key, _)| key.clone());
             if let Some(key) = key {
                 state.entries.remove(&key);
+                return Ok(true);
             }
-            Ok(())
-        }
-
-        async fn healthcheck(&self) -> Result<()> {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| DnsError::plugin("mock api lock poisoned"))?;
-            if state.fail_healthcheck {
-                return Err(DnsError::plugin("mock healthcheck failure"));
-            }
-            Ok(())
+            Ok(false)
         }
     }
 
@@ -1041,6 +580,7 @@ mod tests {
             min_ttl: DEFAULT_MIN_TTL,
             max_ttl: DEFAULT_MAX_TTL,
             fixed_ttl: None,
+            queue_capacity: DEFAULT_QUEUE_CAPACITY,
         }
     }
 
@@ -1061,6 +601,125 @@ mod tests {
             resp.answers_mut().push(record);
         }
         resp
+    }
+
+    #[test]
+    fn observation_with_mismatched_response_question_is_ignored() {
+        let config = MikrotikConfig {
+            connection: None,
+            async_mode: true,
+            wait_timeout: DEFAULT_WAIT_TIMEOUT,
+            queue_capacity: DEFAULT_QUEUE_CAPACITY,
+            address_list4: Some("oxidns_next_ipv4".to_string()),
+            address_list6: None,
+            persistent_items: AHashSet::new(),
+            comment_prefix: "oxidns_next".to_string(),
+            min_ttl: DEFAULT_MIN_TTL,
+            max_ttl: DEFAULT_MAX_TTL,
+            fixed_ttl: None,
+            cleanup_on_shutdown: false,
+        };
+        let mut context = make_context();
+        let mut response = response_with_records(vec![a_record(Ipv4Addr::new(192, 0, 2, 1), 60)]);
+        response.add_question(Question::new(
+            Name::from_ascii("other.example.").expect("name"),
+            RecordType::A,
+            DNSClass::IN,
+        ));
+        context.set_response(response);
+
+        assert!(extract_observation(&mut context, &config).is_none());
+    }
+
+    #[test]
+    fn observation_for_non_address_query_is_ignored() {
+        let config = MikrotikConfig {
+            connection: None,
+            async_mode: true,
+            wait_timeout: DEFAULT_WAIT_TIMEOUT,
+            queue_capacity: DEFAULT_QUEUE_CAPACITY,
+            address_list4: Some("oxidns_next_ipv4".to_string()),
+            address_list6: None,
+            persistent_items: AHashSet::new(),
+            comment_prefix: "oxidns_next".to_string(),
+            min_ttl: DEFAULT_MIN_TTL,
+            max_ttl: DEFAULT_MAX_TTL,
+            fixed_ttl: None,
+            cleanup_on_shutdown: false,
+        };
+        let mut request = Message::new();
+        request.add_question(Question::new(
+            Name::from_ascii("example.com.").expect("name"),
+            RecordType::TXT,
+            DNSClass::IN,
+        ));
+        let mut context = DnsContext::new(
+            "127.0.0.1:5353".parse::<SocketAddr>().expect("peer"),
+            request,
+        );
+        context.set_response(response_with_records(vec![a_record(
+            Ipv4Addr::new(192, 0, 2, 1),
+            60,
+        )]));
+
+        assert!(extract_observation(&mut context, &config).is_none());
+    }
+
+    #[tokio::test]
+    async fn dynamic_upserts_use_bounded_pipeline() {
+        let api = Arc::new(PipelineMikrotikApi::default());
+        let mut manager = AddressListManager::new(api.clone(), default_cfg("pipeline"));
+        let addrs = (1..=17)
+            .map(|last_octet| ObservedAddr {
+                addr: IpAddr::V4(Ipv4Addr::new(203, 0, 113, last_octet)),
+                ttl_secs: 60,
+            })
+            .collect();
+
+        manager
+            .observe_domain("pipeline.example.".to_string(), addrs)
+            .await
+            .expect("pipeline writes");
+
+        assert_eq!(api.attempts.load(Ordering::Relaxed), 17);
+        assert_eq!(api.max_active.load(Ordering::Acquire), 16);
+    }
+
+    #[tokio::test]
+    async fn persistent_reconcile_uses_bounded_pipeline() {
+        let api = Arc::new(PipelineMikrotikApi::default());
+        let mut cfg = default_cfg("persistent-pipeline");
+        cfg.persistent_items = (1..=17)
+            .map(|last| {
+                AddressListKey::new(
+                    IpAddr::V4(Ipv4Addr::new(203, 0, 113, last)),
+                    "oxidns_next_ipv4".to_string(),
+                )
+            })
+            .collect();
+        let mut manager = AddressListManager::new(api.clone(), cfg);
+
+        manager.background_reconcile_for_test().await;
+
+        assert_eq!(api.attempts.load(Ordering::Relaxed), 17);
+        assert_eq!(api.max_active.load(Ordering::Acquire), 16);
+    }
+
+    #[test]
+    fn observation_mailbox_keeps_distinct_addresses_from_same_domain() {
+        let handle = AddressListManagerHandle::new_for_test();
+        let first = vec![ObservedAddr {
+            addr: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+            ttl_secs: 60,
+        }];
+        let latest = vec![ObservedAddr {
+            addr: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2)),
+            ttl_secs: 300,
+        }];
+
+        assert!(handle.try_observe(first, None).is_ok());
+        assert!(handle.try_observe(latest, None).is_ok());
+        assert_eq!(handle.queued_observations(), 2);
     }
 
     fn a_record(ip: Ipv4Addr, ttl: u32) -> Record {
@@ -1089,11 +748,10 @@ mod tests {
     ) -> MikrotikExecutor {
         AppClock::start();
         let config = MikrotikConfig {
-            address: "127.0.0.1:8728".to_string(),
-            username: "u".to_string(),
-            password: "p".to_string(),
-            api_timeouts: MikrotikApiTimeouts::default(),
+            connection: None,
             async_mode,
+            wait_timeout: DEFAULT_WAIT_TIMEOUT,
+            queue_capacity: DEFAULT_QUEUE_CAPACITY,
             address_list4: address_list4.map(|v| v.to_string()),
             address_list6: address_list6.map(|v| v.to_string()),
             persistent_items: AHashSet::new(),
@@ -1112,14 +770,16 @@ mod tests {
             min_ttl: config.min_ttl,
             max_ttl: config.max_ttl,
             fixed_ttl: config.fixed_ttl,
+            queue_capacity: config.queue_capacity,
         };
         MikrotikExecutor {
             tag: tag.to_string(),
             metrics: Arc::new(RosMetrics::new(tag.to_string())),
             config,
             manager: Some(AddressListManager::new(api, manager_cfg)),
-            command_tx: None,
+            manager_handle: None,
             runtime: Mutex::new(None),
+            queue_logs: ErrorLogThrottle::default(),
         }
     }
 
@@ -1193,8 +853,12 @@ address_list4: "oxidns_next_ipv4"
         )
         .unwrap();
         let parsed = parse_plugin_config(Some(cfg), false).unwrap();
-        assert_eq!(parsed.comment_prefix, DEFAULT_COMMENT_PREFIX);
-        assert_eq!(parsed.api_timeouts, MikrotikApiTimeouts::default());
+        assert_eq!(DEFAULT_COMMENT_PREFIX, "fdns");
+        assert_eq!(parsed.comment_prefix, "fdns");
+        assert_eq!(
+            parsed.connection.as_ref().expect("connection").timeouts,
+            MikrotikApiTimeouts::default()
+        );
     }
 
     #[test]
@@ -1213,9 +877,76 @@ address_list4: "oxidns_next_ipv4"
         .unwrap();
         let parsed = parse_plugin_config(Some(cfg), false).unwrap();
         assert_eq!(
-            parsed.api_timeouts,
+            parsed.connection.as_ref().expect("connection").timeouts,
             MikrotikApiTimeouts::from_secs(10, 11, 60)
         );
+    }
+
+    #[test]
+    fn config_defaults_and_accepts_wait_and_queue_settings() {
+        let defaults = serde_yaml_ng::from_str::<Value>(
+            "address: 1.1.1.1:8728\nusername: user\npassword: pass\naddress_list4: policy\n",
+        )
+        .unwrap();
+        let parsed = parse_plugin_config(Some(defaults), false).unwrap();
+        assert_eq!(parsed.wait_timeout, DEFAULT_WAIT_TIMEOUT);
+        assert_eq!(parsed.queue_capacity, DEFAULT_QUEUE_CAPACITY);
+
+        let custom = serde_yaml_ng::from_str::<Value>(
+            "address: 1.1.1.1:8728\nusername: user\npassword: pass\naddress_list4: policy\nwait_timeout: 1500ms\nqueue_capacity: 32\n",
+        )
+        .unwrap();
+        let parsed = parse_plugin_config(Some(custom), false).unwrap();
+        assert_eq!(parsed.wait_timeout, Duration::from_millis(1_500));
+        assert_eq!(parsed.queue_capacity, 32);
+    }
+
+    #[test]
+    fn config_rejects_zero_wait_and_queue_settings() {
+        for invalid in ["wait_timeout: 0s", "queue_capacity: 0"] {
+            let yaml = format!(
+                "address: 1.1.1.1:8728\nusername: user\npassword: pass\naddress_list4: policy\n{invalid}\n"
+            );
+            let value = serde_yaml_ng::from_str::<Value>(&yaml).unwrap();
+            assert!(parse_plugin_config(Some(value), false).is_err());
+        }
+    }
+
+    #[test]
+    fn config_validation_enables_verified_routeros_tls() {
+        let cfg = serde_yaml_ng::from_str::<Value>(
+            r#"
+address: "router.example:8729"
+username: "user"
+password: "sensitive-credential"
+tls: {}
+address_list4: "oxidns_next_ipv4"
+"#,
+        )
+        .unwrap();
+
+        let parsed = parse_plugin_config(Some(cfg), false).unwrap();
+        let debug = format!("{:?}", parsed.connection.expect("connection"));
+        assert!(debug.contains("Secure"));
+        assert!(debug.contains("router.example"));
+        assert!(!debug.contains("sensitive-credential"));
+    }
+
+    #[test]
+    fn config_validation_keeps_plaintext_when_tls_is_omitted() {
+        let cfg = serde_yaml_ng::from_str::<Value>(
+            r#"
+address: "router.example:8728"
+username: "user"
+password: "pass"
+address_list4: "oxidns_next_ipv4"
+"#,
+        )
+        .unwrap();
+
+        let parsed = parse_plugin_config(Some(cfg), false).unwrap();
+        let debug = format!("{:?}", parsed.connection.expect("connection"));
+        assert!(debug.contains("tls: None"));
     }
 
     #[test]
@@ -1314,14 +1045,10 @@ persistent:
 
     #[test]
     fn comment_codec_roundtrip() {
-        let comment = encode_comment(
-            "oxidns_next",
-            "mk",
-            OwnedCommentKind::Dynamic,
-            Some("example.com"),
-        );
+        let comment = encode_comment("oxidns_next", "mk", OwnedCommentKind::Dynamic);
         let meta = decode_owned_comment("oxidns_next", "mk", Some(comment.as_str())).unwrap();
         assert_eq!(meta.kind, OwnedCommentKind::Dynamic);
+        assert!(!comment.contains("dm="));
     }
 
     #[tokio::test]
@@ -1508,6 +1235,84 @@ persistent:
     }
 
     #[tokio::test]
+    async fn unchanged_persistent_reconcile_does_not_upsert() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let key = AddressListKey::new(
+            IpAddr::V4(Ipv4Addr::new(100, 64, 1, 9)),
+            "oxidns_next_ipv4".to_string(),
+        );
+        api.seed_entry(RouterListEntry {
+            id: "*unchanged".to_string(),
+            key: key.clone(),
+            timeout: None,
+            comment: Some(encode_comment(
+                "oxidns_next",
+                "mk",
+                OwnedCommentKind::Persistent,
+            )),
+        });
+        let mut cfg = default_cfg("mk");
+        cfg.persistent_items.insert(key);
+        let mut manager = AddressListManager::new(api.clone(), cfg);
+
+        manager.reconcile().await.unwrap();
+
+        let state = api.state.lock().unwrap();
+        assert_eq!(state.upsert_v4, 0);
+        assert_eq!(state.update_ops, 0);
+    }
+
+    #[tokio::test]
+    async fn empty_reconcile_removes_stale_persistent_then_skips_redundant_scan() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let key = AddressListKey::new(
+            IpAddr::V4(Ipv4Addr::new(100, 64, 1, 10)),
+            "oxidns_next_ipv4".to_string(),
+        );
+        api.seed_entry(RouterListEntry {
+            id: "*stale-persistent".to_string(),
+            key,
+            timeout: None,
+            comment: Some(encode_comment(
+                "oxidns_next",
+                "mk",
+                OwnedCommentKind::Persistent,
+            )),
+        });
+        let mut manager = AddressListManager::new(api.clone(), default_cfg("mk"));
+
+        manager.background_reconcile_for_test().await;
+
+        assert_eq!(api.entry_count(), 0);
+        assert_eq!(api.list_entries_calls(), 1);
+
+        manager.background_reconcile_for_test().await;
+        assert_eq!(api.list_entries_calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn startup_reconcile_is_applied_as_soon_as_background_scan_finishes() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let mut cfg = default_cfg("startup-reconcile");
+        cfg.persistent_items.insert(AddressListKey::new(
+            IpAddr::V4(Ipv4Addr::new(100, 64, 1, 11)),
+            "oxidns_next_ipv4".to_string(),
+        ));
+        let manager = AddressListManager::new(api.clone(), cfg);
+        let runtime = AddressListManagerRuntime::start("startup-reconcile".to_string(), manager);
+
+        tokio::time::timeout(Duration::from_millis(500), async {
+            while api.entry_count() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("startup reconcile result should be applied without waiting for a timer tick");
+
+        runtime.shutdown(false).await.expect("shutdown");
+    }
+
+    #[tokio::test]
     async fn persistent_update_replaces_removed_entries() {
         let api = Arc::new(MockMikrotikApi::default());
         let mut cfg = default_cfg("mk");
@@ -1557,7 +1362,6 @@ persistent:
                 "oxidns_next",
                 "mk",
                 OwnedCommentKind::Persistent,
-                None,
             )),
         });
         {
@@ -1565,7 +1369,12 @@ persistent:
             state.convert_persistent_to_dynamic_after_list = true;
         }
 
-        let mut manager = AddressListManager::new(api.clone(), default_cfg("mk"));
+        let mut cfg = default_cfg("mk");
+        cfg.persistent_items.insert(AddressListKey::new(
+            IpAddr::V4(Ipv4Addr::new(15, 15, 15, 16)),
+            "oxidns_next_ipv4".to_string(),
+        ));
+        let mut manager = AddressListManager::new(api.clone(), cfg);
         manager.reconcile().await.unwrap();
 
         let state = api.state.lock().unwrap();
@@ -1669,6 +1478,130 @@ persistent:
     }
 
     #[tokio::test]
+    async fn dynamic_refresh_cache_has_no_record_count_limit() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let cfg = default_cfg("cache-cap");
+        let mut manager = AddressListManager::new(api, cfg);
+        let addrs = (1..=3)
+            .map(|last| ObservedAddr {
+                addr: IpAddr::V4(Ipv4Addr::new(198, 51, 100, last)),
+                ttl_secs: 300,
+            })
+            .collect();
+
+        manager
+            .observe_domain_at_for_test("capacity.example".to_string(), addrs, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(manager.dynamic_cache_len(), 3);
+    }
+
+    #[tokio::test]
+    async fn reconcile_ignores_remote_dynamic_and_accepts_new_key() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let cfg = default_cfg("over-capacity");
+        let mut manager = AddressListManager::new(api.clone(), cfg);
+        let first = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 1));
+        manager
+            .observe_domain_at_for_test(
+                "first.example".to_string(),
+                vec![ObservedAddr {
+                    addr: first,
+                    ttl_secs: 300,
+                }],
+                0,
+            )
+            .await
+            .unwrap();
+
+        for last in [2, 3] {
+            let key = AddressListKey::new(
+                IpAddr::V4(Ipv4Addr::new(198, 51, 100, last)),
+                "oxidns_next_ipv4".to_string(),
+            );
+            api.seed_entry(RouterListEntry {
+                id: format!("*remote-{last}"),
+                key,
+                timeout: Some("300s".to_string()),
+                comment: Some(encode_comment(
+                    "oxidns_next",
+                    "over-capacity",
+                    OwnedCommentKind::Dynamic,
+                )),
+            });
+        }
+
+        manager.reconcile().await.unwrap();
+        assert_eq!(manager.dynamic_cache_len(), 1);
+
+        let rejected = AddressListKey::new(
+            IpAddr::V4(Ipv4Addr::new(198, 51, 100, 4)),
+            "oxidns_next_ipv4".to_string(),
+        );
+        manager
+            .observe_domain_at_for_test(
+                "new.example".to_string(),
+                vec![ObservedAddr {
+                    addr: rejected.address,
+                    ttl_secs: 300,
+                }],
+                1_000,
+            )
+            .await
+            .unwrap();
+        assert_eq!(manager.dynamic_cache_len(), 2);
+        assert!(
+            api.state
+                .lock()
+                .unwrap()
+                .entries
+                .contains_key(&MockMikrotikApi::storage_key(&rejected))
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_ignores_manual_dynamic_deletion() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let mut cfg = default_cfg("manual-delete");
+        cfg.fixed_ttl = Some(0);
+        let mut manager = AddressListManager::new(api.clone(), cfg);
+        let ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 77));
+        let key = AddressListKey::new(ip, "oxidns_next_ipv4".to_string());
+        let observed = vec![ObservedAddr {
+            addr: ip,
+            ttl_secs: 300,
+        }];
+
+        manager
+            .observe_domain_at_for_test("manual.example".to_string(), observed.clone(), 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.dynamic_cache_len(), 1);
+        api.state
+            .lock()
+            .unwrap()
+            .entries
+            .remove(&MockMikrotikApi::storage_key(&key));
+
+        manager.background_reconcile_for_test().await;
+        assert_eq!(manager.dynamic_cache_len(), 1);
+
+        manager
+            .observe_domain_at_for_test("manual.example".to_string(), observed, 1_000)
+            .await
+            .unwrap();
+        assert_eq!(manager.dynamic_cache_len(), 1);
+        assert!(
+            !api.state
+                .lock()
+                .unwrap()
+                .entries
+                .contains_key(&MockMikrotikApi::storage_key(&key))
+        );
+    }
+
+    #[tokio::test]
     async fn execute_returns_next() {
         let api = Arc::new(MockMikrotikApi::default()) as Arc<dyn MikrotikApi>;
         let mut executor =
@@ -1742,7 +1675,7 @@ persistent:
     async fn async_true_uses_background_manager() {
         let api = Arc::new(MockMikrotikApi::default());
         let mut executor = build_executor_for_test(
-            "mk",
+            "mk_async_true",
             true,
             false,
             Some("oxidns_next_ipv4"),
@@ -1836,6 +1769,7 @@ persistent:
     #[tokio::test]
     async fn shutdown_cleanup_removes_only_owned_entries() {
         let api = Arc::new(MockMikrotikApi::default());
+        let tag = "mk-cleanup-owned-only".to_string();
         let owned_key = AddressListKey::new(
             IpAddr::V4(Ipv4Addr::new(11, 11, 11, 11)),
             "oxidns_next_ipv4".to_string(),
@@ -1846,9 +1780,8 @@ persistent:
             timeout: Some("300s".to_string()),
             comment: Some(encode_comment(
                 "oxidns_next",
-                "mk",
+                tag.as_str(),
                 OwnedCommentKind::Dynamic,
-                Some("example.com"),
             )),
         });
         api.seed_entry(RouterListEntry {
@@ -1862,7 +1795,7 @@ persistent:
         });
 
         let mut executor = build_executor_for_test(
-            "mk",
+            tag.as_str(),
             true,
             true,
             Some("oxidns_next_ipv4"),
@@ -1879,5 +1812,43 @@ persistent:
                 .contains_key(&MockMikrotikApi::storage_key(&owned_key))
         );
         assert_eq!(state.entries.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn shutdown_cleanup_revalidates_ownership_before_delete() {
+        let api = Arc::new(MockMikrotikApi::default());
+        let key = AddressListKey::new(
+            IpAddr::V4(Ipv4Addr::new(11, 11, 11, 13)),
+            "oxidns_next_ipv4".to_string(),
+        );
+        api.seed_entry(RouterListEntry {
+            id: "*ownership-race".to_string(),
+            key: key.clone(),
+            timeout: Some("300s".to_string()),
+            comment: Some(encode_comment(
+                "oxidns_next",
+                "cleanup-race",
+                OwnedCommentKind::Dynamic,
+            )),
+        });
+        api.state
+            .lock()
+            .unwrap()
+            .convert_owned_to_foreign_after_list = true;
+        let mut manager = AddressListManager::new(api.clone(), {
+            let mut cfg = default_cfg("cleanup-race");
+            cfg.comment_prefix = "oxidns_next".to_string();
+            cfg
+        });
+
+        manager.shutdown(true).await.unwrap();
+
+        assert!(
+            api.state
+                .lock()
+                .unwrap()
+                .entries
+                .contains_key(&MockMikrotikApi::storage_key(&key))
+        );
     }
 }

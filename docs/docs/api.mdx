@@ -3,26 +3,32 @@ title: 管理 API
 sidebar_position: 4
 ---
 
-import Admonition from "@theme/Admonition";
+import Admonition from '@theme/Admonition';
 
-OxiDNS Next 的管理 API 是独立控制平面，负责：
 
-* 进程与启动健康检查
-* 配置检查与配置文本校验
-* 重载与关闭控制
-* 插件扩展 API
-* Prometheus 指标导出
+OxiDNS Next 的管理 API 是独立控制平面，提供健康检查、配置校验与保存、进程控制、日志、升级、插件扩展 API 和 Prometheus 指标。本页是接口地图；请求格式、返回字段和示例分别位于专题页。
 
-本章说明管理 API 的启用方式、认证传输、核心接口和指标导出。
+## 使用顺序
 
-## 启用方式
+1. 按[访问约定与安全](api/conventions.mdx)配置监听、TLS、Basic Auth、CORS 和 WebUI。
+2. 用 `GET /api/healthz` 检查监听，再用 `GET /api/readyz` 判断 DNS 服务是否就绪。
+3. 修改配置前调用校验接口；保存后通过 reload 接口应用，并轮询 reload 状态。
+4. 只向可信网络暴露控制、日志、升级和插件数据接口。
+5. 将 `/api/metrics` 接入 Prometheus 时，保持与管理面相同的访问控制边界。
 
-### 简写
+## 接口地图
 
-```yaml
-api:
-  http: "127.0.0.1:9088"
-```
+| 主题 | 主要路由 |
+| --- | --- |
+| [访问约定与安全](api/conventions.mdx) | 监听、HTTPS/mTLS、Basic Auth、WebUI、CORS、路由布局、配置模板 |
+| [健康、控制、日志与升级](api/control.mdx) | `/api/health*`、`/api/build`、`/api/control`、reload、日志/SSE、upgrade |
+| [配置接口](api/configuration.mdx) | 读取、写入、检查和校验配置 |
+| [插件扩展 API](api/plugins.mdx) | cache、matcher、provider、reverse lookup、query recorder |
+| [Prometheus 指标](api/metrics.mdx) | `/api/metrics` 与指标目录 |
+
+## 兼容性说明
+
+管理 API 属于当前二进制的控制面能力。部署自动化应先读取 `/api/build` 确认 bundle 和插件能力，并容忍可选插件路由不存在。升级前后请重新执行 readiness、配置校验和关键 API 冒烟测试。
 
 监听地址支持 `ip:port`、`[ipv6]:port` 和 `:port`。`http: ":9088"` 会绑定为双栈 `[::]:9088`；仅监听 IPv4 时请显式写 `0.0.0.0:9088`。
 
@@ -686,10 +692,14 @@ GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
 
 查询参数：
 
-* `bucket=minute|hour`
+* `bucket=minute|hour|day|month`
 * `buckets=<n>`
   * 返回桶数，默认 `60`，最大 `720`。
 * 同 `/records` 支持时间范围与过滤参数。
+
+时间桶按 UTC 对齐。月份使用真实日历月（兼容闰年和不同月长），响应 `bucket_ms=0` 表示可变月长；每个 point 的 `bucket_ms` 始终是桶起点的 Unix 毫秒时间戳。响应 `since_ms` / `until_ms` 为实际查询边界。未指定结束时间时使用当前时间；`buckets` 限制返回最近的桶数，空桶补零。趋势统计聚合选定范围内的全部保留记录，不使用最近 10,000 条采样；平均延迟为加权平均，P95 为最近秩分位数。
+
+WebUI 默认 24 小时，可选择 1 小时、24 小时、7 天、30 天或 12 个日历月，分别使用分钟、小时、天、天、月桶。拖动底部滑块或 Ctrl + 滚轮缩放，拖动图表平移；无样本时延迟显示缺口，计数为零。历史仅来自数据库保留记录；查看完整年度历史需提前把 `retention_days` 设为至少 366，已经清理的记录无法补回。
 
 #### `GET /api/plugins/<tag>/stream`
 

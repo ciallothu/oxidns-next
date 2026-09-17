@@ -6,7 +6,9 @@
 use std::net::IpAddr;
 
 use crate::core::context::DnsContext;
-use crate::proto::{ClientSubnet, DNSClass, EdnsCode, EdnsOption, Message, RecordType};
+use crate::proto::{
+    ClientSubnet, DNSClass, EdnsCode, EdnsOption, Message, Name, Question, RecordType,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(super) struct EcsScopeDigest {
@@ -25,6 +27,14 @@ pub(super) struct CacheKey {
     pub(super) do_bit: bool,
     pub(super) cd_bit: bool,
     pub(super) ecs_scope: Option<EcsScopeDigest>,
+}
+
+impl CacheKey {
+    #[inline]
+    pub(super) fn question(&self) -> Option<Question> {
+        let name = Name::from_ascii(&self.domain).ok()?;
+        Some(Question::new(name, self.record_type, self.dns_class))
+    }
 }
 
 #[inline]

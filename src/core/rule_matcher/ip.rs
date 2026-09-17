@@ -94,6 +94,12 @@ enum ParsedPrefix {
     V6 { network: u128, prefix_len: u8 },
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum IpRuleFamily {
+    V4,
+    V6,
+}
+
 /// Metadata for one IPv4 page in the compiled matcher.
 ///
 /// `aux` indexes one of the side arrays selected by `kind`.
@@ -255,6 +261,19 @@ pub struct IpPrefixMatcher {
 }
 
 impl IpPrefixMatcher {
+    pub(crate) fn classify_rule(raw_rule: &str) -> Result<IpRuleFamily, String> {
+        match parse_ip_prefix(raw_rule.trim())? {
+            ParsedPrefix::V4 { .. } => Ok(IpRuleFamily::V4),
+            ParsedPrefix::V6 { .. } => Ok(IpRuleFamily::V6),
+        }
+    }
+
+    /// Reserve build-only source ranges before a multi-pass bulk load.
+    pub(crate) fn reserve_rules(&mut self, v4: usize, v6: usize) {
+        self.v4_rules.reserve(v4);
+        self.v6_rules.reserve(v6);
+    }
+
     #[inline]
     pub fn has_v4_rules(&self) -> bool {
         self.v4.as_ref().is_some_and(V4Matcher::has_rules) || !self.v4_rules.is_empty()

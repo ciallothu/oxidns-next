@@ -4,22 +4,22 @@
 //! V2Ray geosite.dat-backed domain provider.
 
 use std::any::Any;
-use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use prost::Message;
 use serde::Deserialize;
 use tracing::info;
 
 use crate::config::types::PluginConfig;
-use crate::core::rule_matcher::DomainRuleMatcher;
+use crate::core::rule_matcher::{DomainRuleKind, DomainRuleMatcher};
 use crate::infra::clock::AppClock;
 use crate::infra::error::{DnsError, Result as DnsResult};
+use crate::infra::task::spawn_isolated_build;
 use crate::plugin::provider::Provider;
-use crate::plugin::provider::v2ray_dat::{
-    GeoSiteList, geosite_code, geosite_domain_expression, geosite_domain_matches_selectors,
+use crate::plugin::provider::v2ray::{
+    DatFileSession, Domain, DomainType, GeoSite, geosite_code, geosite_domain_matches_selectors,
     matched_geosite_selectors, parse_geosite_selectors,
 };
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
@@ -41,96 +41,67 @@ struct GeoSiteSnapshot {
 #[derive(Debug)]
 pub struct GeoSiteProvider {
     tag: String,
-    args: GeoSiteArgs,
+    args: Arc<GeoSiteArgs>,
     snapshot: ArcSwap<GeoSiteSnapshot>,
 }
 
 impl GeoSiteProvider {
-    #[hotpath::measure]
-    fn build_snapshot(&self) -> DnsResult<GeoSiteSnapshot> {
+    fn build_snapshot(tag: &str, args: &GeoSiteArgs) -> DnsResult<GeoSiteSnapshot> {
         let start_ms = AppClock::elapsed_millis();
-
-        let data = fs::read(&self.args.file).map_err(|e| {
-            DnsError::plugin(format!(
-                "plugin '{}' failed to read geosite dat file '{}': {}",
-                self.tag, self.args.file, e
-            ))
-        })?;
-        let geosite = GeoSiteList::decode(data.as_slice()).map_err(|e| {
-            DnsError::plugin(format!(
-                "plugin '{}' failed to decode geosite dat file '{}': {}",
-                self.tag, self.args.file, e
-            ))
-        })?;
-
-        let selectors = parse_geosite_selectors(&self.args.selectors).map_err(|e| {
+        let selectors = parse_geosite_selectors(&args.selectors).map_err(|e| {
             DnsError::plugin(format!(
                 "plugin '{}' failed to parse geosite selectors: {}",
-                self.tag, e
+                tag, e
             ))
         })?;
-
-        let mut matcher = DomainRuleMatcher::default();
+        let path = Path::new(&args.file);
+        let mut source =
+            DatFileSession::open(path).map_err(|error| geosite_file_error(tag, args, error))?;
         let mut matched_entries = 0usize;
         let mut matched_domains = 0usize;
-
-        for entry in &geosite.entry {
-            if selectors.is_empty() {
-                matched_entries += 1;
-                for domain in &entry.domain {
-                    let exp = geosite_domain_expression(domain).map_err(|e| {
-                        DnsError::plugin(format!(
-                            "plugin '{}' geosite code '{}' {}",
-                            self.tag,
-                            geosite_code(entry),
-                            e
-                        ))
-                    })?;
-                    let source = format!("geosite code '{}'", geosite_code(entry));
-                    matcher
-                        .add_expression(&exp, &source)
-                        .map_err(DnsError::plugin)?;
+        let mut full = 0usize;
+        let mut keyword = 0usize;
+        let mut regexp = 0usize;
+        source
+            .visit_geosite(|entry| {
+                visit_selected_geosite_domains(&entry, &selectors, |domain| {
+                    match geosite_domain_kind(domain)? {
+                        DomainRuleKind::Full => full += 1,
+                        DomainRuleKind::Keyword => keyword += 1,
+                        DomainRuleKind::Regexp => regexp += 1,
+                        DomainRuleKind::Domain => {}
+                    }
                     matched_domains += 1;
-                }
-                continue;
-            }
-
-            let matched_selectors = matched_geosite_selectors(entry, &selectors);
-            if matched_selectors.is_empty() {
-                continue;
-            }
-            matched_entries += 1;
-            for domain in &entry.domain {
-                if !geosite_domain_matches_selectors(domain, &matched_selectors) {
-                    continue;
-                }
-                let exp = geosite_domain_expression(domain).map_err(|e| {
-                    DnsError::plugin(format!(
-                        "plugin '{}' geosite code '{}' {}",
-                        self.tag,
-                        geosite_code(entry),
-                        e
-                    ))
+                    Ok(())
+                })
+                .map(|matched| matched_entries += usize::from(matched))
+            })
+            .map_err(|error| geosite_file_error(tag, args, error))?;
+        let mut matcher = DomainRuleMatcher::default();
+        matcher.reserve_rules(full, keyword, regexp);
+        source
+            .visit_geosite(|entry| {
+                visit_selected_geosite_domains(&entry, &selectors, |domain| {
+                    let kind = geosite_domain_kind(domain)?;
+                    matcher
+                        .add_rule(kind, &domain.value, "")
+                        .map_err(|error| format!("geosite code '{}' {error}", geosite_code(&entry)))
                 })?;
-                let source = format!("geosite code '{}'", geosite_code(entry));
-                matcher
-                    .add_expression(&exp, &source)
-                    .map_err(DnsError::plugin)?;
-                matched_domains += 1;
-            }
-        }
+                Ok(())
+            })
+            .map_err(|error| geosite_file_error(tag, args, error))?;
 
         if matched_entries == 0 && !selectors.is_empty() {
             return Err(DnsError::plugin(format!(
                 "plugin '{}' found no geosite entries in '{}' for selectors {:?}",
-                self.tag, self.args.file, self.args.selectors
+                tag, args.file, args.selectors
             )));
         }
 
         if matched_domains == 0 && !selectors.is_empty() {
             return Err(DnsError::plugin(format!(
                 "plugin '{}' found no geosite rules in '{}' for selectors {:?}",
-                self.tag, self.args.file, self.args.selectors
+                tag, args.file, args.selectors
             )));
         }
 
@@ -142,15 +113,15 @@ impl GeoSiteProvider {
         if has_rules == 0 {
             return Err(DnsError::plugin(format!(
                 "plugin '{}' produced no domain rules from geosite dat '{}'",
-                self.tag, self.args.file
+                tag, args.file
             )));
         }
 
         let elapsed_ms = AppClock::elapsed_millis().saturating_sub(start_ms);
         info!(
-            tag = %self.tag,
-            file = %self.args.file,
-            selectors = ?self.args.selectors,
+            tag = %tag,
+            file = %args.file,
+            selectors = ?args.selectors,
             matched_entries,
             matched_domains,
             full_rules = matcher.full_rule_count(),
@@ -198,7 +169,12 @@ impl Provider for GeoSiteProvider {
 
     #[hotpath::measure]
     async fn reload(&self) -> DnsResult<()> {
-        let snapshot = self.build_snapshot()?;
+        let tag = self.tag.clone();
+        let args = self.args.clone();
+        let snapshot = spawn_isolated_build("geosite snapshot build", move || {
+            Self::build_snapshot(&tag, &args)
+        })
+        .await?;
         self.snapshot.store(Arc::new(snapshot));
         Ok(())
     }
@@ -234,8 +210,49 @@ impl PluginFactory for GeoSiteFactory {
 
         Ok(UninitializedPlugin::Provider(Box::new(GeoSiteProvider {
             tag: plugin_config.tag.clone(),
-            args,
+            args: Arc::new(args),
             snapshot: ArcSwap::from_pointee(GeoSiteSnapshot::default()),
         })))
     }
+}
+
+fn visit_selected_geosite_domains<F>(
+    entry: &GeoSite,
+    selectors: &[crate::plugin::provider::v2ray::GeoSiteSelector],
+    mut on_domain: F,
+) -> Result<bool, String>
+where
+    F: FnMut(&Domain) -> Result<(), String>,
+{
+    let matched_selectors = matched_geosite_selectors(entry, selectors);
+    if !selectors.is_empty() && matched_selectors.is_empty() {
+        return Ok(false);
+    }
+    for domain in &entry.domain {
+        if selectors.is_empty() || geosite_domain_matches_selectors(domain, &matched_selectors) {
+            on_domain(domain)?;
+        }
+    }
+    Ok(true)
+}
+
+fn geosite_domain_kind(domain: &Domain) -> Result<DomainRuleKind, String> {
+    match DomainType::try_from(domain.r#type).map_err(|_| {
+        format!(
+            "unsupported domain type '{}' for '{}'",
+            domain.r#type, domain.value
+        )
+    })? {
+        DomainType::Plain => Ok(DomainRuleKind::Keyword),
+        DomainType::Regex => Ok(DomainRuleKind::Regexp),
+        DomainType::RootDomain => Ok(DomainRuleKind::Domain),
+        DomainType::Full => Ok(DomainRuleKind::Full),
+    }
+}
+
+fn geosite_file_error(tag: &str, args: &GeoSiteArgs, error: String) -> DnsError {
+    DnsError::plugin(format!(
+        "plugin '{}' failed to stream geosite dat file '{}': {}",
+        tag, args.file, error
+    ))
 }

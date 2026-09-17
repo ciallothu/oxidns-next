@@ -26,6 +26,44 @@ use crate::plugin_factory;
 
 pub mod chain;
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) enum BuiltinKind {
+    Accept,
+    Return,
+    Reject,
+    Jump,
+    Goto,
+    Mark,
+    SetMark,
+}
+
+impl BuiltinKind {
+    pub(super) fn from_keyword(keyword: &str) -> Option<Self> {
+        match keyword {
+            "accept" => Some(Self::Accept),
+            "return" => Some(Self::Return),
+            "reject" => Some(Self::Reject),
+            "jump" => Some(Self::Jump),
+            "goto" => Some(Self::Goto),
+            "mark" => Some(Self::Mark),
+            "set_mark" => Some(Self::SetMark),
+            _ => None,
+        }
+    }
+
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Accept => "accept",
+            Self::Return => "return",
+            Self::Reject => "reject",
+            Self::Jump => "jump",
+            Self::Goto => "goto",
+            Self::Mark => "mark",
+            Self::SetMark => "set_mark",
+        }
+    }
+}
+
 pub(super) fn parse_control_flow_sequence_tag(op: &str, raw: &str) -> DnsResult<String> {
     let tag = raw.trim();
     if tag.is_empty() {
@@ -139,13 +177,15 @@ impl Executor for Sequence {
 fn parse_control_flow_dependency(exec: &str) -> Option<String> {
     let mut split = exec.trim().splitn(2, char::is_whitespace);
     let op = split.next()?;
+    let kind = BuiltinKind::from_keyword(op)?;
+    if !matches!(kind, BuiltinKind::Jump | BuiltinKind::Goto) {
+        return None;
+    }
     let arg = split.next()?.trim();
     if arg.is_empty() {
         return None;
     }
-    if (op == "jump" || op == "goto")
-        && let Ok(tag) = parse_control_flow_sequence_tag(op, arg)
-    {
+    if let Ok(tag) = parse_control_flow_sequence_tag(op, arg) {
         return Some(tag);
     }
     None
@@ -270,24 +310,18 @@ fn analyze_builtin_exec_expression(field: &str, raw: &str) -> Option<SequenceFlo
     let trimmed = raw.trim();
     let mut split = trimmed.splitn(2, char::is_whitespace);
     let op = split.next()?;
+    let kind = BuiltinKind::from_keyword(op)?;
     let param = split
         .next()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let is_builtin = matches!(
-        op,
-        "accept" | "return" | "reject" | "jump" | "goto" | "mark"
-    );
-    if !is_builtin {
-        return None;
-    }
 
-    let target_tag = if matches!(op, "jump" | "goto") {
+    let target_tag = if matches!(kind, BuiltinKind::Jump | BuiltinKind::Goto) {
         param.and_then(|tag| parse_control_flow_sequence_tag(op, tag).ok())
     } else {
         None
     };
-    let plugin_type = if matches!(op, "jump" | "goto") {
+    let plugin_type = if matches!(kind, BuiltinKind::Jump | BuiltinKind::Goto) {
         Some("sequence".to_string())
     } else {
         None
@@ -301,7 +335,7 @@ fn analyze_builtin_exec_expression(field: &str, raw: &str) -> Option<SequenceFlo
         plugin_type,
         param: param.map(str::to_string),
         inverted: false,
-        builtin: Some(op.to_string()),
+        builtin: Some(kind.as_str().to_string()),
     })
 }
 
@@ -344,8 +378,14 @@ impl PluginFactory for SequenceFactory {
             }
             if let Some(exec) = rule.exec {
                 let field = format!("args[{}].exec", rule_idx);
-                if let Some(tag) = parse_control_flow_dependency(&exec) {
-                    result.push(DependencySpec::executor_type(field, tag, "sequence"));
+                let op = exec
+                    .trim()
+                    .split_once(char::is_whitespace)
+                    .map_or(exec.trim(), |(op, _)| op);
+                if BuiltinKind::from_keyword(op).is_some() {
+                    if let Some(tag) = parse_control_flow_dependency(&exec) {
+                        result.push(DependencySpec::executor_type(field, tag, "sequence"));
+                    }
                 } else {
                     match PluginRef::from_str(&exec) {
                         Ok(PluginRef::PluginTag(tag)) => {
@@ -537,5 +577,33 @@ exec: reject 2
                 .and_then(|expr| expr.builtin.as_deref()),
             Some("accept")
         );
+    }
+
+    #[test]
+    fn test_set_mark_is_reported_as_dependency_free_builtin() {
+        let config = PluginConfig {
+            tag: "seq".to_string(),
+            plugin_type: "sequence".to_string(),
+            args: Some(
+                serde_yaml_ng::from_str(
+                    r#"
+- exec: "set_mark 2,3"
+"#,
+                )
+                .expect("sequence args should parse"),
+            ),
+        };
+
+        let flow = analyze_sequence_flow(&config).expect("sequence flow should parse");
+        let exec = flow.rules[0]
+            .exec
+            .as_ref()
+            .expect("set_mark rule should have an action");
+        assert_eq!(exec.kind, SequenceFlowExpressionKind::Builtin);
+        assert_eq!(exec.builtin.as_deref(), Some("set_mark"));
+        assert_eq!(exec.param.as_deref(), Some("2,3"));
+        assert_eq!(exec.target_tag, None);
+
+        assert!(SequenceFactory {}.get_dependency_specs(&config).is_empty());
     }
 }

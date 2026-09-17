@@ -33,6 +33,12 @@ fn build_domain_matcher(rules: &[String]) -> DomainRuleMatcher {
     matcher
 }
 
+fn make_suffix_rules(count: usize) -> Vec<String> {
+    (0..count)
+        .map(|idx| format!("domain:host-{idx}.suffix-bench.example"))
+        .collect()
+}
+
 fn bench_domain_matcher(c: &mut Criterion) {
     let rules = make_domain_rules();
     let matcher = build_domain_matcher(&rules);
@@ -68,6 +74,53 @@ fn bench_domain_matcher(c: &mut Criterion) {
     }
 
     group.finish();
+
+    let mut scaling = c.benchmark_group("rule_matcher_domain_suffix_scaling");
+    scaling.sample_size(10);
+    for rule_count in [1_000usize, 100_000usize] {
+        let suffix_rules = make_suffix_rules(rule_count);
+        scaling.bench_function(BenchmarkId::new("build", rule_count), |b| {
+            b.iter(|| {
+                let matcher = build_domain_matcher(black_box(&suffix_rules));
+                black_box(matcher);
+            })
+        });
+
+        let matcher = build_domain_matcher(&suffix_rules);
+        let direct_hit = Name::from_ascii(&format!("host-{}.suffix-bench.example", rule_count - 1))
+            .expect("direct suffix hit should parse");
+        let deep_hit = Name::from_ascii(&format!(
+            "api.edge.host-{}.suffix-bench.example",
+            rule_count - 1
+        ))
+        .expect("deep suffix hit should parse");
+        let miss =
+            Name::from_ascii("missing.suffix-bench.example").expect("suffix miss should parse");
+        let deep_ten_hit = Name::from_ascii(&format!(
+            "l10.l9.l8.l7.l6.l5.l4.l3.l2.l1.host-{}.suffix-bench.example",
+            rule_count - 1
+        ))
+        .expect("ten-level suffix hit should parse");
+        let unshared_tld_miss =
+            Name::from_ascii("www.unrelated.invalid").expect("unshared TLD miss should parse");
+        let deep_unshared_tld_miss =
+            Name::from_ascii("l10.l9.l8.l7.l6.l5.l4.l3.l2.l1.www.unrelated.invalid")
+                .expect("deep unshared TLD miss should parse");
+
+        for (label, name) in [
+            ("lookup_direct_hit", &direct_hit),
+            ("lookup_two_level_hit", &deep_hit),
+            ("lookup_shared_suffix_miss", &miss),
+            ("lookup_ten_level_hit", &deep_ten_hit),
+            ("lookup_unshared_tld_miss", &unshared_tld_miss),
+            ("lookup_deep_unshared_tld_miss", &deep_unshared_tld_miss),
+        ] {
+            scaling.bench_function(BenchmarkId::new(label, rule_count), |b| {
+                b.iter(|| black_box(matcher.is_match_name(black_box(name))))
+            });
+        }
+    }
+    scaling.finish();
 }
 
 criterion_group!(domain_rule_matcher, bench_domain_matcher);

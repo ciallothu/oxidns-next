@@ -3,52 +3,29 @@ title: 命令行工具
 sidebar_position: 3
 ---
 
-本页按使用任务介绍 OxiDNS Next 的命令行工具。日常部署时，最常用的是先 `check` 校验配置，再 `start` 启动服务。
-
-主程序只有一个二进制：`oxidns-next`。
-
-可用顶层命令如下：
-
-- `start`
-- `check`
-- `build-info`
-- `export-dat`
-- `probe`
-- `service`
-- `upgrade`
+OxiDNS Next 只有一个 `oxidns-next` 二进制。本页按任务导航命令；完整参数和行为说明位于三个专题页。
 
 ## 常用任务
 
-| 目标 | 命令 |
-| --- | --- |
-| 校验配置 | `oxidns-next check -c config.yaml` |
-| 前台启动 | `oxidns-next start -c config.yaml` |
-| 临时开启调试日志 | `oxidns-next start -c config.yaml -l debug` |
-| 查看插件依赖图 | `oxidns-next check -c config.yaml --graph` |
-| 查看当前二进制编译能力 | `oxidns-next build-info` |
-| 探测上游连通性和并发行为 | `oxidns-next probe upstream tcp://1.1.1.1:53` |
-| 安装系统服务 | `sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml` |
-| 检查新版本 | `oxidns-next upgrade check` |
-| 从 dat 导出规则文件 | `oxidns-next export-dat --file ./rules/geosite.dat --kind geosite --selector cn --out-dir ./rules/exported` |
+| 目标 | 命令 | 参考 |
+| --- | --- | --- |
+| 校验配置 | `oxidns-next check -c config.yaml` | [配置与数据工具](cli/tools.md) |
+| 前台启动 | `oxidns-next start -c config.yaml` | [运行、探测与系统服务](cli/runtime.md) |
+| 临时调试日志 | `oxidns-next start -c config.yaml -l debug` | [运行、探测与系统服务](cli/runtime.md) |
+| 探测上游 | `oxidns-next probe upstream tcp://1.1.1.1:53` | [运行、探测与系统服务](cli/runtime.md) |
+| 安装系统服务 | `sudo oxidns-next service install -d /var/lib/oxidns-next -c /etc/oxidns-next/config.yaml` | [运行、探测与系统服务](cli/runtime.md) |
+| 查看编译能力 | `oxidns-next build-info` | [配置与数据工具](cli/tools.md) |
+| 导出 dat 规则 | `oxidns-next export-dat ...` | [配置与数据工具](cli/tools.md) |
+| 检查或应用升级 | `oxidns-next upgrade check` / `oxidns-next upgrade apply` | [升级命令](cli/upgrade.md) |
 
-## 查看帮助
+## 帮助与退出码
 
-可先查看顶层帮助：
+使用 `oxidns-next --help` 查看顶层命令，使用 `oxidns-next <subcommand> --help` 查看当前二进制支持的完整参数。自动化流程应检查进程退出码：成功为 `0`，参数、校验或运行错误返回非零值。
 
 ```bash
 oxidns-next --help
-```
-
-查看某个子命令的帮助：
-
-```bash
-oxidns-next start --help
 oxidns-next check --help
-oxidns-next build-info --help
-oxidns-next export-dat --help
-oxidns-next probe --help
 oxidns-next probe upstream --help
-oxidns-next service --help
 oxidns-next upgrade --help
 ```
 
@@ -466,4 +443,4 @@ sudo oxidns-next upgrade apply --no-restart
 
 ## 页面范围
 
-本页覆盖上面这些命令。需要确认本机二进制的完整参数时，可运行 `oxidns-next <subcommand> --help` 查看。
+旧版章节书签会落到本入口页，请使用上表进入拆分后的命令说明。

@@ -26,6 +26,8 @@ struct UpgradeApiBody {
     outbound: Option<String>,
     socks5: Option<String>,
     allow_prerelease: Option<bool>,
+    force: Option<bool>,
+    cleanup: Option<bool>,
     target: Option<String>,
     github_token: Option<String>,
 }
@@ -42,6 +44,12 @@ fn build_upgrade_config(opts: UpgradeApiBody) -> std::result::Result<UpgradeConf
     config.socks5 = opts.socks5.filter(|s| !s.trim().is_empty());
     if let Some(allow_prerelease) = opts.allow_prerelease {
         config.allow_prerelease = allow_prerelease;
+    }
+    if let Some(force) = opts.force {
+        config.force = force;
+    }
+    if let Some(cleanup) = opts.cleanup {
+        config.cleanup_after_apply = cleanup;
     }
     if let Some(target) = opts.target.filter(|s| !s.trim().is_empty()) {
         config.target = target;
@@ -340,4 +348,35 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_upgrade_config_defaults_force_to_false() {
+        let config = build_upgrade_config(UpgradeApiBody::default()).unwrap();
+        assert!(!config.force);
+    }
+
+    #[test]
+    fn build_upgrade_config_accepts_force() {
+        let config = build_upgrade_config(UpgradeApiBody {
+            force: Some(true),
+            ..UpgradeApiBody::default()
+        })
+        .unwrap();
+        assert!(config.force);
+    }
+
+    #[test]
+    fn build_upgrade_config_accepts_cleanup() {
+        let config = build_upgrade_config(UpgradeApiBody {
+            cleanup: Some(true),
+            ..UpgradeApiBody::default()
+        })
+        .unwrap();
+        assert!(config.cleanup_after_apply);
+    }
 }

@@ -4,13 +4,12 @@
 //! V2Ray geoip.dat-backed IP provider.
 
 use std::any::Any;
-use std::fs;
 use std::net::IpAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use prost::Message;
 use serde::Deserialize;
 use tracing::{debug, info};
 
@@ -18,9 +17,10 @@ use crate::config::types::PluginConfig;
 use crate::core::rule_matcher::IpPrefixMatcher;
 use crate::infra::clock::AppClock;
 use crate::infra::error::{DnsError, Result as DnsResult};
+use crate::infra::task::spawn_isolated_build;
 use crate::plugin::provider::Provider;
-use crate::plugin::provider::v2ray_dat::{
-    Cidr, GeoIp, GeoIpList, geoip_code, normalized_selectors,
+use crate::plugin::provider::v2ray::{
+    Cidr, DatFileSession, GeoIp, geoip_code, normalized_selectors,
 };
 use crate::plugin::{Plugin, PluginFactory, UninitializedPlugin};
 use crate::plugin_factory;
@@ -42,48 +42,60 @@ struct GeoIpSnapshot {
 #[derive(Debug)]
 pub struct GeoIpProvider {
     tag: String,
-    args: GeoIpArgs,
+    args: Arc<GeoIpArgs>,
     snapshot: ArcSwap<GeoIpSnapshot>,
 }
 
 impl GeoIpProvider {
-    #[hotpath::measure]
-    fn build_snapshot(&self) -> DnsResult<GeoIpSnapshot> {
+    fn build_snapshot(tag: &str, args: &GeoIpArgs) -> DnsResult<GeoIpSnapshot> {
         let start_ms = AppClock::elapsed_millis();
-
-        let data = fs::read(&self.args.file).map_err(|e| {
-            DnsError::plugin(format!(
-                "plugin '{}' failed to read geoip dat file '{}': {}",
-                self.tag, self.args.file, e
-            ))
-        })?;
-        let geoip = GeoIpList::decode(data.as_slice()).map_err(|e| {
-            DnsError::plugin(format!(
-                "plugin '{}' failed to decode geoip dat file '{}': {}",
-                self.tag, self.args.file, e
-            ))
-        })?;
-
-        let requested_selectors = normalized_selectors(&self.args.selectors);
-        let mut matcher = IpPrefixMatcher::default();
+        let requested_selectors = normalized_selectors(&args.selectors);
+        let path = Path::new(&args.file);
+        let mut source =
+            DatFileSession::open(path).map_err(|error| geoip_file_error(tag, args, error))?;
         let mut matched_entries = 0usize;
-
-        for entry in geoip
-            .entry
-            .iter()
-            .filter(|entry| matches_selector(entry, &requested_selectors))
-        {
-            matched_entries += 1;
-            let code = geoip_code(entry);
-            for cidr in &entry.cidr {
-                add_geoip_cidr(&mut matcher, cidr, &self.tag, code)?;
-            }
-        }
+        let mut v4_capacity = 0usize;
+        let mut v6_capacity = 0usize;
+        source
+            .visit_geoip(|entry| {
+                if !matches_selector(&entry, &requested_selectors) {
+                    return Ok(());
+                }
+                matched_entries += 1;
+                for cidr in &entry.cidr {
+                    match cidr.ip.len() {
+                        4 => v4_capacity += 1,
+                        16 => v6_capacity += 1,
+                        len => {
+                            return Err(format!(
+                                "invalid CIDR byte length {len} in geoip code '{}'",
+                                geoip_code(&entry)
+                            ));
+                        }
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|error| geoip_file_error(tag, args, error))?;
+        let mut matcher = IpPrefixMatcher::default();
+        matcher.reserve_rules(v4_capacity, v6_capacity);
+        source
+            .visit_geoip(|entry| {
+                if matches_selector(&entry, &requested_selectors) {
+                    let code = geoip_code(&entry);
+                    for cidr in &entry.cidr {
+                        add_geoip_cidr(&mut matcher, cidr, tag, code)
+                            .map_err(|error| error.to_string())?;
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|error| geoip_file_error(tag, args, error))?;
 
         if matched_entries == 0 && !requested_selectors.is_empty() {
             return Err(DnsError::plugin(format!(
                 "plugin '{}' found no geoip entries in '{}' for selectors {:?}",
-                self.tag, self.args.file, self.args.selectors
+                tag, args.file, args.selectors
             )));
         }
 
@@ -91,7 +103,7 @@ impl GeoIpProvider {
         if matcher.v4_rule_count() == 0 && matcher.v6_rule_count() == 0 {
             return Err(DnsError::plugin(format!(
                 "plugin '{}' produced no IP rules from geoip dat '{}'",
-                self.tag, self.args.file
+                tag, args.file
             )));
         }
 
@@ -99,16 +111,16 @@ impl GeoIpProvider {
         let has_v6_rules = matcher.has_v6_rules();
         let elapsed_ms = AppClock::elapsed_millis().saturating_sub(start_ms);
         info!(
-            tag = %self.tag,
-            file = %self.args.file,
-            selectors = ?self.args.selectors,
+            tag = %tag,
+            file = %args.file,
+            selectors = ?args.selectors,
             matched_entries,
             v4_rules = matcher.v4_rule_count(),
             v6_rules = matcher.v6_rule_count(),
             elapsed_ms,
             "geoip snapshot built"
         );
-        debug!(tag = %self.tag, has_v4_rules, has_v6_rules, "geoip matcher compiled");
+        debug!(tag = %tag, has_v4_rules, has_v6_rules, "geoip matcher compiled");
 
         Ok(GeoIpSnapshot {
             matcher,
@@ -154,7 +166,12 @@ impl Provider for GeoIpProvider {
 
     #[hotpath::measure]
     async fn reload(&self) -> DnsResult<()> {
-        let snapshot = self.build_snapshot()?;
+        let tag = self.tag.clone();
+        let args = self.args.clone();
+        let snapshot = spawn_isolated_build("geoip snapshot build", move || {
+            Self::build_snapshot(&tag, &args)
+        })
+        .await?;
         self.snapshot.store(Arc::new(snapshot));
         Ok(())
     }
@@ -190,7 +207,7 @@ impl PluginFactory for GeoIpFactory {
 
         Ok(UninitializedPlugin::Provider(Box::new(GeoIpProvider {
             tag: plugin_config.tag.clone(),
-            args,
+            args: Arc::new(args),
             snapshot: ArcSwap::from_pointee(GeoIpSnapshot::default()),
         })))
     }
@@ -244,4 +261,11 @@ fn matches_selector(entry: &GeoIp, requested_selectors: &[String]) -> bool {
     }
     let code = geoip_code(entry).to_ascii_lowercase();
     requested_selectors.iter().any(|wanted| wanted == &code)
+}
+
+fn geoip_file_error(tag: &str, args: &GeoIpArgs, error: String) -> DnsError {
+    DnsError::plugin(format!(
+        "plugin '{}' failed to stream geoip dat file '{}': {}",
+        tag, args.file, error
+    ))
 }

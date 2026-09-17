@@ -91,6 +91,9 @@ atlassian-ide-plugin.xml
 
 # Tooling output
 /.codex/
+**/__pycache__/
+*.py[cod]
+benchmarks/.generated/
 docs/.docusaurus/
 docs/build/
 docs/node_modules/

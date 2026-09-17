@@ -1,7 +1,9 @@
+use std::fmt;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::{fmt, fs};
 
 use oxidns_next_proto::{
     A, AAAA, AFSDB, ANAME, AVC, CAA, CNAME, DNAME, DNSClass, HINFO, MB, MD, MF, MG, MINFO, MR, MX,
@@ -127,22 +129,46 @@ impl Token {
 }
 
 pub fn parse_str(input: &str, options: &ParseOptions) -> Result<Vec<Record>, ZoneParseError> {
+    let mut out = Vec::new();
+    visit_str(input, options, |record| out.push(record))?;
+    Ok(out)
+}
+
+pub fn visit_str<F>(
+    input: &str,
+    options: &ParseOptions,
+    mut on_record: F,
+) -> Result<(), ZoneParseError>
+where
+    F: FnMut(Record),
+{
     let source = SourceContext {
         label: "<inline>".to_string(),
         path: None,
     };
     let mut state = ParserState::new(options);
-    let mut out = Vec::new();
-    parse_source(input, &source, options, 0, &mut state, &mut out)?;
-    Ok(out)
+    parse_source_str(input, &source, options, 0, &mut state, &mut on_record)
 }
 
 pub fn parse_file(
     path: impl AsRef<Path>,
     options: &ParseOptions,
 ) -> Result<Vec<Record>, ZoneParseError> {
+    let mut out = Vec::new();
+    visit_file(path, options, |record| out.push(record))?;
+    Ok(out)
+}
+
+pub fn visit_file<F>(
+    path: impl AsRef<Path>,
+    options: &ParseOptions,
+    mut on_record: F,
+) -> Result<(), ZoneParseError>
+where
+    F: FnMut(Record),
+{
     let path = path.as_ref();
-    let input = fs::read_to_string(path).map_err(|source| ZoneParseError::Io {
+    let file = File::open(path).map_err(|source| ZoneParseError::Io {
         path: path.to_path_buf(),
         source,
     })?;
@@ -157,33 +183,87 @@ pub fn parse_file(
         path: Some(path.to_path_buf()),
     };
     let mut state = ParserState::new(&effective);
-    let mut out = Vec::new();
-    parse_source(&input, &source, &effective, 0, &mut state, &mut out)?;
-    Ok(out)
+    parse_source_reader(
+        BufReader::with_capacity(256 * 1024, file),
+        &source,
+        &effective,
+        0,
+        &mut state,
+        &mut on_record,
+    )
 }
 
-fn parse_source(
+fn parse_source_str(
     input: &str,
     source: &SourceContext,
     options: &ParseOptions,
     include_depth: usize,
     state: &mut ParserState,
-    out: &mut Vec<Record>,
+    on_record: &mut dyn FnMut(Record),
 ) -> Result<(), ZoneParseError> {
-    for line in logical_lines(input, source)? {
-        let tokens = tokenize_logical_line(&line, source)?;
-        if tokens.is_empty() {
-            continue;
-        }
+    visit_logical_lines(input, source, |line| {
+        parse_logical_line(line, source, options, include_depth, state, on_record)
+    })
+}
 
-        if tokens[0].raw.starts_with('$') {
-            handle_directive(&line, &tokens, source, options, include_depth, state, out)?;
-        } else {
-            parse_record_line(&line, &tokens, source, state, out)?;
+fn parse_source_reader<R: BufRead>(
+    mut reader: R,
+    source: &SourceContext,
+    options: &ParseOptions,
+    include_depth: usize,
+    state: &mut ParserState,
+    on_record: &mut dyn FnMut(Record),
+) -> Result<(), ZoneParseError> {
+    let mut assembler = LogicalLineAssembler::default();
+    let mut physical_line = String::with_capacity(256);
+    loop {
+        physical_line.clear();
+        let read = reader
+            .read_line(&mut physical_line)
+            .map_err(|error| ZoneParseError::Io {
+                path: source
+                    .path
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from(&source.label)),
+                source: error,
+            })?;
+        if read == 0 {
+            break;
         }
+        assembler.feed(&physical_line, source, &mut |line| {
+            parse_logical_line(line, source, options, include_depth, state, on_record)
+        })?;
     }
+    assembler.finish(source, &mut |line| {
+        parse_logical_line(line, source, options, include_depth, state, on_record)
+    })
+}
 
-    Ok(())
+fn parse_logical_line(
+    line: &LogicalLine,
+    source: &SourceContext,
+    options: &ParseOptions,
+    include_depth: usize,
+    state: &mut ParserState,
+    on_record: &mut dyn FnMut(Record),
+) -> Result<(), ZoneParseError> {
+    let tokens = tokenize_logical_line(line, source)?;
+    if tokens.is_empty() {
+        return Ok(());
+    }
+    if tokens[0].raw.starts_with('$') {
+        handle_directive(
+            line,
+            &tokens,
+            source,
+            options,
+            include_depth,
+            state,
+            on_record,
+        )
+    } else {
+        parse_record_line(line, &tokens, source, state, on_record)
+    }
 }
 
 fn handle_directive(
@@ -193,7 +273,7 @@ fn handle_directive(
     options: &ParseOptions,
     include_depth: usize,
     state: &mut ParserState,
-    out: &mut Vec<Record>,
+    on_record: &mut dyn FnMut(Record),
 ) -> Result<(), ZoneParseError> {
     match tokens[0].upper().as_str() {
         "$ORIGIN" => {
@@ -228,8 +308,16 @@ fn handle_directive(
                 .map_err(|message| syntax_error(source, line.line, message))?;
             Ok(())
         }
-        "$INCLUDE" => handle_include(line, tokens, source, options, include_depth, state, out),
-        "$GENERATE" => handle_generate(line, tokens, source, state, out),
+        "$INCLUDE" => handle_include(
+            line,
+            tokens,
+            source,
+            options,
+            include_depth,
+            state,
+            on_record,
+        ),
+        "$GENERATE" => handle_generate(line, tokens, source, state, on_record),
         _ => Err(syntax_error(
             source,
             line.line,
@@ -245,7 +333,7 @@ fn handle_include(
     options: &ParseOptions,
     include_depth: usize,
     state: &mut ParserState,
-    out: &mut Vec<Record>,
+    on_record: &mut dyn FnMut(Record),
 ) -> Result<(), ZoneParseError> {
     if include_depth >= options.max_include_depth {
         return Err(ZoneParseError::IncludeDepthExceeded {
@@ -264,11 +352,10 @@ fn handle_include(
         .decode_include_path()
         .map_err(|message| syntax_error(source, line.line, message))?;
     let include_path = resolve_include_path(source, options, &include_path)?;
-    let include_text =
-        fs::read_to_string(&include_path).map_err(|source_error| ZoneParseError::Io {
-            path: include_path.clone(),
-            source: source_error,
-        })?;
+    let include_file = File::open(&include_path).map_err(|source_error| ZoneParseError::Io {
+        path: include_path.clone(),
+        source: source_error,
+    })?;
 
     let mut child_state = ParserState {
         origin: if let Some(origin) = tokens.get(2) {
@@ -293,13 +380,13 @@ fn handle_include(
         label: include_path.display().to_string(),
         path: Some(include_path),
     };
-    parse_source(
-        &include_text,
+    parse_source_reader(
+        BufReader::with_capacity(256 * 1024, include_file),
         &child_source,
         options,
         include_depth + 1,
         &mut child_state,
-        out,
+        on_record,
     )
 }
 
@@ -308,7 +395,7 @@ fn handle_generate(
     tokens: &[Token],
     source: &SourceContext,
     state: &mut ParserState,
-    out: &mut Vec<Record>,
+    on_record: &mut dyn FnMut(Record),
 ) -> Result<(), ZoneParseError> {
     if tokens.len() < 5 {
         return Err(syntax_error(
@@ -394,7 +481,7 @@ fn handle_generate(
             leading_whitespace: false,
         };
         let generated_tokens = tokenize_logical_line(&generated_line, source)?;
-        parse_record_line(&generated_line, &generated_tokens, source, state, out)?;
+        parse_record_line(&generated_line, &generated_tokens, source, state, on_record)?;
     }
 
     Ok(())
@@ -405,7 +492,7 @@ fn parse_record_line(
     tokens: &[Token],
     source: &SourceContext,
     state: &mut ParserState,
-    out: &mut Vec<Record>,
+    on_record: &mut dyn FnMut(Record),
 ) -> Result<(), ZoneParseError> {
     let mut idx = 0usize;
     let owner = if line.leading_whitespace {
@@ -473,7 +560,7 @@ fn parse_record_line(
     }
     state.current_owner = Some(owner.clone());
 
-    out.push(Record::from_rdata_with_class(owner, ttl, class, rdata));
+    on_record(Record::from_rdata_with_class(owner, ttl, class, rdata));
     Ok(())
 }
 
@@ -845,168 +932,215 @@ fn parse_ttl(raw: &str) -> Result<u32, String> {
     Ok(total)
 }
 
-fn logical_lines(input: &str, source: &SourceContext) -> Result<Vec<LogicalLine>, ZoneParseError> {
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut line_number = 1usize;
-    let mut logical_start = 1usize;
-    let mut paren_depth = 0usize;
-    let mut in_quote = false;
-    let mut escaped = false;
-    let mut in_comment = false;
-    let mut leading_whitespace = false;
-    let mut saw_content = false;
-    let mut physical_line_start = true;
-
-    for ch in input.chars() {
-        if in_comment {
-            if ch == '\n' {
-                in_comment = false;
-                physical_line_start = true;
-                line_number += 1;
-                if paren_depth == 0 {
-                    push_logical_line(&mut out, &mut current, logical_start, leading_whitespace);
-                    logical_start = line_number;
-                    leading_whitespace = false;
-                    saw_content = false;
-                } else if !current.ends_with([' ', '\t']) {
-                    current.push(' ');
-                }
-            }
-            continue;
-        }
-
-        if physical_line_start && !saw_content && matches!(ch, ' ' | '\t') {
-            leading_whitespace = true;
-        }
-
-        if in_quote {
-            current.push(ch);
-            match ch {
-                '"' if !escaped => in_quote = false,
-                '\\' if !escaped => escaped = true,
-                _ => escaped = false,
-            }
-            if ch == '\n' {
-                line_number += 1;
-                physical_line_start = true;
-            } else {
-                physical_line_start = false;
-                saw_content = true;
-            }
-            continue;
-        }
-
-        if escaped {
-            current.push(ch);
-            escaped = false;
-            if ch == '\n' {
-                line_number += 1;
-                physical_line_start = true;
-            } else {
-                physical_line_start = false;
-                saw_content = true;
-            }
-            continue;
-        }
-
-        match ch {
-            '\\' => {
-                current.push(ch);
-                escaped = true;
-                physical_line_start = false;
-                saw_content = true;
-            }
-            '"' => {
-                current.push(ch);
-                in_quote = true;
-                physical_line_start = false;
-                saw_content = true;
-            }
-            ';' | '#' => in_comment = true,
-            '(' => {
-                paren_depth += 1;
-                if !current.ends_with([' ', '\t']) {
-                    current.push(' ');
-                }
-                physical_line_start = false;
-                saw_content = true;
-            }
-            ')' => {
-                if paren_depth == 0 {
-                    return Err(syntax_error(source, line_number, "unexpected ')'"));
-                }
-                paren_depth -= 1;
-                if !current.ends_with([' ', '\t']) {
-                    current.push(' ');
-                }
-                physical_line_start = false;
-                saw_content = true;
-            }
-            '\r' => {}
-            '\n' => {
-                line_number += 1;
-                physical_line_start = true;
-                if paren_depth == 0 {
-                    push_logical_line(&mut out, &mut current, logical_start, leading_whitespace);
-                    logical_start = line_number;
-                    leading_whitespace = false;
-                    saw_content = false;
-                } else if !current.ends_with([' ', '\t']) {
-                    current.push(' ');
-                }
-            }
-            _ => {
-                current.push(ch);
-                physical_line_start = false;
-                if !ch.is_whitespace() {
-                    saw_content = true;
-                }
-            }
-        }
-    }
-
-    if escaped {
-        return Err(syntax_error(
-            source,
-            line_number,
-            "unterminated escape sequence",
-        ));
-    }
-    if in_quote {
-        return Err(syntax_error(
-            source,
-            line_number,
-            "unterminated quoted string",
-        ));
-    }
-    if paren_depth != 0 {
-        return Err(syntax_error(
-            source,
-            line_number,
-            "unterminated parenthesized list",
-        ));
-    }
-
-    push_logical_line(&mut out, &mut current, logical_start, leading_whitespace);
-    Ok(out)
+#[derive(Debug)]
+struct LogicalLineAssembler {
+    current: String,
+    line_number: usize,
+    logical_start: usize,
+    paren_depth: usize,
+    in_quote: bool,
+    escaped: bool,
+    in_comment: bool,
+    leading_whitespace: bool,
+    saw_content: bool,
+    physical_line_start: bool,
 }
 
-fn push_logical_line(
-    out: &mut Vec<LogicalLine>,
-    current: &mut String,
-    line: usize,
-    leading_whitespace: bool,
-) {
-    let text = current.trim();
-    if !text.is_empty() {
-        out.push(LogicalLine {
-            text: text.to_string(),
-            line,
-            leading_whitespace,
-        });
+impl Default for LogicalLineAssembler {
+    fn default() -> Self {
+        Self {
+            current: String::with_capacity(256),
+            line_number: 1,
+            logical_start: 1,
+            paren_depth: 0,
+            in_quote: false,
+            escaped: false,
+            in_comment: false,
+            leading_whitespace: false,
+            saw_content: false,
+            physical_line_start: true,
+        }
     }
-    current.clear();
+}
+
+impl LogicalLineAssembler {
+    fn feed<F>(
+        &mut self,
+        input: &str,
+        source: &SourceContext,
+        on_line: &mut F,
+    ) -> Result<(), ZoneParseError>
+    where
+        F: FnMut(&LogicalLine) -> Result<(), ZoneParseError>,
+    {
+        for ch in input.chars() {
+            if self.in_comment {
+                if ch == '\n' {
+                    self.in_comment = false;
+                    self.physical_line_start = true;
+                    self.line_number += 1;
+                    if self.paren_depth == 0 {
+                        self.emit(on_line)?;
+                        self.logical_start = self.line_number;
+                        self.leading_whitespace = false;
+                        self.saw_content = false;
+                    } else if !self.current.ends_with([' ', '\t']) {
+                        self.current.push(' ');
+                    }
+                }
+                continue;
+            }
+
+            if self.physical_line_start && !self.saw_content && matches!(ch, ' ' | '\t') {
+                self.leading_whitespace = true;
+            }
+
+            if self.in_quote {
+                self.current.push(ch);
+                match ch {
+                    '"' if !self.escaped => self.in_quote = false,
+                    '\\' if !self.escaped => self.escaped = true,
+                    _ => self.escaped = false,
+                }
+                if ch == '\n' {
+                    self.line_number += 1;
+                    self.physical_line_start = true;
+                } else {
+                    self.physical_line_start = false;
+                    self.saw_content = true;
+                }
+                continue;
+            }
+
+            if self.escaped {
+                self.current.push(ch);
+                self.escaped = false;
+                if ch == '\n' {
+                    self.line_number += 1;
+                    self.physical_line_start = true;
+                } else {
+                    self.physical_line_start = false;
+                    self.saw_content = true;
+                }
+                continue;
+            }
+
+            match ch {
+                '\\' => {
+                    self.current.push(ch);
+                    self.escaped = true;
+                    self.physical_line_start = false;
+                    self.saw_content = true;
+                }
+                '"' => {
+                    self.current.push(ch);
+                    self.in_quote = true;
+                    self.physical_line_start = false;
+                    self.saw_content = true;
+                }
+                ';' | '#' => self.in_comment = true,
+                '(' => {
+                    self.paren_depth += 1;
+                    if !self.current.ends_with([' ', '\t']) {
+                        self.current.push(' ');
+                    }
+                    self.physical_line_start = false;
+                    self.saw_content = true;
+                }
+                ')' => {
+                    if self.paren_depth == 0 {
+                        return Err(syntax_error(source, self.line_number, "unexpected ')'"));
+                    }
+                    self.paren_depth -= 1;
+                    if !self.current.ends_with([' ', '\t']) {
+                        self.current.push(' ');
+                    }
+                    self.physical_line_start = false;
+                    self.saw_content = true;
+                }
+                '\r' => {}
+                '\n' => {
+                    self.line_number += 1;
+                    self.physical_line_start = true;
+                    if self.paren_depth == 0 {
+                        self.emit(on_line)?;
+                        self.logical_start = self.line_number;
+                        self.leading_whitespace = false;
+                        self.saw_content = false;
+                    } else if !self.current.ends_with([' ', '\t']) {
+                        self.current.push(' ');
+                    }
+                }
+                _ => {
+                    self.current.push(ch);
+                    self.physical_line_start = false;
+                    if !ch.is_whitespace() {
+                        self.saw_content = true;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish<F>(&mut self, source: &SourceContext, on_line: &mut F) -> Result<(), ZoneParseError>
+    where
+        F: FnMut(&LogicalLine) -> Result<(), ZoneParseError>,
+    {
+        if self.escaped {
+            return Err(syntax_error(
+                source,
+                self.line_number,
+                "unterminated escape sequence",
+            ));
+        }
+        if self.in_quote {
+            return Err(syntax_error(
+                source,
+                self.line_number,
+                "unterminated quoted string",
+            ));
+        }
+        if self.paren_depth != 0 {
+            return Err(syntax_error(
+                source,
+                self.line_number,
+                "unterminated parenthesized list",
+            ));
+        }
+
+        self.emit(on_line)
+    }
+
+    fn emit<F>(&mut self, on_line: &mut F) -> Result<(), ZoneParseError>
+    where
+        F: FnMut(&LogicalLine) -> Result<(), ZoneParseError>,
+    {
+        let text = self.current.trim();
+        if !text.is_empty() {
+            let line = LogicalLine {
+                text: text.to_string(),
+                line: self.logical_start,
+                leading_whitespace: self.leading_whitespace,
+            };
+            on_line(&line)?;
+        }
+        self.current.clear();
+        Ok(())
+    }
+}
+
+fn visit_logical_lines<F>(
+    input: &str,
+    source: &SourceContext,
+    mut on_line: F,
+) -> Result<(), ZoneParseError>
+where
+    F: FnMut(&LogicalLine) -> Result<(), ZoneParseError>,
+{
+    let mut assembler = LogicalLineAssembler::default();
+    assembler.feed(input, source, &mut on_line)?;
+    assembler.finish(source, &mut on_line)
 }
 
 fn tokenize_logical_line(
@@ -1761,5 +1895,33 @@ zero 0 IN A 192.0.2.2
         let records = parse_str(input, &ParseOptions::default()).unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].rr_type(), RecordType::A);
+    }
+
+    #[test]
+    fn visitor_matches_collecting_apis_for_multiline_and_generate() {
+        let input = r#"
+$ORIGIN example.com.
+txt 60 IN TXT (
+  "part one"
+  "part two"
+)
+$GENERATE 1-3 host$ IN A 192.0.2.$
+"#;
+        let collected = parse_str(input, &ParseOptions::default()).unwrap();
+        let mut visited = Vec::new();
+        visit_str(input, &ParseOptions::default(), |record| {
+            visited.push(record)
+        })
+        .unwrap();
+        assert_eq!(
+            collected
+                .iter()
+                .map(|record| (record.name().to_fqdn(), record.rr_type(), record.ttl()))
+                .collect::<Vec<_>>(),
+            visited
+                .iter()
+                .map(|record| (record.name().to_fqdn(), record.rr_type(), record.ttl()))
+                .collect::<Vec<_>>()
+        );
     }
 }

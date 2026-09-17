@@ -20,7 +20,7 @@ use crate::config::types::PluginConfig;
 use crate::core::context::DnsContext;
 use crate::infra::error::{DnsError, Result as DnsResult};
 use crate::plugin::dependency::DependencySpec;
-use crate::plugin::matcher::matcher_utils::validate_non_empty_rules;
+use crate::plugin::matcher::rules::validate_non_empty_rules;
 use crate::plugin::matcher::{Matcher, MatcherRef, parse_matcher_expr};
 use crate::plugin::{
     Plugin, PluginFactory, PluginHolder, PluginRef, UninitializedPlugin,
@@ -144,15 +144,15 @@ impl Plugin for AnyMatchMatcher {
             let (reverse, matcher_expr) = parse_matcher_expr(matcher_ref)?;
             let plugin_ref = PluginRef::from_str(matcher_expr)?;
 
-            let matchers = match plugin_ref {
+            let matcher_ref = match plugin_ref {
                 PluginRef::PluginTag(matcher_tag) => {
-                    context.matcher(&format!("args.matchers[{idx}]"), &matcher_tag)?
+                    context.matcher_ref(&format!("args.matchers[{idx}]"), &matcher_tag, reverse)?
                 }
 
                 PluginRef::QuickSetup { plugin_type, param } => {
-                    let quick_tag = format!("@qs:match:{}:{}:{}", self.tag, idx, plugin_type);
+                    let quick_tag = format!("qs.match.{}.{}.{}", self.tag, idx, plugin_type);
 
-                    match context
+                    let matcher = match context
                         .init_quick_setup(&plugin_type, &quick_tag, param)
                         .await?
                     {
@@ -163,10 +163,11 @@ impl Plugin for AnyMatchMatcher {
                                 plugin_type
                             )));
                         }
-                    }
+                    };
+                    MatcherRef::new(matcher, reverse)
                 }
             };
-            result.push(MatcherRef::new(matchers, reverse));
+            result.push(matcher_ref);
         }
         self.matchers.replace(result);
         Ok(())

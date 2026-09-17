@@ -24,7 +24,7 @@ use crate::infra::upgrade::UpgradeBundle;
 
 /// Top-level CLI definition.
 #[derive(Parser, Clone, Debug)]
-#[command(version = crate::infra::build_info::CLI_VERSION, author = "Sven Shi <isvenshi@gmail.com>")]
+#[command(version = crate::build_info::CLI_VERSION, author = "Sven Shi <isvenshi@gmail.com>")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -395,7 +395,7 @@ mod tests {
     fn cli_version_uses_compiled_version() {
         assert_eq!(
             Cli::command().get_version(),
-            Some(crate::infra::build_info::CLI_VERSION)
+            Some(crate::build_info::CLI_VERSION)
         );
     }
 

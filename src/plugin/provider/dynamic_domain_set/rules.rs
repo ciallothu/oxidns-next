@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fmt::Display;
 
 use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
@@ -59,7 +60,7 @@ pub(super) fn canonicalize_rules(
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for (idx, raw) in raw_rules.into_iter().enumerate() {
-        let rule = canonicalize_rule(&raw, default_kind, &format!("{source}[{idx}]"))?;
+        let rule = canonicalize_rule(&raw, default_kind, format!("{source}[{idx}]"))?;
         // Collapse duplicates within one request/file while preserving the
         // first occurrence order for list output and rewritten files.
         if seen.insert(rule.clone()) {
@@ -72,7 +73,7 @@ pub(super) fn canonicalize_rules(
 pub(super) fn canonicalize_rule(
     raw: &str,
     default_kind: DynamicDomainRuleKind,
-    source: &str,
+    source: impl Display,
 ) -> DnsResult<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -82,7 +83,7 @@ pub(super) fn canonicalize_rule(
     }
     let has_explicit_prefix = has_domain_rule_prefix(trimmed);
     if !has_explicit_prefix {
-        let normalized = normalize_plain_domain(trimmed, source)?;
+        let normalized = normalize_plain_domain(trimmed, &source)?;
         return Ok(format!("{}:{}", default_kind.prefix(), normalized));
     }
 
@@ -91,15 +92,15 @@ pub(super) fn canonicalize_rule(
     let (kind, value) = split_dynamic_rule_expression(trimmed);
     match kind {
         DynamicRuleExpressionKind::Full => {
-            let normalized = normalize_plain_domain(value, source)?;
+            let normalized = normalize_plain_domain(value, &source)?;
             Ok(format!("full:{normalized}"))
         }
         DynamicRuleExpressionKind::Domain => {
-            let normalized = normalize_plain_domain(value, source)?;
+            let normalized = normalize_plain_domain(value, &source)?;
             Ok(format!("domain:{normalized}"))
         }
         DynamicRuleExpressionKind::Keyword => {
-            let normalized = normalize_plain_domain(value, source)?;
+            let normalized = normalize_plain_domain(value, &source)?;
             Ok(format!("keyword:{normalized}"))
         }
         DynamicRuleExpressionKind::Regexp => {
@@ -151,7 +152,7 @@ fn split_dynamic_rule_expression(raw: &str) -> (DynamicRuleExpressionKind, &str)
     }
 }
 
-fn normalize_plain_domain(raw: &str, source: &str) -> DnsResult<String> {
+fn normalize_plain_domain(raw: &str, source: impl Display) -> DnsResult<String> {
     let normalized = normalize_domain_cow(raw);
     if normalized.is_empty() {
         return Err(DnsError::plugin(format!(

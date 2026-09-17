@@ -222,8 +222,34 @@ export function metricLabel(
 export function formatMetricValue(
   value: number,
   locale: Locale = DEFAULT_LOCALE,
+  options: { metricName?: string; compact?: boolean } = {},
 ): string {
   if (!Number.isFinite(value)) return String(value);
+  if (options.metricName?.endsWith("_timestamp_seconds")) {
+    if (value <= 0) return "—";
+    const date = new Date(value * 1_000);
+    if (Number.isNaN(date.getTime())) return formatMetricValue(value, locale);
+    return new Intl.DateTimeFormat(
+      locale,
+      options.compact
+        ? {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          }
+        : {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hourCycle: "h23",
+          },
+    ).format(date);
+  }
   if (Number.isInteger(value))
     return new Intl.NumberFormat(locale).format(value);
   return value.toFixed(2);
@@ -290,7 +316,7 @@ function pushRawMetric(
     out,
     seen,
     metricLabel(name, locale),
-    formatMetricValue(value, locale),
+    formatMetricValue(value, locale, { metricName: name, compact: true }),
     limit,
   );
 }

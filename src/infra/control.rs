@@ -37,7 +37,131 @@ pub enum ControlCommand {
 pub struct ProcessMetrics {
     pub cpu_percent: f32,
     pub memory_mb: u64,
+    pub memory_kind: ProcessMemoryKind,
     pub system_memory_total_mb: u64,
+}
+
+/// The memory accounting method used for [`ProcessMetrics::memory_mb`].
+///
+/// The same numeric value has different platform-specific meanings. Exposing
+/// this explicitly keeps API clients from, for example, comparing a Windows
+/// commit charge with physical memory capacity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessMemoryKind {
+    /// Resident set size, used on non-Windows platforms.
+    Rss,
+    /// Resident pages private to the process, used on current Windows builds.
+    PrivateWorkingSet,
+    /// Private committed memory, used when private working-set data is
+    /// unavailable.
+    PrivateCommit,
+    /// Total Windows working set, including shared pages, used as a final
+    /// fallback.
+    WorkingSet,
+}
+
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy)]
+enum WindowsMemorySampler {
+    PrivateWorkingSet,
+    PrivateCommit,
+    WorkingSet,
+}
+
+#[cfg(any(windows, test))]
+impl WindowsMemorySampler {
+    #[cfg(windows)]
+    fn detect() -> Self {
+        if private_working_set_bytes().is_some() {
+            Self::PrivateWorkingSet
+        } else if private_commit_bytes().is_some() {
+            Self::PrivateCommit
+        } else {
+            Self::WorkingSet
+        }
+    }
+
+    fn select(
+        self,
+        private_working_set_bytes: Option<u64>,
+        private_commit_bytes: Option<u64>,
+        working_set_bytes: u64,
+    ) -> (u64, ProcessMemoryKind) {
+        match self {
+            Self::PrivateWorkingSet => private_working_set_bytes
+                .map(|bytes| (bytes, ProcessMemoryKind::PrivateWorkingSet))
+                .or_else(|| {
+                    private_commit_bytes.map(|bytes| (bytes, ProcessMemoryKind::PrivateCommit))
+                })
+                .unwrap_or((working_set_bytes, ProcessMemoryKind::WorkingSet)),
+            Self::PrivateCommit => private_commit_bytes
+                .map(|bytes| (bytes, ProcessMemoryKind::PrivateCommit))
+                .unwrap_or((working_set_bytes, ProcessMemoryKind::WorkingSet)),
+            Self::WorkingSet => (working_set_bytes, ProcessMemoryKind::WorkingSet),
+        }
+    }
+
+    #[cfg(windows)]
+    fn sample(self, working_set_bytes: u64) -> (u64, ProcessMemoryKind) {
+        match self {
+            Self::PrivateWorkingSet => self.select(
+                private_working_set_bytes(),
+                private_commit_bytes(),
+                working_set_bytes,
+            ),
+            Self::PrivateCommit => self.select(None, private_commit_bytes(), working_set_bytes),
+            Self::WorkingSet => self.select(None, None, working_set_bytes),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn private_working_set_bytes() -> Option<u64> {
+    use windows::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
+    };
+    use windows::Win32::System::Threading::GetCurrentProcess;
+
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX2 {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
+        ..Default::default()
+    };
+    // GetCurrentProcess returns a pseudo-handle for this process, and the
+    // counters buffer is valid for the duration of the synchronous call.
+    unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX2).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        )
+    }
+    .ok()?;
+    Some(counters.PrivateWorkingSetSize as u64)
+}
+
+#[cfg(windows)]
+fn private_commit_bytes() -> Option<u64> {
+    use windows::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use windows::Win32::System::Threading::GetCurrentProcess;
+
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+        cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+        ..Default::default()
+    };
+    // GetCurrentProcess returns a pseudo-handle for this process, and the
+    // counters buffer is valid for the duration of the synchronous call.
+    unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        )
+    }
+    .ok()?;
+    Some(counters.PrivateUsage as u64)
 }
 
 #[derive(Debug)]
@@ -47,6 +171,8 @@ pub struct AppController {
     state: Mutex<ControlState>,
     command_tx: mpsc::UnboundedSender<ControlCommand>,
     sysinfo: Mutex<System>,
+    #[cfg(windows)]
+    windows_memory_sampler: WindowsMemorySampler,
 }
 
 #[derive(Debug, Default)]
@@ -119,6 +245,8 @@ impl AppController {
                 state: Mutex::new(ControlState::default()),
                 command_tx,
                 sysinfo: Mutex::new(sys),
+                #[cfg(windows)]
+                windows_memory_sampler: WindowsMemorySampler::detect(),
             }),
             command_rx,
         )
@@ -126,22 +254,35 @@ impl AppController {
 
     pub fn sample_process_metrics(&self) -> ProcessMetrics {
         let pid = Pid::from_u32(std::process::id());
-        let mut sys = self.sysinfo.lock().expect("sysinfo poisoned");
-        sys.refresh_memory();
-        sys.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[pid]),
-            false,
-            ProcessRefreshKind::nothing().with_cpu().with_memory(),
-        );
-        let cpu_count = sys.cpus().len().max(1) as f32;
-        let (cpu_percent, memory_mb) = sys
-            .process(pid)
-            .map(|p| (p.cpu_usage() / cpu_count, p.memory() / 1_048_576))
-            .unwrap_or((0.0, 0));
+        let (cpu_percent, working_set_bytes, system_memory_total_mb) = {
+            let mut sys = self.sysinfo.lock().expect("sysinfo poisoned");
+            sys.refresh_memory();
+            sys.refresh_processes_specifics(
+                ProcessesToUpdate::Some(&[pid]),
+                false,
+                ProcessRefreshKind::nothing().with_cpu().with_memory(),
+            );
+            let cpu_count = sys.cpus().len().max(1) as f32;
+            let (cpu_percent, working_set_bytes) = sys
+                .process(pid)
+                .map(|p| (p.cpu_usage() / cpu_count, p.memory()))
+                .unwrap_or((0.0, 0));
+            (
+                cpu_percent,
+                working_set_bytes,
+                sys.total_memory() / 1_048_576,
+            )
+        };
+        #[cfg(windows)]
+        let (memory_bytes, memory_kind) = self.windows_memory_sampler.sample(working_set_bytes);
+        #[cfg(not(windows))]
+        let (memory_bytes, memory_kind) = (working_set_bytes, ProcessMemoryKind::Rss);
+
         ProcessMetrics {
             cpu_percent,
-            memory_mb,
-            system_memory_total_mb: sys.total_memory() / 1_048_576,
+            memory_mb: memory_bytes / 1_048_576,
+            memory_kind,
+            system_memory_total_mb,
         }
     }
 
@@ -314,5 +455,41 @@ mod tests {
         controller.mark_reload_started(None);
         controller.mark_reload_succeeded();
         assert_eq!(controller.reload_snapshot().status, "ok");
+    }
+
+    #[test]
+    fn windows_memory_sampler_prefers_private_working_set() {
+        assert_eq!(
+            WindowsMemorySampler::PrivateWorkingSet.select(Some(30), Some(20), 10),
+            (30, ProcessMemoryKind::PrivateWorkingSet)
+        );
+    }
+
+    #[test]
+    fn windows_memory_sampler_falls_back_to_private_commit() {
+        assert_eq!(
+            WindowsMemorySampler::PrivateWorkingSet.select(None, Some(20), 10),
+            (20, ProcessMemoryKind::PrivateCommit)
+        );
+    }
+
+    #[test]
+    fn windows_memory_sampler_falls_back_to_working_set() {
+        assert_eq!(
+            WindowsMemorySampler::PrivateWorkingSet.select(None, None, 10),
+            (10, ProcessMemoryKind::WorkingSet)
+        );
+        assert_eq!(
+            WindowsMemorySampler::WorkingSet.select(Some(30), Some(20), 10),
+            (10, ProcessMemoryKind::WorkingSet)
+        );
+    }
+
+    #[test]
+    fn private_commit_sampler_does_not_report_private_working_set() {
+        assert_eq!(
+            WindowsMemorySampler::PrivateCommit.select(Some(30), Some(20), 10),
+            (20, ProcessMemoryKind::PrivateCommit)
+        );
     }
 }

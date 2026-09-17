@@ -243,7 +243,7 @@ function replaceDollarReferenceTokens(
   newTag: string,
 ) {
   const pattern = new RegExp(
-    `(^|[^A-Za-z0-9_-])\\$${escapeRegExp(oldTag)}(?=$|[^A-Za-z0-9_-])`,
+    `(^|[^A-Za-z0-9_.-])\\$${escapeRegExp(oldTag)}(?=$|[^A-Za-z0-9_.-])`,
     "g",
   );
   return value.replace(pattern, `$1$${newTag}`);

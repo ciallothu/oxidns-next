@@ -2,5 +2,13 @@
   "title": {
     "message": "OxiDNS Next",
     "description": "The title in the navbar"
+  },
+  "item.label.快速开始": {
+    "message": "Quick Start",
+    "description": "Navbar item with label Quick Start"
+  },
+  "item.label.插件参考": {
+    "message": "Plugin Reference",
+    "description": "Navbar item with label Plugin Reference"
   }
 }

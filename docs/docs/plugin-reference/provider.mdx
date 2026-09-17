@@ -3,13 +3,14 @@ title: 数据提供器插件
 sidebar_position: 5
 ---
 
-import Admonition from "@theme/Admonition";
+import Admonition from '@theme/Admonition';
+
 
 provider 负责把规则集从“单条规则”提升为“可复用的数据资产”。在复杂配置里，provider 通常用于减少重复配置、沉淀共享规则、提升策略可维护性。
 
 支持的数据 provider 既可以被 matcher 直接通过 `"$tag"` 引用，也可以继续被 `domain_set` / `ip_set` 组合，只要它们具备对应的域名或 IP 匹配能力。`domain_set` / `ip_set` 会只编译自己的本地规则，并在运行时继续查询被引用的 provider，不再复制下游 provider 的规则副本。
 
-运行中的 provider 都会注册一个管理接口 `POST /plugins/<provider_tag>/reload`，并可通过 `reload_provider` executor 使用启动时同一份配置刷新自身快照，而不会重建其它插件。
+运行中的 provider 都会注册一个管理接口 `POST /api/plugins/<provider_tag>/reload`，并可通过 `reload_provider` executor 使用启动时同一份配置刷新自身快照，而不会重建其它插件。WebUI 会在 provider 卡片和详情页提供同一能力的“重新加载数据”入口，并区分执行中、成功、失败和 busy 状态。
 
 运行时只会初始化真正被消费到的 provider。如果某个 provider 没有被任何 `server`、`executor`、`matcher` 直接或间接引用，它会在启动阶段被跳过，不会出现在 runtime registry 中，并会输出一条 warning 日志提示该 provider 未被使用。
 
@@ -437,16 +438,11 @@ provider 负责把规则集从“单条规则”提升为“可复用的数据�
 
 #### `selectors`
 
-- 类型：`array`；必填：否；默认值：空数组
-- 作用：按 code 提取部分规则。
-- 行为：
-  - 大小写不敏感精确匹配。
-  - 多个 selector 取并集。
-  - 未设置或空数组时，加载整个 dat 文件的全部 CIDR 并集。
+| 分组 | 插件 |
+| --- | --- |
+| [域名 provider](provider/domain.mdx) | [`domain_set`](provider/domain.mdx#domain_set)、[`dynamic_domain_set`](provider/domain.mdx#dynamic_domain_set)、[`geosite`](provider/domain.mdx#geosite)、[`adguard_rule`](provider/domain.mdx#adguard_rule) |
+| [IP provider](provider/ip.mdx) | [`ip_set`](provider/ip.mdx#ip_set)、[`geoip`](provider/ip.mdx#geoip) |
 
-### 行为说明
+<span id="domain_set"></span><span id="dynamic_domain_set"></span><span id="geosite"></span><span id="adguard_rule"></span><span id="ip_set"></span><span id="geoip"></span>
 
-- 仅提供 IP 命中能力，可被 `client_ip`、`resp_ip`、`ptr_ip` 直接引用。
-- 也可被 `ip_set.sets` 组合，并在上层 provider 运行时继续参与匹配。
-- 可通过 `reload_provider` 或 `POST /plugins/<tag>/reload` 独立刷新 dat 文件内容。
-- 如需在运行前把部分 selector 预导出成文本规则文件，可使用 `oxidns-next export-dat --kind geoip`。
+旧版插件锚点保留在本目录页；字段说明已移动到上表中的职责分组。

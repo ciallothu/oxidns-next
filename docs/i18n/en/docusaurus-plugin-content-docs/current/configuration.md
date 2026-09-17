@@ -3,7 +3,7 @@ title: Configuration Overview
 sidebar_position: 2
 ---
 
-## Before Starting
+OxiDNS Next uses YAML to describe runtime settings, the management interface, shared networking, and plugin execution chains. Use this page to choose the right configuration topic. The repository-root `config.yaml` remains the canonical runnable example.
 
 OxiDNS Next uses YAML configuration. For day-to-day editing, it is easiest to understand the file as seven top-level parts:
 
@@ -63,23 +63,15 @@ After editing a config, validate it before starting:
 oxidns-next check -c config.yaml
 ```
 
-If the config uses relative paths and the runtime working directory is not the config directory, pass the working directory explicitly. `-d` is the single base for all runtime relative paths, including logs, SQLite files, rule files, and `api.http.webui.root`; paths do not become relative to `/etc/oxidns-next` just because the config file lives there:
+If configuration and runtime data use different directories, validate with the real working directory. The default Debian layout uses:
 
 ```bash
 oxidns-next check -c /etc/oxidns-next/config.yaml -d /var/lib/oxidns-next
 ```
 
-In the Debian default layout, the config file lives at `/etc/oxidns-next/config.yaml`, while runtime-relative resources live under `/var/lib/oxidns-next`.
+## Topic map
 
-When the plugin composition is still undecided, start from [Common Scenarios](scenarios.md), then return to this page for field details.
-
-## Environment Variable Substitution
-
-During startup, `oxidns-next check`, management API validation, and validation before saving a config, OxiDNS Next first **parses the YAML into a data structure** and then expands `${VAR}` placeholders inside string scalars. The `config.yaml` file itself is not rewritten, so the WebUI still reads and saves the original placeholders.
-
-Supported syntax:
-
-| Syntax | Behavior |
+| Topic | Contents |
 | --- | --- |
 | `${VAR}` | Use the value of process environment variable `VAR`; fail if it is undefined |
 | `${VAR:-default}` | Use `default` when `VAR` is undefined or an empty string |
@@ -394,293 +386,13 @@ General rules:
 
 Purpose: Accept DNS requests and send them into an executor entry.
 
-Traits:
+## Source ownership
 
-- Does not implement complex policy logic.
-- Usually configures a bind address, TLS parameters, and an entry executor.
+- This chapter owns the shared configuration model and does not duplicate every plugin field table.
+- Plugin-specific options belong in the [Plugin Reference](plugin-reference/overview.md).
+- CLI flags belong in [Command-Line Tools](cli.md), while HTTP schemas belong in the [Management API](api.mdx).
+- The release `config.yaml` is the canonical runnable example for that version. Run `oxidns-next check` with the new binary after an upgrade.
 
-### `executor`
+<span id="include"></span><span id="runtime"></span><span id="log"></span><span id="network"></span><span id="api"></span><span id="plugins"></span>
 
-Purpose: Perform actions.
-
-Typical actions include:
-
-- Query upstreams
-- Generate local answers
-- Read and write cache
-- Adjust TTL
-- Handle ECS
-- Run fallback and concurrent races
-- Perform observability and system integrations
-
-### `matcher`
-
-Purpose: Evaluate conditions for use in `sequence` rules.
-
-Typical match dimensions include:
-
-- Query name
-- Query type
-- Client IP
-- Response IP
-- Response code
-- Environment variables
-- Sampling outcome
-- Rate-limit state
-
-### `provider`
-
-Purpose: Provide reusable datasets for matchers or other plugins.
-
-Current main provider types:
-
-- `domain_set`
-- `ip_set`
-- `geoip`
-- `geosite`
-- `adguard_rule`
-
-## The `sequence` Orchestration Model
-
-`sequence` is the policy hub of OxiDNS Next. Most non-trivial configs use it as the primary entry.
-
-Example:
-
-```yaml
-- tag: seq_main
-  type: sequence
-  args:
-    - matches:
-        - "$lan_clients"
-        - "qtype A,28"
-      exec: "$cache_main"
-    - matches: "!has_resp"
-      exec: "$forward_main"
-    - exec: "accept"
-```
-
-Each rule has two key fields:
-
-- `matches`
-  - One matcher expression or an array of expressions.
-  - When it is an array, every condition must be true for the rule to match.
-- `exec`
-  - The action to execute when the rule matches.
-
-## Referencing Plugins and Quick Setup
-
-### Reference Existing Plugins
-
-Use `$tag` to reference a plugin that has already been defined:
-
-```yaml
-- exec: "$forward_main"
-- matches:
-    - "$is_internal"
-    - "!has_resp"
-  exec: "$cache_main"
-```
-
-### Quick Setup
-
-If a `sequence` rule uses `type + arguments` instead of `$tag`, OxiDNS Next creates a temporary plugin on the fly.
-
-Example:
-
-```yaml
-- exec: "forward 1.1.1.1 8.8.8.8"
-- matches: "qname domain:example.com"
-  exec: "ttl 300"
-```
-
-Common quick setup forms today:
-
-- matcher
-  - `_true`
-  - `_false`
-  - `qname ...`
-  - `qtype ...`
-  - `qclass ...`
-  - `client_ip ...`
-  - `resp_ip ...`
-  - `ptr_ip ...`
-  - `cname ...`
-  - `mark ...`
-  - `env ...`
-  - `random ...`
-  - `rate_limiter ...`
-  - `rcode ...`
-  - `has_resp`
-  - `has_wanted_ans`
-  - `string_exp ...`
-- executor
-  - `forward ...`
-  - `cache ...`
-  - `ttl ...`
-  - `prefer_ipv4`
-  - `prefer_ipv6`
-  - `sleep ...`
-  - `debug_print ...`
-  - `query_summary ...`
-  - `metrics_collector ...`
-  - `black_hole ...`
-  - `drop_resp`
-  - `ecs_handler ...`
-  - `forward_edns0opt ...`
-  - `ipset ...`
-  - `nftset ...`
-  - `upgrade ...`
-  - `download ...`
-  - `reload_provider ...`
-  - `reload`
-
-## Built-In `sequence` Control Flow
-
-Besides calling plugins, `sequence.args[].exec` can also use built-in control flow:
-
-### `accept`
-
-- Ends the current `sequence` immediately.
-- This is an explicit early stop, so callers do not continue with later rules.
-- Does not build a response by itself.
-- Typical use:
-  - Close out the pipeline after `cache`, `hosts`, or `arbitrary` has already written a response.
-  - Stop later `forward` or side-effect stages once a branch has already made the decision.
-
-### `return`
-
-- Ends the current `sequence` immediately and returns control to the caller.
-- Does not build a response.
-- If the current `sequence` was entered via `jump`, the caller resumes at the rule after `jump`.
-- If the current `sequence` is the top-level entry, this acts like an early exit from the current rule chain.
-
-### `reject [rcode]`
-
-- Builds a DNS response from the current request immediately and ends the current `sequence`.
-- The default `rcode` is `REFUSED`, so plain `reject` means “reject this request”.
-- A decimal numeric code or English RCODE name can be provided explicitly; English names are case-insensitive. Common mappings and meanings are listed in the [DNS Code Reference](dns-codes.md#rcode-response-codes), for example:
-  - `reject 2` => `SERVFAIL`
-  - `reject SERVFAIL` / `reject servfail` => `SERVFAIL`
-  - `reject 3` => `NXDOMAIN`
-  - `reject NXDOMAIN` => `NXDOMAIN`
-- `reject` only supports base DNS RCODEs `0..15`; extended RCODEs require an EDNS OPT and are not generated by this built-in action.
-- `reject 0` returns a plain `NOERROR` response and does not add an SOA automatically.
-- Callers do not continue with later rules.
-- A typical use is returning a specific error code directly, for example:
-
-```yaml
-- matches: "qtype HTTPS"
-  exec: "reject NXDOMAIN"
-```
-
-### `mark ...`
-
-- Inserts one or more unsigned integer marks into `DnsContext.marks`.
-- Supported forms:
-  - `mark 1`
-  - `mark 1 2 3`
-  - `mark 1,2,3`
-- Continues to the next rule in the current `sequence`.
-- Does not build a response and does not terminate the current `sequence`.
-
-### `jump seq_tag`
-
-- Calls another `sequence`; conceptually this behaves like a subroutine call.
-- The parameter must be the target `sequence` tag without a leading `$`.
-- If the called `sequence`:
-  - reaches its tail normally, the current `sequence` resumes at the rule after `jump`.
-  - executes `return`, the current `sequence` also resumes at the rule after `jump`.
-  - executes `accept`, `reject`, or another operation that returns `Stop`, the current `sequence` stops as well.
-
-### `goto seq_tag`
-
-- Transfers control to another `sequence`; conceptually this behaves like a one-way jump.
-- The parameter must be the target `sequence` tag without a leading `$`.
-- The current `sequence` never resumes after `goto`:
-  - If the target `sequence` reaches its tail, control does not return to the rules after `goto`.
-  - If the target `sequence` executes `return`, that `return` is propagated outward and still does not return to the rules after `goto`.
-  - If the target `sequence` executes `accept`, `reject`, or another `Stop`, that result propagates outward directly.
-- This is useful when ownership of the request should be handed off permanently to another policy branch.
-
-Example:
-
-```yaml
-- matches: "$rate_ok"
-  exec: "mark 100"
-- matches: "!$rate_ok"
-  exec: "reject 2"
-```
-
-Example showing the difference between `jump` and `goto`:
-
-```yaml
-- tag: child_seq
-  type: sequence
-  args:
-    - exec: "mark 2"
-    - exec: "return"
-
-- tag: parent_jump
-  type: sequence
-  args:
-    - exec: "mark 1"
-    - exec: "jump child_seq"
-    - exec: "mark 3"
-
-- tag: parent_goto
-  type: sequence
-  args:
-    - exec: "mark 1"
-    - exec: "goto child_seq"
-    - exec: "mark 3"
-```
-
-- `parent_jump` ends with marks `1,2,3` because execution resumes after `jump`.
-- `parent_goto` ends with marks `1,2` because execution never returns after `goto`.
-
-## Common Rule Syntax
-
-### Domain Rules
-
-These forms appear in plugins such as `qname`, `cname`, `domain_set`, `hosts`, and `redirect`:
-
-- `full:example.com`
-  - Exact match.
-- `domain:example.com`
-  - Suffix match.
-- `keyword:cdn`
-  - Substring match.
-- `regexp:^api[0-9]+\\.example\\.com$`
-  - Regular-expression match.
-- `example.com`
-  - Without a prefix, common domain-rule users such as `qname`, `cname`, and
-    `domain_set` usually treat it as `domain:example.com`; `hosts` and
-    `redirect` treat it as an exact `full:example.com` match.
-
-### IP Rules
-
-These forms appear in `client_ip`, `resp_ip`, `ptr_ip`, `ip_set`, and related plugins:
-
-- Single IP: `1.1.1.1`
-- CIDR: `192.168.0.0/16`
-- IPv6 CIDR: `2400:3200::/32`
-
-### Provider References
-
-Matchers and providers can reference providers through:
-
-- `$tag`
-  - References a defined provider with the required match capability.
-  - Domain-oriented references can target `domain_set` or `geosite`.
-  - IP-oriented references can target `ip_set` or `geoip`.
-- `&/path/to/file`
-  - Loads rules directly from a file.
-
-Example:
-
-```yaml
-args:
-  - "domain:example.com"
-  - "$core_domains"
-  - "&/etc/oxidns-next/domains.txt"
-```
+If an older bookmark opened this page, use the topic map above to reach the extracted guide.

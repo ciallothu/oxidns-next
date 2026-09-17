@@ -1,0 +1,49 @@
+http:
+  address: 127.0.0.1:0
+  session_ttl: 24h
+users: []
+auth_attempts: 0
+block_auth_min: 0
+http_proxy: ""
+language: en
+theme: auto
+dns:
+  bind_hosts: [127.0.0.1]
+  port: 5351
+  ratelimit: 0
+  refuse_any: true
+  upstream_dns: ['127.0.0.1:5453']
+  cache_enabled: false
+  cache_size: 0
+  aaaa_disabled: false
+  enable_dnssec: false
+  max_goroutines: 0
+  upstream_timeout: 5s
+  serve_plain_dns: true
+  hostsfile_enabled: false
+querylog: {enabled: false, file_enabled: false, interval: 24h, size_memory: 0}
+statistics: {enabled: false, interval: 24h}
+filters:
+  - enabled: true
+    url: file://__BASE_DIR__/.generated/common-domains.txt
+    name: benchmark-common-domains
+    id: 1
+whitelist_filters: []
+user_rules:
+  - '||semantic-miss.invalid^$dnsrewrite=192.0.2.54'
+filtering:
+  blocking_mode: custom_ip
+  blocking_ipv4: 192.0.2.53
+  blocking_ipv6: '2001:db8::53'
+  blocked_response_ttl: 60
+  rewrites: []
+  safe_fs_patterns:
+    - __BASE_DIR__/.generated/*
+  filtering_enabled: true
+  rewrites_enabled: false
+  protection_enabled: true
+clients:
+  runtime_sources: {whois: false, arp: false, rdns: false, dhcp: false, hosts: false}
+  persistent: []
+log: {enabled: false, file: "", verbose: false}
+schema_version: 34

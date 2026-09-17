@@ -285,6 +285,7 @@ export function TopologyView({
 
   useEffect(() => {
     removeLegacyStorageKey(TOPOLOGY_STORAGE_KEY);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize the external localStorage layout when the backend scope changes.
     setSavedPositions(loadTopologyPositions(topologyStorageKey));
   }, [topologyStorageKey]);
 
@@ -488,7 +489,10 @@ export function TopologyView({
           edges={edges}
           onNodesChange={onNodesChange}
           nodeTypes={topologyNodeTypes}
-          fitView={!hasCustomPositions}
+          // Node positions are persisted, but the viewport is not. Always fit
+          // the restored graph on mount so a custom layout does not reopen at
+          // the canvas origin instead of the visual center.
+          fitView
           fitViewOptions={{ padding: 0.12 }}
           nodesDraggable
           minZoom={0.2}
@@ -587,7 +591,7 @@ function RootSelector({
 // ─── Legend panel ─────────────────────────────────────────────────────────────
 
 function TopologyLegend() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   return (
     <div className="rounded-lg border bg-card/90 p-2.5 text-[11px] shadow-sm backdrop-blur-sm">
       <div className="mb-1.5 font-semibold text-muted-foreground">
@@ -600,17 +604,19 @@ function TopologyLegend() {
       <div className="grid grid-cols-2 gap-x-3 gap-y-1">
         {(
           [
-            { kind: "server", label: "Server" },
-            { kind: "executor", label: "Executor" },
-            { kind: "matcher", label: "Matcher" },
-            { kind: "provider", label: "Provider" },
+            { kind: "server" },
+            { kind: "executor" },
+            { kind: "matcher" },
+            { kind: "provider" },
           ] as const
-        ).map(({ kind, label }) => (
+        ).map(({ kind }) => (
           <div key={kind} className="flex items-center gap-1.5">
             <div
               className={cn("h-2.5 w-2.5 rounded-sm", kindAccentBgClass(kind))}
             />
-            <span className="text-foreground">{label}</span>
+            <span className="text-foreground">
+              {pluginTypeLabel(kind, locale)}
+            </span>
           </div>
         ))}
       </div>
@@ -806,7 +812,7 @@ function SequenceFlowNode({
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 {rule.matches.length === 0 ? (
                   <span className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] italic text-muted-foreground">
-                    always
+                    {t(WEBUI.topology.always)}
                   </span>
                 ) : (
                   rule.matches.map((expression) => {

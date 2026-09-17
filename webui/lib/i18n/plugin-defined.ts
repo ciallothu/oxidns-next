@@ -244,13 +244,23 @@ function applyFieldMessages<T extends ConfigField | ConfigFieldChild>(
   if ("options" in next && next.options) {
     next.options = next.options.map((option) => ({
       ...option,
-      label:
-        messages?.options?.[String(option.value)] ??
-        fallback?.options?.[String(option.value)] ??
-        option.label,
+      label: localizeOptionLabel(option, messages, fallback),
     }));
   }
   return next;
+}
+
+function localizeOptionLabel(
+  option: NonNullable<ConfigField["options"]>[number],
+  messages: FieldMessages[string] | undefined,
+  fallback: FieldMessages[string] | undefined,
+) {
+  const keys = [String(option.value), ...(option.aliases ?? []).map(String)];
+  return (
+    keys.map((key) => messages?.options?.[key]).find(Boolean) ??
+    keys.map((key) => fallback?.options?.[key]).find(Boolean) ??
+    option.label
+  );
 }
 
 function localizeRecord(

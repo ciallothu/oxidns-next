@@ -473,3 +473,7 @@ OxiDNS Next 的问题与改进建议请提交到 [本项目 Issues](https://gith
 ## 许可证
 
 本项目作为 OxiDNS 的衍生作品，基于 [GNU General Public License v3.0 or later](LICENSE) 开源。原始作者版权声明与许可证文本均予以保留。
+
+## 查询趋势与图表
+
+查询分析默认展示 24 小时，支持 1 小时、24 小时、7 天、30 天及 12 个日历月。SQLite、PostgreSQL 和 MySQL 按时间桶聚合全部保留记录；ECharts 图表支持拖动、缩放、主题切换和响应式尺寸。空桶计数补零，无样本延迟留空。年度数据需要预先设置足够的 `query_recorder.args.retention_days`（至少 366）；默认保留策略不变，已经清理的数据不会恢复。

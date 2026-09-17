@@ -1,0 +1,201 @@
+---
+title: 本机安装与卸载
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import Admonition from '@theme/Admonition';
+
+本页说明 Linux、macOS 和 Windows 的一条命令安装、指定版本、便携模式和卸载。Docker、手动 release archive、Debian 包和 OpenWrt 分别见同组其它页面。
+
+## 一条命令安装
+
+安装脚本会识别当前平台，下载匹配的 GitHub Release archive，安装 `oxidns` / `oxidns.exe`、`config.yaml` 和 `webui/`，并默认注册、启动系统服务。
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/install.sh | sudo sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+在管理员 PowerShell 中运行：
+
+```powershell
+irm https://oxidns.org/install.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+默认布局：
+
+| 平台/模式 | 安装目录 | 命令与服务 |
+| --- | --- | --- |
+| Linux / macOS 服务安装 | `/opt/oxidns` | `/usr/local/bin/oxidns` 链接；安装并启动系统服务 |
+| Windows 管理员安装 | `%ProgramFiles%\OxiDNS` | 加入 Machine PATH；安装并启动 Windows 服务 |
+| Linux / macOS 便携安装 | `~/.oxidns` | `~/.local/bin/oxidns` 链接，不安装服务 |
+| Windows 便携安装 | `%LOCALAPPDATA%\OxiDNS` | 加入用户 PATH，不安装服务 |
+
+重复运行脚本会更新二进制和 `webui/`。已有 `config.yaml` 会保留，release 自带配置写为 `config.yaml.example`。
+
+## 安装后验证
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+oxidns --version
+oxidns build-info
+curl -fsS http://127.0.0.1:9199/api/readyz
+dig @127.0.0.1 example.com
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+oxidns.exe --version
+oxidns.exe build-info
+Invoke-RestMethod http://127.0.0.1:9199/api/readyz
+Resolve-DnsName example.com -Server 127.0.0.1
+```
+
+  </TabItem>
+</Tabs>
+
+默认 WebUI 地址为 `http://服务器IP:9199/`。对其它设备开放前先启用认证并阅读[安全加固](../security.md)。
+
+## 安装指定版本或 bundle
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/install.sh | \
+  sudo env OXIDNS_VERSION=vX.Y.Z OXIDNS_BUNDLE=full sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+$env:OXIDNS_VERSION = "vX.Y.Z"
+$env:OXIDNS_BUNDLE = "full"
+irm https://oxidns.org/install.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+常用变量：
+
+| 变量 | 作用 |
+| --- | --- |
+| `OXIDNS_VERSION` | release 标签，默认 `latest` |
+| `OXIDNS_INSTALL_DIR` | 覆盖安装目录 |
+| `OXIDNS_BIN_DIR` | Linux/macOS 命令链接目录 |
+| `OXIDNS_TARGET` | 强制指定 release target |
+| `OXIDNS_BUNDLE` | `full`、`standard` 或 `minimal`；默认 `full` |
+| `OXIDNS_NO_PATH=1` | 不创建命令链接或修改 PATH |
+| `OXIDNS_INSTALL_SERVICE=0` | 使用便携模式，不安装服务 |
+| `OXIDNS_START_SERVICE=0` | 安装服务但不立即启动 |
+| `OXIDNS_OPENWRT_INSTALL=0` | 在 OpenWrt 上强制使用普通 Linux archive 分支 |
+
+`minimal` / `standard` release 目前只覆盖指定的 Linux musl 平台。完整能力差异见[自定义编译](../custom-build.mdx#preset-capability-matrix)。
+
+## 便携安装
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/install.sh | \
+  env OXIDNS_INSTALL_SERVICE=0 sh
+
+oxidns start -c ~/.oxidns/config.yaml -d ~/.oxidns
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+$env:OXIDNS_INSTALL_SERVICE = "0"
+irm https://oxidns.org/install.ps1 | iex
+
+oxidns.exe start `
+  -c "$env:LOCALAPPDATA\OxiDNS\config.yaml" `
+  -d "$env:LOCALAPPDATA\OxiDNS"
+```
+
+  </TabItem>
+</Tabs>
+
+<Admonition type="note" title="低端口权限">
+
+默认服务配置可能监听 53 端口。Unix 普通用户通常不能直接绑定低端口；本地验证可先改用 `:5353`，生产环境建议使用系统服务、受控 capability 或端口转发。
+
+</Admonition>
+
+## 卸载
+
+卸载脚本默认移除二进制、WebUI、服务和 PATH 入口，但保留 `config.yaml`。
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/uninstall.sh | sudo sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+irm https://oxidns.org/uninstall.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+如果安装时使用了自定义目录，卸载时应提供相同的 `OXIDNS_INSTALL_DIR` / `OXIDNS_BIN_DIR`。常用变量：
+
+| 变量 | 作用 |
+| --- | --- |
+| `OXIDNS_INSTALL_DIR` | 覆盖卸载目录，应与安装时一致 |
+| `OXIDNS_BIN_DIR` | Linux/macOS 命令链接目录 |
+| `OXIDNS_NO_PATH=1` | 不移除命令链接或用户 PATH |
+| `OXIDNS_UNINSTALL_SERVICE=1` | 强制尝试卸载系统服务 |
+| `OXIDNS_PURGE=1` | 删除整个安装目录和配置 |
+
+<Admonition type="danger" title="彻底清理不可恢复">
+
+`OXIDNS_PURGE=1` 会删除配置和安装目录。先备份 `config.yaml`、SQLite、provider 数据、证书和其它持久化文件，再执行彻底清理。
+
+</Admonition>
+
+彻底清理示例：
+
+<Tabs groupId="native-os">
+  <TabItem value="unix" label="Linux / macOS" default>
+
+```bash
+curl -fsSL https://oxidns.org/uninstall.sh | \
+  sudo env OXIDNS_PURGE=1 sh
+```
+
+  </TabItem>
+  <TabItem value="windows" label="Windows">
+
+```powershell
+$env:OXIDNS_PURGE = "1"
+irm https://oxidns.org/uninstall.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+安装、升级或卸载后出现服务、端口或路径问题时，按[运维与故障排查](../operations.md)的顺序检查。

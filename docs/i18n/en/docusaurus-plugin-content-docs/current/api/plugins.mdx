@@ -1,0 +1,330 @@
+---
+title: Plugin Extension APIs
+---
+
+import Admonition from "@theme/Admonition";
+
+Plugins register management and observability endpoints below a common tag path. Route availability depends on the active configuration and compiled binary capabilities.
+
+## Plugin Extension APIs
+
+### Unified Format
+
+```
+/api/plugins/<plugin_tag>/<route>
+```
+
+<Admonition type="note" title="Notes">
+
+* A few plugins also expose prefix routes. For example, `query_recorder` uses `/api/plugins/<tag>/records/<id>`.
+
+</Admonition>
+
+### cache
+
+#### `GET /api/plugins/<cache_tag>/entries`
+
+Reads cache entries with pagination.
+
+Query parameters:
+
+* `limit`: Page size. Defaults to `100`, maximum `500`.
+* `cursor`: Pagination cursor.
+* `qname`: Case-insensitive substring filter for the query domain in the cache key.
+
+#### `GET /api/plugins/<cache_tag>/flush`
+
+Clears the cache.
+
+#### `GET /api/plugins/<cache_tag>/dump`
+
+Exports a cache dump.
+
+#### `POST /api/plugins/<cache_tag>/load_dump`
+
+Imports a cache dump.
+
+### matcher
+
+Every matcher declared in `plugins:` with a stable tag registers these runtime-control endpoints:
+
+```text
+GET  /api/plugins/<matcher_tag>/status
+POST /api/plugins/<matcher_tag>/mode
+```
+
+Both endpoints return the same status shape:
+
+```json
+{
+  "ok": true,
+  "matcher": "match_cn",
+  "mode": "normal"
+}
+```
+
+Set the mode with a JSON request body:
+
+```json
+{ "mode": "always_false" }
+```
+
+Supported values are `normal`, `always_false`, and `always_true`; setting the current mode again is idempotent. Both fixed modes skip the internal matcher and fix its base Boolean value, after which each reference still applies its own negation. With `always_false`, `$match_cn` misses and `!$match_cn` matches; `always_true` produces the opposite results. A missing or unsupported mode returns `400 invalid_matcher_runtime_mode`.
+
+The mode belongs only to the current runtime and is not written to YAML. An application reload or process restart restores `normal`. Quick-setup matchers inside `sequence` or `any_match` use internal `qs.match...` tags and do not register these endpoints. Extract a quick-setup expression into a standalone matcher under `plugins:` and reference it with `$tag` when runtime control is required.
+
+The WebUI requires confirmation for both `always_false` and `always_true`; restoring `normal` does not require confirmation. The old `/enable` and `/disable` endpoints and the `enabled` response field have been removed, so API clients must migrate to `/mode`.
+
+### provider
+
+#### `POST /api/plugins/<provider_tag>/reload`
+
+Purpose:
+
+* Reloads that provider's internal snapshot with the same configuration it used at startup.
+* Does not rebuild unrelated plugins and does not change provider tags, dependency topology, or config structure.
+
+Responses:
+
+* `200 OK`
+  * The provider reload succeeded.
+* `400 Bad Request`
+  * The provider returned an error while reloading.
+* `404 Not Found`
+  * The tag is not a loaded provider in the current runtime, so no route was registered for it.
+* `409 Conflict`
+  * A reload is already running for the same provider. The new request returns `provider_reload_busy` immediately instead of waiting in a queue.
+
+Good fit:
+
+* Refreshing only the affected `domain_set`, `ip_set`, `geosite`, `geoip`, or `adguard_rule` provider after downloading new rule files.
+* Avoiding the blast radius of an application-wide `POST /api/reload`.
+
+<Admonition type="note" title="Notes">
+
+* When the change also updates `config.yaml`, provider topology, the plugin list, or other non-provider structures, `POST /api/reload` is still required.
+
+</Admonition>
+
+The WebUI exposes **Reload data** on every applied provider card and detail view. It does not show a configuration-change confirmation; while the command is running, duplicate requests for the same provider are disabled and the success, failure, or busy result is surfaced inline.
+
+### reverse_lookup
+
+#### `GET /api/plugins/<tag>?ip=<ip_addr>`
+
+Looks up the domain cached for an IP address.
+
+Example:
+
+```
+GET /api/plugins/reverse_lookup_main?ip=8.8.8.8
+```
+
+Responses:
+
+* Hit: domain text, usually a fully-qualified domain name
+* Miss: empty response body
+* Invalid parameter: `400 Bad Request`
+
+### query_recorder
+
+#### `GET /api/plugins/<tag>/records`
+
+Returns recorder rows ordered by `created_at_ms` descending and does not include `steps`.
+
+Query parameters:
+
+* `cursor=<created_at_ms>:<id>`
+  * Continue pagination after the last row from the previous page.
+* `limit=<n>`
+  * Default `100`, maximum `500`.
+* `since_ms=<unix_ms>`
+  * Only return rows at or after this timestamp.
+* `until_ms=<unix_ms>`
+  * Only return rows at or before this timestamp.
+* `qname=<text>`
+  * Case-insensitive substring match against request question names.
+* `client_ip=<text>`
+  * Case-insensitive substring match against the client IP string; IPv4/IPv6 fragments are accepted.
+* `qtype=<type>`
+  * Exact match against request question type.
+* `rcode=<rcode>`
+  * Exact match against response code.
+* `status=all|error|has_response|no_response`
+  * Filter by recorder row status.
+
+`client_ip` is the transport peer observed by the DNS server. If record lists or `/stats/top_clients` show only `127.0.0.1`, the queries are usually passing through a local forwarder first, such as systemd-resolved, dnsmasq, AdGuardHome, dae, or clash. Check the deployment chain, point clients directly at OxiDNS, or configure a trusted `src_ip_header` for HTTP/DoH reverse-proxy deployments.
+
+Responses:
+
+* `200 OK`
+  * JSON shaped like:
+
+```json
+{
+  "ok": true,
+  "next_cursor": "1713510000123:42",
+  "records": [
+    {
+      "id": 42,
+      "created_at_ms": 1713510000123,
+      "elapsed_ms": 12,
+      "request_id": 1234,
+      "client_ip": "192.0.2.10",
+      "questions_json": [
+        { "name": "www.example.com.", "qtype": "A", "qclass": "IN" }
+      ],
+      "req_rd": true,
+      "req_cd": false,
+      "req_ad": false,
+      "req_opcode": "Query",
+      "req_edns_json": null,
+      "error": null,
+      "has_response": true,
+      "rcode": "NoError",
+      "resp_aa": false,
+      "resp_tc": false,
+      "resp_ra": true,
+      "resp_ad": false,
+      "resp_cd": false,
+      "answer_count": 1,
+      "authority_count": 0,
+      "additional_count": 0,
+      "answers_json": [
+        {
+          "name": "www.example.com.",
+          "class": "IN",
+          "ttl": 300,
+          "rr_type": "A",
+          "payload_kind": "A",
+          "payload_text": "192.0.2.1",
+          "payload": { "ip": "192.0.2.1" }
+        }
+      ],
+      "authorities_json": [],
+      "additionals_json": [],
+      "signature_json": [],
+      "resp_edns_json": null
+    }
+  ]
+}
+```
+
+#### `GET /api/plugins/<tag>/records/<id>`
+
+Returns one full record plus its `steps` array.
+
+Responses:
+
+* `200 OK`
+  * JSON containing a `record` object. `record.record` holds the fixed main-table fields and `record.steps` holds path events.
+* `404 Not Found`
+  * The record does not exist.
+
+#### `DELETE /api/plugins/<tag>/records`
+
+Clears all persisted query-history rows and `steps` path events for the current recorder. The operation first flushes the background writer queue, then deletes all rows from the SQLite records table and clears the in-memory tail.
+
+Responses:
+
+* `200 OK`
+  * JSON shaped like:
+
+```json
+{
+  "ok": true,
+  "cleared_records": 128
+}
+```
+
+#### `GET /api/plugins/<tag>/stats/plugins`
+
+Aggregates plugin hit information from recorded path events.
+
+Query parameters:
+
+* `since_ms=<unix_ms>`
+* `until_ms=<unix_ms>`
+* `kind=matcher|executor|builtin|all`
+* Same as `/records`, supports `qname`, `client_ip`, `qtype`, `rcode`, and `status` filters.
+
+Response fields:
+
+* `kind`
+* `tag`
+* `checked`
+* `matched`
+* `executed`
+* `query_total`
+* `query_share`
+
+#### `GET /api/plugins/<tag>/stats/top_clients`
+
+Aggregates query counts by client IP.
+
+Query parameters:
+
+* `limit=<n>`
+  * Number of buckets to return. Defaults to `20`. The backend no longer enforces a `200` cap; large values increase SQLite sorting and response-size cost.
+* Same as `/records`, supports `since_ms`, `until_ms`, `qname`, `client_ip`, `qtype`, `rcode`, `status`, and `matcher_tag` filters.
+
+Response fields:
+
+* `sample_size`
+* `rows[].key`
+* `rows[].count`
+* `rows[].share`
+
+#### `GET /api/plugins/<tag>/stats/top_qnames`
+
+Aggregates query counts by question name. Query parameters and response fields match `/stats/top_clients`.
+
+#### `GET /api/plugins/<tag>/stats/qtype`
+
+Aggregates distribution by QTYPE. Supports the same time range and filter parameters as `/records`, and returns `sample_size` plus `rows[].key/count/share`.
+
+#### `GET /api/plugins/<tag>/stats/rcode`
+
+Aggregates distribution by response code or special status bucket. Supports the same time range and filter parameters as `/records`, and returns `sample_size` plus `rows[].key/count/share`.
+
+#### `GET /api/plugins/<tag>/stats/latency`
+
+Returns latency summary values, histogram buckets, and slow-query ranking.
+
+Query parameters:
+
+* `slow_limit=<n>` or `limit=<n>`
+  * Number of slow-query rows to return. Defaults to `20`. The backend no longer enforces a `200` cap.
+* Same as `/records`, supports time range and filter parameters.
+
+#### `GET /api/plugins/<tag>/stats/timeseries`
+
+Aggregates query trends into time buckets.
+
+Query parameters:
+
+* `bucket=minute|hour|day|month`
+* `buckets=<n>`
+  * Number of buckets to return. Defaults to `60`, maximum `720`.
+* Same as `/records`, supports time range and filter parameters.
+
+Buckets are aligned to UTC. Month buckets follow calendar months, including leap years; response `bucket_ms=0` denotes variable month lengths. Each point's `bucket_ms` is always its start Unix timestamp in milliseconds. Response `since_ms` / `until_ms` report the effective query bounds. The default end is now; `buckets` bounds the most recent bucket count and empty buckets are zero-filled. Trends aggregate all retained records in the selected range, without the 10,000-record sampling cap. Mean latency is weighted and P95 uses the nearest rank.
+
+The WebUI defaults to 24 hours and supports 1 hour / 24 hours / 7 days / 30 days / 12 calendar months, using minute / hour / day / day / month buckets. Use the slider or Ctrl + wheel to zoom and drag to pan. Empty latency buckets remain gaps; counts are zero. History depends on retention: set `retention_days` to at least 366 in advance for a full year. Already deleted records cannot be reconstructed.
+
+#### `GET /api/plugins/<tag>/stream`
+
+Streams newly written records over SSE.
+
+Query parameters:
+
+* `tail=<n>`
+  * Replay the most recent `n` records from the in-memory tail first, then continue streaming.
+
+<Admonition type="note" title="Notes">
+
+* `event: record` uses the full `RecordDetail` JSON as `data`.
+* Heartbeat comment frames are sent periodically to keep the connection alive.
+* Clients should send `Accept: text/event-stream` and tolerate heartbeat frames, error events, empty payloads, and brief reconnects.
+
+</Admonition>

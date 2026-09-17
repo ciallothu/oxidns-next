@@ -19,10 +19,12 @@ use http::{Method, Request, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{ApiHandler, ApiRegister, json_error, json_ok, json_response};
+use crate::build_info::BuildInfo;
 use crate::config;
 use crate::infra::VERSION;
-use crate::infra::build_info::BuildInfo;
-use crate::infra::control::{AppController, ControlRequestError, ReloadSnapshot, config_version};
+use crate::infra::control::{
+    AppController, ControlRequestError, ProcessMemoryKind, ReloadSnapshot, config_version,
+};
 use crate::infra::error::Result;
 
 #[derive(Debug, Serialize)]
@@ -87,6 +89,7 @@ struct SystemResponse {
     reload: ReloadSnapshot,
     process_cpu_percent: f32,
     process_memory_mb: u64,
+    process_memory_kind: ProcessMemoryKind,
     system_memory_total_mb: u64,
 }
 
@@ -226,7 +229,7 @@ impl ApiHandler for SystemHandler {
     async fn handle(&self, _request: Request<Bytes>) -> crate::api::ApiResponse {
         let snapshot = self.controller.snapshot();
         let metrics = self.controller.sample_process_metrics();
-        let build = match crate::infra::build_info::snapshot() {
+        let build = match crate::build_info::snapshot() {
             Ok(build) => build,
             Err(err) => {
                 return json_error(
@@ -250,6 +253,7 @@ impl ApiHandler for SystemHandler {
                 reload: snapshot.reload,
                 process_cpu_percent: metrics.cpu_percent,
                 process_memory_mb: metrics.memory_mb,
+                process_memory_kind: metrics.memory_kind,
                 system_memory_total_mb: metrics.system_memory_total_mb,
             },
         )
@@ -727,11 +731,12 @@ plugins:
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let value: serde_json::Value = serde_json::from_slice(&body).expect("body should be json");
         assert_eq!(value["version"], VERSION);
+        assert!(matches!(
+            value["process_memory_kind"].as_str(),
+            Some("rss" | "private_working_set" | "private_commit" | "working_set")
+        ));
         assert_eq!(value["build"]["version"], VERSION);
-        assert_eq!(
-            value["build"]["bundle"],
-            crate::infra::build_info::PRIMARY_BUNDLE
-        );
+        assert_eq!(value["build"]["bundle"], crate::build_info::PRIMARY_BUNDLE);
         assert!(
             value["build"]["supported_plugins"]["executors"]
                 .as_array()
@@ -823,6 +828,42 @@ plugins:
         );
         assert_eq!(value["diagnostic_details"][0]["line"], 4);
         assert_eq!(value["diagnostic_details"][0]["column"], 11);
+    }
+
+    #[tokio::test]
+    async fn config_validate_reports_invalid_plugin_tag_at_its_value() {
+        let validate = ConfigValidateHandler;
+        let response = validate
+            .handle(test_request(
+                Method::POST,
+                "/config/validate",
+                Bytes::from_static(
+                    b"
+plugins:
+  - tag: cache..cn
+    type: cache
+",
+                ),
+            ))
+            .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body should collect")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("body should be json");
+        assert!(
+            value["diagnostic_details"][0]["message"]
+                .as_str()
+                .expect("diagnostic message")
+                .contains("Invalid plugin tag 'cache..cn'")
+        );
+        assert_eq!(value["diagnostic_details"][0]["line"], 3);
+        assert_eq!(value["diagnostic_details"][0]["column"], 10);
+        assert_eq!(value["diagnostic_details"][0]["end_column"], 19);
     }
 
     #[tokio::test]

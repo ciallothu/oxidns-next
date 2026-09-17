@@ -13,6 +13,7 @@
 //!
 //! - it stores `Vec<u8>` only;
 //! - it always returns buffers with the same DNS-oriented capacity;
+//! - it grows lazily to the configured retention limit;
 //! - callers borrow buffers via an RAII wrapper; and
 //! - buffers that grew beyond the fixed capacity are replaced on return.
 
@@ -45,9 +46,6 @@ impl WireBufferPool {
     fn new(buffer_capacity: usize, pool_size: usize) -> Self {
         let pool_size = pool_size.max(1);
         let buffers = ArrayQueue::new(pool_size);
-        for _ in 0..pool_size {
-            let _ = buffers.push(Vec::with_capacity(buffer_capacity.max(1)));
-        }
 
         Self {
             buffer_capacity: buffer_capacity.max(1),
@@ -171,7 +169,7 @@ mod tests {
     #[test]
     fn test_acquire_reuses_buffer_from_matching_bucket() {
         let pool = WireBufferPool::new(8191, 1);
-        assert_eq!(pool.available(), 1);
+        assert_eq!(pool.available(), 0);
 
         let capacity = {
             let buffer = pool.acquire();
@@ -189,7 +187,7 @@ mod tests {
     #[test]
     fn test_release_replaces_grown_buffer_with_fixed_capacity() {
         let pool = WireBufferPool::new(8191, 1);
-        assert_eq!(pool.available(), 1);
+        assert_eq!(pool.available(), 0);
 
         {
             let mut buffer = pool.acquire();
@@ -213,5 +211,20 @@ mod tests {
 
         assert_eq!(small.capacity(), 8191);
         assert_eq!(large.capacity(), 8191);
+    }
+
+    #[test]
+    fn test_pool_retains_only_up_to_its_limit() {
+        let pool = WireBufferPool::new(8191, 2);
+        let first = pool.acquire();
+        let second = pool.acquire();
+        let third = pool.acquire();
+
+        assert_eq!(pool.available(), 0);
+        drop(first);
+        drop(second);
+        drop(third);
+
+        assert_eq!(pool.available(), 2);
     }
 }

@@ -52,6 +52,7 @@ pub(super) struct ForwardMetrics {
     pub(super) success_total: AtomicU64,
     pub(super) error_total: AtomicU64,
     pub(super) timeout_total: AtomicU64,
+    pub(super) incomplete_alias_selected_total: AtomicU64,
     pub(super) latency_count: AtomicU64,
     latency_sum_ms: AtomicU64,
     upstreams: Vec<UpstreamMetrics>,
@@ -65,6 +66,7 @@ impl ForwardMetrics {
             success_total: AtomicU64::new(0),
             error_total: AtomicU64::new(0),
             timeout_total: AtomicU64::new(0),
+            incomplete_alias_selected_total: AtomicU64::new(0),
             latency_count: AtomicU64::new(0),
             latency_sum_ms: AtomicU64::new(0),
             upstreams: upstream_names
@@ -93,6 +95,12 @@ impl ForwardMetrics {
             self.timeout_total.fetch_add(1, Ordering::Relaxed);
         }
         self.record_latency(start_ms);
+    }
+
+    #[inline]
+    pub(super) fn record_incomplete_alias_selected(&self) {
+        self.incomplete_alias_selected_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     #[inline]
@@ -164,6 +172,12 @@ impl MetricSource for ForwardMetrics {
             "Total forward queries that timed out.",
             &labels,
             self.timeout_total.load(Ordering::Relaxed),
+        ));
+        sink.emit(MetricSample::counter(
+            "forward_incomplete_alias_selected_total",
+            "Total selection-aware concurrent forward queries that selected an incomplete CNAME alias response as the best available result; single-upstream and fastest modes are excluded.",
+            &labels,
+            self.incomplete_alias_selected_total.load(Ordering::Relaxed),
         ));
         sink.emit(MetricSample::counter(
             "forward_latency_count",

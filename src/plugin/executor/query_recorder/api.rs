@@ -980,6 +980,17 @@ pub(super) fn parse_timeseries_query(
         }
         Ok(())
     })?;
+    if since_ms
+        .zip(until_ms)
+        .is_some_and(|(since, until)| since > until)
+    {
+        return Err("since_ms must not exceed until_ms".to_string());
+    }
+    for millis in [since_ms, until_ms].into_iter().flatten() {
+        let millis = i64::try_from(millis).map_err(|_| "timestamp is out of range".to_string())?;
+        jiff::Timestamp::from_millisecond(millis)
+            .map_err(|_| "timestamp is out of range".to_string())?;
+    }
     Ok(TimeseriesQuery {
         since_ms,
         until_ms,
@@ -1038,7 +1049,9 @@ impl TimeseriesBucket {
         match raw {
             "minute" => Ok(Self::Minute),
             "hour" => Ok(Self::Hour),
-            _ => Err("bucket must be one of minute, hour".to_string()),
+            "day" => Ok(Self::Day),
+            "month" => Ok(Self::Month),
+            _ => Err("bucket must be one of minute, hour, day, month".to_string()),
         }
     }
 }

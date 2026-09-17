@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import { Cpu, HardDrive, HeartPulse, Puzzle } from "lucide-react";
+import { Activity, Cpu, HardDrive, HeartPulse, Puzzle } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { WEBUI } from "@/lib/i18n";
 import type { TranslationParams } from "@/lib/i18n";
+import type { ProcessMemoryKind } from "@/lib/oxidns-next-api";
 import { useI18n } from "@/lib/i18n/provider";
 
 // Ticks locally every second; re-calibrates whenever backendUptimeMs changes.
@@ -47,9 +48,43 @@ function formatUptime(ms: number, t: TFn): string {
   return t(WEBUI.dashboard.uptimeS, { s: sec });
 }
 
-function formatMemory(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${mb} MB`;
+function formatMemory(
+  mb: number,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  if (mb >= 1024) {
+    return `${formatNumber(mb / 1024, { maximumFractionDigits: 1 })} GB`;
+  }
+  return `${formatNumber(mb, { maximumFractionDigits: 1 })} MB`;
+}
+
+function formatQps(
+  qps: number | null,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  if (qps === null) return "-";
+  return formatNumber(qps, {
+    notation: qps >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: qps < 10 ? 1 : 2,
+  });
+}
+
+function formatCpu(
+  cpuPct: number,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  if (cpuPct > 0 && cpuPct < 0.1) return "<0.1%";
+  return `${formatNumber(cpuPct, { maximumFractionDigits: 1 })}%`;
+}
+
+function formatRequestTotal(
+  total: number,
+  formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string,
+): string {
+  return formatNumber(total, {
+    notation: total >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: total >= 1_000 ? 2 : 0,
+  });
 }
 
 function usageColor(pct: number) {
@@ -77,9 +112,10 @@ function CheckDot({ status }: { status?: string }) {
 }
 
 export function SystemMetrics() {
-  const { t } = useI18n();
+  const { t, formatNumber } = useI18n();
   const health = useAppStore((s) => s.health);
   const system = useAppStore((s) => s.system);
+  const trafficMetrics = useAppStore((s) => s.trafficMetrics);
   const plugins = useAppStore((s) => s.plugins);
   const configPath = useAppStore((s) => s.configPath);
   const configError = useAppStore((s) => s.configError);
@@ -88,13 +124,29 @@ export function SystemMetrics() {
   const cpuPct = system?.process_cpu_percent ?? 0;
   const memMb = system?.process_memory_mb ?? 0;
   const totalMemMb = system?.system_memory_total_mb ?? 0;
-  const memPct = totalMemMb > 0 ? Math.min((memMb / totalMemMb) * 100, 100) : 0;
+  const memoryKind: ProcessMemoryKind =
+    system?.process_memory_kind ??
+    (system?.os === "windows" ? "working_set" : "rss");
+  const usesPhysicalMemory = memoryKind !== "private_commit";
+  const hasPhysicalMemoryTotal = usesPhysicalMemory && totalMemMb > 0;
+  const memPct = hasPhysicalMemoryTotal
+    ? Math.min((memMb / totalMemMb) * 100, 100)
+    : 0;
+  const memoryMetricLabel =
+    memoryKind === "private_working_set"
+      ? t(WEBUI.dashboard.processPrivateWorkingSet)
+      : memoryKind === "private_commit"
+        ? t(WEBUI.dashboard.processPrivateCommit)
+        : memoryKind === "working_set"
+          ? t(WEBUI.dashboard.processWorkingSet)
+          : t(WEBUI.dashboard.processRss);
 
   const healthStatus = health?.status ?? "unknown";
   const isHealthy = healthStatus === "ok";
 
   const serverCount = health?.plugins.servers;
   const pluginTotal = health?.plugins.total ?? plugins.length;
+  const showCpuFallback = trafficMetrics.status === "unavailable";
 
   return (
     <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -145,27 +197,77 @@ export function SystemMetrics() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">
-            {t(WEBUI.dashboard.cpuUsage)}
+            {t(
+              showCpuFallback
+                ? WEBUI.dashboard.cpuUsage
+                : WEBUI.dashboard.dnsQps,
+            )}
           </CardTitle>
-          <Cpu className="h-4 w-4 text-muted-foreground" />
+          {showCpuFallback ? (
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          )}
         </CardHeader>
-        <CardContent className="space-y-2">
-          <div>
-            <div
-              className={cn("text-2xl font-bold font-mono", usageColor(cpuPct))}
-            >
-              {system ? `${cpuPct.toFixed(1)}%` : "-"}
+        {showCpuFallback ? (
+          <CardContent className="space-y-2">
+            <div>
+              <div
+                className={cn(
+                  "text-2xl font-bold font-mono",
+                  usageColor(cpuPct),
+                )}
+              >
+                {system ? formatCpu(cpuPct, formatNumber) : "-"}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {t(WEBUI.dashboard.cpuUsageDesc)}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {t(WEBUI.dashboard.cpuUsageDesc)}
-            </p>
-          </div>
-          <Progress
-            value={cpuPct}
-            className="h-1.5"
-            indicatorClassName={usageBarColor(cpuPct)}
-          />
-        </CardContent>
+            <Progress
+              value={cpuPct}
+              className="h-1.5"
+              indicatorClassName={usageBarColor(cpuPct)}
+            />
+          </CardContent>
+        ) : (
+          <CardContent className="space-y-2">
+            <div>
+              <div className="text-2xl font-bold font-mono">
+                {formatQps(trafficMetrics.qps, formatNumber)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {trafficMetrics.sampleWindowSeconds === null
+                  ? t(WEBUI.dashboard.waitingData)
+                  : t(WEBUI.dashboard.qpsWindow, {
+                      seconds: formatNumber(
+                        trafficMetrics.sampleWindowSeconds,
+                        {
+                          maximumFractionDigits: 1,
+                        },
+                      ),
+                    })}
+              </p>
+            </div>
+            <div className="border-t border-border/50 pt-2 flex items-center gap-3 text-xs text-muted-foreground">
+              <span className={cn(usageColor(cpuPct))}>
+                {t(WEBUI.dashboard.processCpu, {
+                  value: system ? formatCpu(cpuPct, formatNumber) : "-",
+                })}
+              </span>
+              {trafficMetrics.status === "available" && (
+                <span>
+                  {t(WEBUI.dashboard.requestTotal, {
+                    value: formatRequestTotal(
+                      trafficMetrics.requestTotal,
+                      formatNumber,
+                    ),
+                  })}
+                </span>
+              )}
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       <Card>
@@ -178,24 +280,40 @@ export function SystemMetrics() {
         <CardContent className="space-y-2">
           <div>
             <div
-              className={cn("text-2xl font-bold font-mono", usageColor(memPct))}
+              className={cn("font-mono text-2xl font-bold", usageColor(memPct))}
             >
-              {system ? formatMemory(memMb) : "-"}
+              {system ? formatMemory(memMb, formatNumber) : "-"}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {totalMemMb > 0
-                ? t(WEBUI.dashboard.memTotal, {
-                    total: formatMemory(totalMemMb),
-                    pct: memPct.toFixed(1),
-                  })
-                : t(WEBUI.dashboard.processRss)}
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {memoryMetricLabel}
             </p>
           </div>
-          <Progress
-            value={memPct}
-            className="h-1.5"
-            indicatorClassName={usageBarColor(memPct)}
-          />
+          {hasPhysicalMemoryTotal ? (
+            <div className="space-y-1.5">
+              <Progress
+                value={memPct}
+                className="h-1.5"
+                indicatorClassName={usageBarColor(memPct)}
+              />
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span
+                  className={cn(
+                    "shrink-0 font-medium tabular-nums",
+                    usageColor(memPct),
+                  )}
+                >
+                  {t(WEBUI.dashboard.memUsed, {
+                    pct: formatNumber(memPct, { maximumFractionDigits: 1 }),
+                  })}
+                </span>
+                <span className="min-w-0 truncate text-right tabular-nums">
+                  {t(WEBUI.dashboard.memTotal, {
+                    total: formatMemory(totalMemMb, formatNumber),
+                  })}
+                </span>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

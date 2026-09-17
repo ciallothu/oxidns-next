@@ -1,6 +1,7 @@
 "use client";
 
 import { parseDocument, stringify, isSeq, isMap } from "yaml";
+import { sortOxiDnsNextConfigForSerialize } from "@/lib/oxidns-config-schema";
 import { getPluginKindDefinition } from "@/lib/plugin-definitions";
 import type { PluginInstance, PluginType } from "@/lib/types";
 import { WEBUI, tClient } from "@/lib/i18n";
@@ -10,6 +11,7 @@ export interface OxiDnsNextConfig {
   runtime?: Record<string, unknown>;
   api?: Record<string, unknown>;
   log?: Record<string, unknown>;
+  network?: Record<string, unknown>;
   plugins: OxiDnsNextPluginConfig[];
   [key: string]: unknown;
 }
@@ -77,7 +79,7 @@ export function parseOxiDnsNextYaml(text: string): OxiDnsNextParseResult {
 }
 
 export function stringifyOxiDnsNextConfig(config: OxiDnsNextConfig): string {
-  return stringify(cleanUndefined(config), {
+  return stringify(sortOxiDnsNextConfigForSerialize(cleanUndefined(config)), {
     indent: 2,
     lineWidth: 0,
     nullStr: "null",

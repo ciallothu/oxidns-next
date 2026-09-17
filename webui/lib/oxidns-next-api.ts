@@ -7,6 +7,7 @@ import {
   readApiResponseBody,
 } from "./api-client";
 import { WEBUI, tClient } from "./i18n";
+import type { MatcherRuntimeMode } from "./matcher-control";
 
 export interface ConfigFileResponse {
   ok: boolean;
@@ -97,6 +98,27 @@ export interface ControlResponse {
   reload: ReloadSnapshot;
 }
 
+export interface MatcherStatusResponse {
+  ok: boolean;
+  matcher: string;
+  mode: MatcherRuntimeMode;
+}
+
+export interface ProviderReloadResponse {
+  ok: boolean;
+  action: "reload_provider";
+  provider: string;
+  status: "reloaded";
+}
+
+export class ProviderReloadBusyError extends Error {}
+
+export type ProcessMemoryKind =
+  | "rss"
+  | "private_working_set"
+  | "private_commit"
+  | "working_set";
+
 export interface SystemResponse {
   ok: boolean;
   version: string;
@@ -109,6 +131,7 @@ export interface SystemResponse {
   reload: ReloadSnapshot;
   process_cpu_percent?: number;
   process_memory_mb?: number;
+  process_memory_kind?: ProcessMemoryKind;
   system_memory_total_mb?: number;
 }
 
@@ -402,7 +425,7 @@ export interface QueryRecorderLatencySummary {
   slow_top: QueryRecorderLatencySlowRow[];
 }
 
-export type QueryRecorderTimeseriesBucket = "minute" | "hour";
+export type QueryRecorderTimeseriesBucket = "minute" | "hour" | "day" | "month";
 
 export interface QueryRecorderTimeseriesPoint {
   bucket_ms: number;
@@ -519,6 +542,56 @@ export async function requestRestart(): Promise<void> {
     headers: apiHeaders(),
   });
   await readJsonResponse<unknown>(response);
+}
+
+export async function fetchMatcherStatus(
+  tag: string,
+): Promise<MatcherStatusResponse> {
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/status`),
+    {
+      method: "GET",
+      headers: apiHeaders(),
+    },
+  );
+  return readJsonResponse<MatcherStatusResponse>(response);
+}
+
+export async function setMatcherMode(
+  tag: string,
+  mode: MatcherRuntimeMode,
+): Promise<MatcherStatusResponse> {
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/mode`),
+    {
+      method: "POST",
+      headers: { ...apiHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    },
+  );
+  return readJsonResponse<MatcherStatusResponse>(response);
+}
+
+export async function reloadProvider(
+  tag: string,
+): Promise<ProviderReloadResponse> {
+  const response = await fetch(
+    apiUrl(`/plugins/${encodeURIComponent(tag)}/reload`),
+    {
+      method: "POST",
+      headers: apiHeaders(),
+    },
+  );
+  try {
+    return await readJsonResponse<ProviderReloadResponse>(response);
+  } catch (error) {
+    if (response.status === 409) {
+      throw new ProviderReloadBusyError(
+        error instanceof Error ? error.message : "Provider reload is busy",
+      );
+    }
+    throw error;
+  }
 }
 
 export async function fetchCacheEntries(
@@ -918,6 +991,11 @@ export interface UpgradeCheckOptions {
   githubToken?: string;
 }
 
+export interface UpgradeApplyOptions extends UpgradeCheckOptions {
+  force?: boolean;
+  cleanup?: boolean;
+}
+
 export interface UpgradeCheckResponse {
   ok: boolean;
   current_version: string;
@@ -964,7 +1042,7 @@ export async function fetchUpgradeCheck(
 }
 
 export async function triggerUpgradeApply(
-  options: UpgradeCheckOptions = {},
+  options: UpgradeApplyOptions = {},
 ): Promise<UpgradeApplyResponse> {
   const body: Record<string, unknown> = {};
   if (options.repository) body.repository = options.repository;
@@ -972,6 +1050,8 @@ export async function triggerUpgradeApply(
   if (options.outbound) body.outbound = options.outbound;
   if (options.socks5) body.socks5 = options.socks5;
   if (options.allowPrerelease) body.allow_prerelease = true;
+  if (options.force) body.force = true;
+  if (options.cleanup !== undefined) body.cleanup = options.cleanup;
   if (options.target) body.target = options.target;
   if (options.githubToken) body.github_token = options.githubToken;
   const response = await apiRequest(apiUrl("/upgrade/apply"), {

@@ -36,6 +36,7 @@ pub(crate) mod query;
 mod request;
 mod response;
 mod route;
+mod runtime_control;
 mod server;
 #[cfg(feature = "webui")]
 mod static_files;
@@ -56,6 +57,7 @@ pub(super) use request::{rewrite_request_path, strip_api_prefix};
 pub use response::{json_error, json_ok, json_response, simple_response, streaming_response};
 #[cfg(test)]
 pub(super) use route::build_plugin_route_path;
+pub(crate) use runtime_control::register_plugin_runtime_control_routes;
 
 use crate::infra::error::Result;
 

@@ -1,0 +1,163 @@
+---
+title: Release、Debian 与源码安装
+---
+
+import Admonition from '@theme/Admonition';
+
+本页适合希望手动控制文件布局、使用 Debian/systemd 包，或直接从源码构建的用户。只想快速安装系统服务时，优先使用[本机安装脚本](native.mdx)。
+
+## Release archive 内容
+
+`full` archive 通常包含：
+
+```text
+oxidns              # Windows 为 oxidns.exe
+config.yaml
+LICENSE
+webui/
+```
+
+Linux x86_64 / ARM64 musl 还提供：
+
+- `minimal`：二进制、最小配置和许可证，不带 WebUI。
+- `standard`：常用管理面、加密协议、query recorder、upgrade 和 WebUI。
+- `full`：官方完整能力组合。
+
+使用 `oxidns build-info` 确认实际 bundle、feature 和插件，不要只根据 archive 文件名推断运行能力。
+
+## 支持的 release target
+
+| 平台 | target / 资产 |
+| --- | --- |
+| Linux x86_64 | `x86_64-unknown-linux-musl`（优先）或 `x86_64-unknown-linux-gnu` |
+| Linux ARM64 | `aarch64-unknown-linux-musl`（优先）或 `aarch64-unknown-linux-gnu` |
+| Linux 32 位 x86 | `i686-unknown-linux-musl` |
+| Linux ARM | `arm-unknown-linux-musleabihf`、`armv7-unknown-linux-musleabihf` |
+| macOS Intel / Apple Silicon | `x86_64-apple-darwin`、`aarch64-apple-darwin` |
+| Windows x64 / x86 / ARM64 | `x86_64-pc-windows-msvc`、`i686-pc-windows-msvc`、`aarch64-pc-windows-msvc` |
+| FreeBSD x86_64 | `x86_64-unknown-freebsd` |
+| Debian / Ubuntu | `*_amd64.deb`、`*_arm64.deb` |
+
+非 Windows archive 使用：
+
+```text
+oxidns-<target>.tar.gz
+oxidns-minimal-<target>.tar.gz
+oxidns-standard-<target>.tar.gz
+```
+
+Windows 使用 `oxidns-<target>.zip`。slim bundle 并非所有 target 都发布，下载前以 GitHub Release 资产列表为准。
+
+## 选择 Linux 资产
+
+```bash
+uname -s
+uname -m
+```
+
+一般选择：
+
+- `Linux + x86_64`：优先 `x86_64-unknown-linux-musl`。
+- `Linux + aarch64`：优先 `aarch64-unknown-linux-musl`。
+- `Linux + armv7l`：选择 `armv7-unknown-linux-musleabihf`。
+- Alpine：使用 musl。
+- 只有明确需要 glibc 动态链接时才选择 `*-linux-gnu`。
+
+Windows 可运行：
+
+```powershell
+(Get-CimInstance Win32_OperatingSystem).OSArchitecture
+```
+
+## 手动安装 archive
+
+从 [GitHub Releases](https://github.com/svenshi/oxidns/releases) 选择明确版本。Linux x86_64 musl 示例：
+
+```bash
+curl -L -o oxidns.tar.gz \
+  https://github.com/svenshi/oxidns/releases/download/TAG/oxidns-x86_64-unknown-linux-musl.tar.gz
+
+mkdir -p oxidns
+tar -xzf oxidns.tar.gz -C oxidns
+cd oxidns
+chmod +x oxidns
+
+./oxidns build-info
+./oxidns check -c config.yaml
+./oxidns start -c config.yaml
+```
+
+把 `TAG` 替换为实际版本，例如 `v1.5.1`。Windows 解压 zip 后运行：
+
+```powershell
+.\oxidns.exe build-info
+.\oxidns.exe check -c .\config.yaml
+.\oxidns.exe start -c .\config.yaml
+```
+
+手动 archive 不会自动建立系统服务。长期运行可使用内置 `oxidns service install`，完整参数见[运行、探测与系统服务](../cli/runtime.md#service)。
+
+## Debian 包
+
+官方 release 为 x86_64 和 ARM64 GNU/Linux 提供 `.deb`。安装：
+
+```bash
+sudo dpkg -i oxidns_*_amd64.deb
+```
+
+ARM64 使用：
+
+```bash
+sudo dpkg -i oxidns_*_arm64.deb
+```
+
+默认布局：
+
+| 内容 | 路径 |
+| --- | --- |
+| 二进制 | `/usr/bin/oxidns` |
+| 配置 | `/etc/oxidns/config.yaml` |
+| 工作目录 | `/var/lib/oxidns` |
+| WebUI | `/var/lib/oxidns/webui` 指向 `/usr/share/oxidns/webui` |
+
+修改配置后使用与服务相同的工作目录校验：
+
+```bash
+oxidns check -c /etc/oxidns/config.yaml -d /var/lib/oxidns
+sudo systemctl enable --now oxidns
+sudo systemctl status oxidns
+```
+
+<Admonition type="note" title="配置与工作目录不同">
+
+Debian 配置位于 `/etc/oxidns`，运行时相对路径基准是 `/var/lib/oxidns`。排障和手动运行时必须保留 `-d /var/lib/oxidns`，否则日志、SQLite、规则和 WebUI 路径可能变化。
+
+</Admonition>
+
+## 从源码构建
+
+适合开发、调试或尚未发布目标平台的场景。需要稳定版 Rust 工具链：
+
+```bash
+git clone https://github.com/svenshi/oxidns.git
+cd oxidns
+
+cargo build --release
+./target/release/oxidns build-info
+./target/release/oxidns check -c config.yaml
+./target/release/oxidns start -c config.yaml
+```
+
+`cargo build` 默认启用 `full` bundle。需要裁剪 feature 或通过模板仓库构建时，阅读[自定义编译](../custom-build.mdx)。参与开发前阅读[贡献指南](../contributing.md)。
+
+## 安装后检查
+
+无论使用哪种方式，都应验证：
+
+1. `--version` 与预期 release 一致。
+2. `build-info` 包含配置使用的插件和协议。
+3. `oxidns check` 使用正确配置路径和工作目录。
+4. DNS listener 能完成一次本地查询和一次上游查询。
+5. 启用 API 时，`readyz`、WebUI 和认证行为符合预期。
+
+生产替换前还应保留上一份二进制、WebUI、配置和持久化数据，具体见[升级与回滚](../operations.md#升级与回滚)。

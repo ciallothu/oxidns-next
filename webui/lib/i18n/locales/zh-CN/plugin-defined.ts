@@ -278,9 +278,9 @@ export const zhCNPluginDefined = {
         "args[].exec": {
           label: "执行动作",
           description:
-            "定义规则命中后要执行的动作，可引用执行器或使用 accept、return、reject、jump、goto、mark 等内置动作；reject 支持大小写不敏感的 RCODE 名称和数字。",
+            "定义规则命中后要执行的动作，可引用执行器或使用 accept、return、reject、jump、goto、mark、set_mark 等内置动作；mark 追加标记，set_mark 完整替换标记集合；reject 支持大小写不敏感的 RCODE 名称和数字。",
           placeholder:
-            "$forward_main / accept / reject SERVFAIL / reject NOERROR / reject 3 / jump seq_tag",
+            "$forward_main / accept / reject SERVFAIL / mark 1,2 / set_mark 2,3 / jump seq_tag",
         },
       },
     },
@@ -671,6 +671,60 @@ export const zhCNPluginDefined = {
         },
       },
     },
+    response: {
+      name: "Response",
+      description: "构造并覆盖完整 DNS 响应，可分别配置三个记录区段",
+      fields: {
+        rcode: {
+          label: "响应码",
+          description: "基础 DNS RCODE，支持十进制数字或大小写不敏感的助记名。",
+          placeholder: "NOERROR / NXDOMAIN / 3",
+        },
+        authoritative: {
+          label: "权威应答 (AA)",
+          description: "设置 DNS 响应的 Authoritative Answer 标志。",
+        },
+        authentic_data: {
+          label: "已验证数据 (AD)",
+          description: "设置 DNS 响应的 Authentic Data 标志。",
+        },
+        answers: {
+          label: "Answer 记录",
+          description:
+            "每项一条 zone 风格 RR；{qname} 和 {qclass} 分别引用首个查询名称和类别。",
+          placeholder: "{qname} 300 {qclass} A 192.0.2.10",
+        },
+        "answers[]": {
+          label: "输入值",
+          placeholder: "{qname} 300 {qclass} A 192.0.2.10",
+        },
+        authorities: {
+          label: "Authority 记录",
+          description:
+            "每项一条 zone 风格 RR；NODATA 负缓存通常在此处配置 SOA。",
+          placeholder:
+            "{qname} 300 {qclass} SOA ns.example. hostmaster.example. 1 7200 1800 86400 300",
+        },
+        "authorities[]": {
+          label: "输入值",
+          placeholder:
+            "{qname} 300 {qclass} SOA ns.example. hostmaster.example. 1 7200 1800 86400 300",
+        },
+        additionals: {
+          label: "Additional 记录",
+          description: "每项一条 zone 风格 RR。",
+          placeholder: "mail.example.com. 300 IN A 192.0.2.25",
+        },
+        "additionals[]": {
+          label: "输入值",
+          placeholder: "mail.example.com. 300 IN A 192.0.2.25",
+        },
+        short_circuit: {
+          label: "生成后停止后续执行",
+          description: "默认立即终止当前 executor 链；关闭后继续执行后续规则。",
+        },
+      },
+    },
     redirect: {
       name: "Redirect",
       description: "改写请求域名，配合 forward 生成目标响应",
@@ -694,6 +748,26 @@ export const zhCNPluginDefined = {
           label: "输入值",
           placeholder: "/etc/oxidns-next/redirect.txt",
         },
+      },
+    },
+    client_ip_from_ecs: {
+      name: "从 ECS 获取客户端 IP",
+      description:
+        "使用 EDNS Client Subnet 地址覆盖当前请求的客户端 IP，供后续匹配器和记录器使用",
+      fields: {
+        args: {
+          label: "可信来源 IP / CIDR",
+          description:
+            "仅当原始客户端 IP 命中该列表时，才采用请求中的 ECS 地址；留空默认允许 127.0.0.1 和 ::1。",
+          placeholder: "127.0.0.1\n10.0.0.0/24\n::1",
+        },
+        "args.$input": {
+          label: "IP 或 CIDR",
+          placeholder: "127.0.0.1",
+        },
+      },
+      quickSetup: {
+        paramPlaceholder: "127.0.0.1 或 10.0.0.0/24",
       },
     },
     ecs_handler: {
@@ -877,6 +951,11 @@ export const zhCNPluginDefined = {
       name: "Prefer IPv4",
       description: "双栈优选器，偏好 A 记录并抑制可替代的 AAAA 请求",
       fields: {
+        probe_executor: {
+          label: "探针执行器",
+          description: "指定仅用于 preferred QTYPE 内部探针的执行器。",
+          placeholder: "probe_v4",
+        },
         cache: {
           label: "缓存偏好状态",
           description: "控制是否缓存 preferred 类型存在状态。",
@@ -891,6 +970,11 @@ export const zhCNPluginDefined = {
       name: "Prefer IPv6",
       description: "双栈优选器，偏好 AAAA 记录并抑制可替代的 A 请求",
       fields: {
+        probe_executor: {
+          label: "探针执行器",
+          description: "指定仅用于 preferred QTYPE 内部探针的执行器。",
+          placeholder: "probe_v6",
+        },
         cache: {
           label: "缓存偏好状态",
           description: "控制是否缓存 preferred 类型存在状态。",
@@ -1089,10 +1173,12 @@ export const zhCNPluginDefined = {
           },
         },
         "database.path": {
+          placeholder: "./data/query-log.sqlite",
           label: "SQLite 文件",
           description: "database.type 为 sqlite 时使用的文件路径。",
         },
         "database.url": {
+          placeholder: "${OXIDNS_NEXT_QUERY_DATABASE_URL}",
           label: "数据库 URL",
           description:
             "database.type 为 postgres 或 mysql 时使用的连接 URL；建议通过环境变量提供凭据。",
@@ -1546,9 +1632,134 @@ export const zhCNPluginDefined = {
         },
       },
     },
+    ros_route: {
+      name: "RouterOS Route",
+      description: "把应答 IP 同步为 RouterOS routing table 中的逐 IP 静态路由",
+      fields: {
+        address: { label: "RouterOS API 地址", placeholder: "172.16.1.1:8728" },
+        username: { label: "用户名" },
+        password: { label: "密码" },
+        tls: {
+          label: "TLS",
+          description: "启用 RouterOS API-SSL（通常为 8729 端口）。",
+        },
+        "tls.server_name": { label: "服务器名称" },
+        "tls.ca": { label: "自定义 CA 文件" },
+        "tls.insecure": { label: "跳过证书验证" },
+        connect_timeout: { label: "连接超时" },
+        send_timeout: { label: "发送超时" },
+        receive_timeout: { label: "接收超时" },
+        async: { label: "异步提交" },
+        wait_timeout: {
+          label: "同步等待时间",
+          description:
+            "仅 async=false 时生效；超时后已接收任务继续在后台执行。",
+        },
+        queue_capacity: {
+          label: "队列容量",
+          description: "分别限制入口队列和重试积压中的不同路由 key。",
+        },
+        routing_table: { label: "路由表", placeholder: "via_proxy" },
+        gateway4: { label: "IPv4 网关", placeholder: "192.168.88.2@main" },
+        gateway6: { label: "IPv6 网关", placeholder: "fe80::2%ether1" },
+        distance: { label: "路由距离" },
+        comment_prefix: { label: "注释前缀" },
+        persistent: {
+          label: "常驻路由",
+          description:
+            "期望状态；启动恢复并每 180 秒对账。动态路由不参与定时对账。",
+        },
+        "persistent.ips": {
+          label: "IP / CIDR",
+          description: "以内联方式声明常驻 IP 或 CIDR 路由。",
+          placeholder: "1.1.1.1\n100.64.1.0/24",
+        },
+        "persistent.ips[]": { label: "输入值", placeholder: "1.1.1.1" },
+        "persistent.files": {
+          label: "文件",
+          description: "从外部文件加载常驻 IP 或 CIDR 路由。",
+          placeholder: "/etc/oxidns/persistent_routes.txt",
+        },
+        "persistent.files[]": {
+          label: "输入值",
+          placeholder: "/etc/oxidns/persistent_routes.txt",
+        },
+        min_ttl: { label: "动态路由最小 TTL" },
+        max_ttl: { label: "动态路由最大 TTL" },
+        fixed_ttl: {
+          label: "动态路由固定 TTL",
+          description: "填 0 表示不按时间过期；动态路由只由后续 DNS 观察刷新。",
+        },
+        conntrack_guard: {
+          label: "连接跟踪保护",
+          description:
+            "删除到期动态主机路由前检查精确目标 IP；有连接时延后删除。",
+        },
+        cleanup_on_shutdown: {
+          label: "关闭时清理",
+          description:
+            "应用级 reload 同样执行清理；reload 按 shutdown/restart 处理，不移交旧实例待处理观测。",
+        },
+      },
+      metrics: {
+        labels: {
+          ros_route_observe_total: "地址观测",
+          ros_route_dropped_total: "异步丢弃",
+          ros_route_sync_error_total: "同步失败",
+          ros_route_sync_timeout_total: "同步超时",
+          ros_route_write_success_total: "写入成功",
+          ros_route_write_error_total: "写入失败",
+          ros_route_last_write_success_timestamp_seconds: "最近写入成功",
+          ros_route_delete_deferred_total: "延迟删除",
+          ros_route_connection_check_error_total: "连接检查失败",
+          ros_route_pending_observations: "待处理观测",
+          ros_route_managed_entries: "受管路由",
+          ros_route_coalesced_total: "合并观测",
+          ros_route_reconnect_total: "重连",
+          ros_route_connect_attempt_total: "连接尝试",
+          ros_route_backoff_total: "退避",
+          ros_route_reconcile_error_total: "对账失败",
+          ros_route_last_reconcile_success_timestamp_seconds: "最近对账成功",
+          ros_route_degraded: "连接降级",
+          ros_route_cleanup_error_total: "清理失败",
+        },
+        help: {
+          ros_route_observe_total: "提交给 RouterOS 路由管理器的地址观测总数。",
+          ros_route_dropped_total:
+            "异步模式下因队列已满或通道关闭而丢弃的观测总数。",
+          ros_route_sync_error_total:
+            "同步模式下在 RouterOS 路由管理器侧失败的观测总数。",
+          ros_route_sync_timeout_total:
+            "同步模式下等待 manager 完成时超时的观测总数。",
+          ros_route_write_success_total: "RouterOS 路由 upsert 成功总数。",
+          ros_route_write_error_total: "RouterOS 路由 upsert 失败总数。",
+          ros_route_last_write_success_timestamp_seconds:
+            "最近一次 RouterOS 路由 upsert 成功的 Unix 时间。",
+          ros_route_delete_deferred_total:
+            "因 RouterOS conntrack 中仍存在目标连接而延迟删除路由的总次数。",
+          ros_route_connection_check_error_total:
+            "路由删除期间 RouterOS conntrack 查询失败的总次数。",
+          ros_route_pending_observations:
+            "当前等待 manager 处理的合并后观测数。",
+          ros_route_managed_entries: "manager 当前保留的路由条目数。",
+          ros_route_coalesced_total:
+            "合并到已有 mailbox 路由 key 的地址观测总数。",
+          ros_route_reconnect_total: "RouterOS transport 成功重连的总次数。",
+          ros_route_connect_attempt_total:
+            "RouterOS transport 发起连接尝试的总次数。",
+          ros_route_backoff_total: "RouterOS transport 安排退避等待的总次数。",
+          ros_route_reconcile_error_total: "常驻路由对账失败的总次数。",
+          ros_route_last_reconcile_success_timestamp_seconds:
+            "最近一次常驻路由对账成功的 Unix 时间。",
+          ros_route_degraded: "RouterOS transport 当前是否处于降级状态。",
+          ros_route_cleanup_error_total: "关闭清理失败的路由条目总数。",
+        },
+      },
+    },
     ros_address_list: {
       name: "RouterOS Address List",
-      description: "把应答 IP 同步到 RouterOS address-list",
+      description:
+        "把应答 IP 同步到供 firewall、mangle 或路由规则使用的 address-list",
       fields: {
         address: {
           label: "RouterOS API 地址",
@@ -1563,6 +1774,13 @@ export const zhCNPluginDefined = {
           label: "密码",
           description: "指定 RouterOS API 登录密码。",
         },
+        tls: {
+          label: "TLS",
+          description: "启用 RouterOS API-SSL（通常为 8729 端口）。",
+        },
+        "tls.server_name": { label: "服务器名称" },
+        "tls.ca": { label: "自定义 CA 文件" },
+        "tls.insecure": { label: "跳过证书验证" },
         connect_timeout: {
           label: "连接超时",
           description: "建立 RouterOS API 连接时的等待上限，单位秒。",
@@ -1579,6 +1797,15 @@ export const zhCNPluginDefined = {
           label: "异步提交",
           description: "控制地址写入行为是否采用异步方式。",
         },
+        wait_timeout: {
+          label: "同步等待时间",
+          description:
+            "仅 async=false 时生效；超时后已接收任务继续在后台执行。",
+        },
+        queue_capacity: {
+          label: "队列容量",
+          description: "分别限制入口队列和重试积压中的不同 IP。",
+        },
         address_list4: {
           label: "IPv4 Address List",
           description: "指定 IPv4 地址写入的目标 address-list 名称。",
@@ -1593,7 +1820,8 @@ export const zhCNPluginDefined = {
         },
         persistent: {
           label: "常驻地址",
-          description: "定义需要长期保留的静态地址集合。",
+          description:
+            "期望状态；启动恢复并每 180 秒对账。动态项不参与定时对账。",
         },
         "persistent.ips": {
           label: "IP / CIDR",
@@ -1623,29 +1851,56 @@ export const zhCNPluginDefined = {
         },
         fixed_ttl: {
           label: "动态项固定 TTL",
-          description: "为所有动态写入项指定固定 TTL。",
+          description: "为动态项指定固定 TTL；刷新只由后续 DNS 观察触发。",
         },
         cleanup_on_shutdown: {
           label: "关闭时清理",
-          description: "控制插件退出时是否清理由其管理的条目。",
+          description:
+            "控制正常关闭及应用级 reload 时是否清理由其管理的条目；reload 按 shutdown/restart 处理，不移交旧实例待处理观测。",
         },
       },
       metrics: {
         labels: {
-          ros_address_list_observe_total: "观测域名",
+          ros_address_list_observe_total: "地址观测",
           ros_address_list_dropped_total: "异步丢弃",
           ros_address_list_sync_error_total: "同步失败",
           ros_address_list_sync_timeout_total: "同步超时",
+          ros_address_list_write_success_total: "写入成功",
+          ros_address_list_write_error_total: "写入失败",
+          ros_address_list_last_write_success_timestamp_seconds: "最近写入成功",
+          ros_address_list_pending_observations: "待处理观测",
+          ros_address_list_managed_entries: "受管条目",
+          ros_address_list_coalesced_total: "合并观测",
+          ros_address_list_reconnect_total: "重连",
+          ros_address_list_connect_attempt_total: "连接尝试",
+          ros_address_list_backoff_total: "退避",
+          ros_address_list_reconcile_error_total: "对账失败",
+          ros_address_list_last_reconcile_success_timestamp_seconds:
+            "最近对账成功",
+          ros_address_list_degraded: "连接降级",
+          ros_address_list_cleanup_error_total: "清理失败",
         },
         help: {
           ros_address_list_observe_total:
-            "提交给 RouterOS address-list 管理器的域名观测总数。",
+            "提交给 RouterOS address-list 管理器的地址观测总数。",
           ros_address_list_dropped_total:
             "异步模式下因队列已满或通道关闭而丢弃的观测总数。",
           ros_address_list_sync_error_total:
             "同步模式下在 RouterOS 管理器侧失败的观测总数。",
           ros_address_list_sync_timeout_total:
-            "同步模式下入队或等待超时的观测总数。",
+            "同步模式下等待 manager 完成时超时的观测总数。",
+          ros_address_list_write_success_total:
+            "RouterOS address-list upsert 成功总数。",
+          ros_address_list_write_error_total:
+            "RouterOS address-list upsert 失败总数。",
+          ros_address_list_last_write_success_timestamp_seconds:
+            "最近一次 RouterOS address-list upsert 成功的 Unix 时间。",
+          ros_address_list_pending_observations:
+            "当前等待 manager 处理的合并后观测数。",
+          ros_address_list_managed_entries:
+            "manager 当前保留的 address-list 条目数。",
+          ros_address_list_degraded:
+            "RouterOS transport 当前是否处于降级状态。",
         },
       },
     },
@@ -2173,6 +2428,65 @@ export const zhCNPluginDefined = {
       },
       quickSetup: {
         paramPlaceholder: "0.1",
+      },
+    },
+    time: {
+      name: "Time",
+      description: "按时区、时间段、星期和每月日期匹配",
+      fields: {
+        timezone: {
+          label: "时区",
+          description:
+            "留空时使用系统时区；填写有效 IANA 时区可固定策略判断时区。",
+          placeholder: "Asia/Shanghai",
+        },
+        periods: {
+          label: "时间周期",
+          description:
+            "任一周期命中即返回 true；同一周期内的时间、星期和月日条件需要同时满足。",
+          placeholder:
+            '[{"start":"09:00","end":"18:00","weekdays":["mon","tue","wed","thu","fri"]}]',
+        },
+        "periods[]": {
+          label: "时间周期",
+        },
+        "periods[].start": {
+          label: "开始时间",
+          description: "使用 HH:MM；与结束时间同时填写。",
+          placeholder: "09:00",
+        },
+        "periods[].end": {
+          label: "结束时间",
+          description: "使用 HH:MM；早于开始时间时表示跨午夜。",
+          placeholder: "18:00",
+        },
+        "periods[].weekdays": {
+          label: "星期",
+          description: "留空则不限制星期。",
+          placeholder: "mon\ntue\nwed\nthu\nfri",
+        },
+        "periods[].weekdays[]": {
+          options: {
+            mon: "周一",
+            tue: "周二",
+            wed: "周三",
+            thu: "周四",
+            fri: "周五",
+            sat: "周六",
+            sun: "周日",
+          },
+        },
+        "periods[].monthdays": {
+          label: "每月日期",
+          description: "填写 1 到 31；留空则不限制每月日期。",
+          placeholder: "1\n15",
+        },
+        "periods[].monthdays[]": {
+          placeholder: "1",
+        },
+      },
+      quickSetup: {
+        paramPlaceholder: "09:00-18:00",
       },
     },
     rate_limiter: {

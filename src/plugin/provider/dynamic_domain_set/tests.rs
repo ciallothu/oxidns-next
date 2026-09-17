@@ -79,7 +79,10 @@ fn read_file_ignores_empty_comments_and_deduplicates() {
     )
     .expect("write rules");
     let rules = read_rule_file(&path).expect("rules should load");
-    assert_eq!(rules, vec!["domain:example.com", "full:www.example.com"]);
+    assert_eq!(
+        rules.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+        vec!["domain:example.com", "full:www.example.com"]
+    );
 }
 
 #[tokio::test]
@@ -136,7 +139,11 @@ async fn dynamic_domain_set_append_preserves_unterminated_tail_rule() {
         "full:one.example\nfull:two.example\n"
     );
     assert_eq!(
-        read_rule_file(&path).expect("reload parser should see separate rules"),
+        read_rule_file(&path)
+            .expect("reload parser should see separate rules")
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
         vec![
             "full:one.example".to_string(),
             "full:two.example".to_string()
@@ -224,7 +231,8 @@ async fn dynamic_domain_set_sync_append_flushes_without_batch_or_tick() {
 
     // Give the worker time to consume Tokio interval's immediate first tick.
     // Without an explicit flush for waited appends, this request would then sit
-    // in the pending batch until the 60s interval and exceed the caller timeout.
+    // in the pending batch until the 60s interval and exceed the caller
+    // timeout.
     tokio::time::sleep(Duration::from_millis(25)).await;
     backend
         .append_rules_sync(

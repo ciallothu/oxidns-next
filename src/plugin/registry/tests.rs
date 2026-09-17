@@ -1,10 +1,10 @@
 use std::any::Any;
 use std::collections::HashMap as StdHashMap;
 use std::sync::Mutex as StdMutex;
-#[cfg(feature = "api")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
+use tokio::sync::Notify;
 
 use super::init_plan::SkippedProvider;
 use super::*;
@@ -45,10 +45,32 @@ fn test_get_nonexistent_plugin() {
     assert!(registry.get_plugin("nonexistent").is_none());
 }
 
+#[cfg(feature = "api")]
 #[tokio::test]
-async fn test_init_runtime_failure_preserves_current_runtime() {
-    let manager = PluginRuntimeManager::new();
-    let first = manager
+async fn matcher_runtime_control_is_not_attached_when_api_is_not_running() {
+    let mut registry = PluginRegistry::new();
+    registry.register_factory("qname", DependencyKind::Matcher, Box::new(QnameFactory {}));
+    let registry = Arc::new(registry);
+    let configs = vec![PluginConfig {
+        tag: "match_qname".to_string(),
+        plugin_type: "qname".to_string(),
+        args: Some(serde_yaml_ng::from_str("- example.com").unwrap()),
+    }];
+
+    registry
+        .clone()
+        .init_plugins_with_runtime_controls(configs, false)
+        .await
+        .expect("plugin init should succeed");
+
+    assert!(registry.runtime_controls().is_empty());
+    registry.destroy().await;
+}
+
+#[tokio::test]
+async fn test_init_runtime_failure_leaves_runtime_stopped() {
+    let manager = Arc::new(PluginRuntimeManager::new());
+    manager
         .init_runtime(test_config(Vec::new()))
         .await
         .expect("empty runtime should initialize");
@@ -63,24 +85,21 @@ async fn test_init_runtime_failure_preserves_current_runtime() {
         .expect_err("unknown plugin type should fail initialization");
     assert!(err.to_string().contains("Unknown plugin type"));
 
-    let current = manager
-        .current_runtime()
-        .expect("previous runtime should remain installed");
-    assert!(Arc::ptr_eq(&first, &current));
+    assert!(manager.current_runtime().is_none());
 
     manager.destroy_runtime().await;
 }
 
 #[tokio::test]
 async fn test_runtime_manager_recovers_poisoned_current_lock() {
-    let manager = PluginRuntimeManager::new();
-    let _ = std::panic::catch_unwind(|| {
+    let manager = Arc::new(PluginRuntimeManager::new());
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _guard = manager
             .current
             .write()
             .expect("current lock should not be poisoned yet");
         panic!("poison current runtime lock");
-    });
+    }));
 
     let runtime = manager
         .init_runtime(test_config(Vec::new()))
@@ -98,6 +117,123 @@ async fn test_runtime_manager_recovers_poisoned_current_lock() {
 struct CaptureProvider {
     tag: String,
     rules: Vec<String>,
+}
+
+#[derive(Debug)]
+struct DrainingProvider {
+    tag: String,
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    reloads: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Plugin for DrainingProvider {
+    fn tag(&self) -> &str {
+        &self.tag
+    }
+}
+
+#[async_trait]
+impl Provider for DrainingProvider {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn contains_name(&self, _name: &Name) -> bool {
+        false
+    }
+
+    async fn reload(&self) -> Result<()> {
+        self.reloads.fetch_add(1, Ordering::Relaxed);
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(())
+    }
+
+    fn supports_domain_matching(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Debug)]
+struct DrainingProviderFactory {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    reloads: Arc<AtomicUsize>,
+}
+
+impl PluginFactory for DrainingProviderFactory {
+    fn create(
+        &self,
+        plugin_config: &PluginConfig,
+        _init_context: &crate::plugin::PluginInitContext<'_>,
+    ) -> Result<UninitializedPlugin> {
+        Ok(UninitializedPlugin::Provider(Box::new(DrainingProvider {
+            tag: plugin_config.tag.clone(),
+            started: self.started.clone(),
+            release: self.release.clone(),
+            reloads: self.reloads.clone(),
+        })))
+    }
+}
+
+#[tokio::test]
+async fn destroy_waits_for_cancelled_provider_reload() {
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let reloads = Arc::new(AtomicUsize::new(0));
+    let mut registry = PluginRegistry::new();
+    registry.register_factory("qname", DependencyKind::Matcher, Box::new(QnameFactory {}));
+    registry.register_factory(
+        "draining_provider",
+        DependencyKind::Provider,
+        Box::new(DrainingProviderFactory {
+            started: started.clone(),
+            release: release.clone(),
+            reloads: reloads.clone(),
+        }),
+    );
+    let registry = Arc::new(registry);
+    registry
+        .clone()
+        .init_plugins_with_runtime_controls(
+            vec![
+                PluginConfig {
+                    tag: "draining".to_string(),
+                    plugin_type: "draining_provider".to_string(),
+                    args: None,
+                },
+                PluginConfig {
+                    tag: "match_qname".to_string(),
+                    plugin_type: "qname".to_string(),
+                    args: Some(serde_yaml_ng::from_str("- '$draining'").unwrap()),
+                },
+            ],
+            false,
+        )
+        .await
+        .unwrap();
+
+    let plugin = registry.get_plugin("draining").unwrap();
+    let Some(PluginRuntimeControl::Provider(control)) = plugin.runtime_control() else {
+        panic!("provider runtime control should exist");
+    };
+    let reload_control = control.clone();
+    let reload = tokio::spawn(async move { reload_control.reload().await });
+    started.notified().await;
+    reload.abort();
+    assert!(reload.await.unwrap_err().is_cancelled());
+
+    let destroy_registry = registry.clone();
+    let destroy = tokio::spawn(async move { destroy_registry.destroy().await });
+    tokio::task::yield_now().await;
+    assert!(!destroy.is_finished());
+
+    release.notify_one();
+    destroy.await.unwrap();
+    assert_eq!(registry.plugin_count(), 0);
+    assert_eq!(reloads.load(Ordering::Relaxed), 1);
 }
 
 #[async_trait]
@@ -119,6 +255,10 @@ impl Plugin for CaptureProvider {
 impl Provider for CaptureProvider {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    async fn reload(&self) -> Result<()> {
+        Ok(())
     }
 
     fn contains_name(&self, _name: &Name) -> bool {
@@ -233,6 +373,15 @@ async fn test_init_plugins_passes_quick_setup_dependents_to_create_context() {
             kind: DependencyKind::Executor,
             field: "args[0].matches[0] -> quick_setup(qname).domain_set_tags[0]".to_string(),
         }]
+    );
+    assert_eq!(
+        registry
+            .runtime_controls()
+            .into_iter()
+            .map(|(tag, _)| tag)
+            .collect::<Vec<_>>(),
+        vec!["zzz_provider"],
+        "quick-setup matchers must remain internal and must not expose runtime controls"
     );
 
     registry.destroy().await;

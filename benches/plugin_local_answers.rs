@@ -33,6 +33,15 @@ fn hosts_args(entries: &[String]) -> Value {
     Value::Mapping(mapping)
 }
 
+fn redirect_args(rules: &[String]) -> Value {
+    let mut mapping = Mapping::new();
+    mapping.insert(
+        Value::String("rules".to_string()),
+        Value::Sequence(rules.iter().cloned().map(Value::String).collect()),
+    );
+    Value::Mapping(mapping)
+}
+
 fn make_config(plugin: PluginConfig) -> Config {
     Config {
         runtime: RuntimeConfig::default(),
@@ -321,10 +330,53 @@ fn bench_arbitrary(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_redirect(c: &mut Criterion) {
+    let rt = runtime();
+    let mut rules = Vec::with_capacity(4_000);
+    for idx in 0..1_000usize {
+        rules.push(format!(
+            "full:edge-{idx}.bench.example target.bench.example"
+        ));
+        rules.push(format!(
+            "domain:zone-{idx}.bench.example target.bench.example"
+        ));
+        rules.push(format!("keyword:tenant-{idx} target.bench.example"));
+        rules.push(format!(
+            r"regexp:^svc{idx}-[a-z0-9-]+\.bench\.example$ target.bench.example"
+        ));
+    }
+    let (executor, registry) = load_executor(
+        &rt,
+        plugin_config("bench", "redirect", redirect_args(&rules)),
+    );
+    let mut group = c.benchmark_group("plugin_redirect");
+    for (label, qname) in [
+        ("full", "edge-777.bench.example."),
+        ("suffix_2", "api.zone-777.bench.example."),
+        ("suffix_10", "a.b.c.d.e.f.g.h.i.zone-777.bench.example."),
+        ("keyword", "tenant-777-gateway.prod.example."),
+        ("regexp", "svc777-alpha.bench.example."),
+        ("miss", "no-match.example."),
+    ] {
+        group.bench_function(BenchmarkId::new("execute", label), |b| {
+            b.iter(|| {
+                let mut ctx = make_context(registry.clone(), qname, RecordType::A);
+                let step = rt
+                    .block_on(executor.execute_with_next(&mut ctx, None))
+                    .expect("redirect execute should succeed");
+                black_box(step);
+                black_box(ctx.request());
+            })
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     plugin_local_answers,
     bench_black_hole,
     bench_hosts,
-    bench_arbitrary
+    bench_arbitrary,
+    bench_redirect
 );
 criterion_main!(plugin_local_answers);

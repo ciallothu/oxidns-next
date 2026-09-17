@@ -1,0 +1,207 @@
+---
+title: 访问约定与安全
+---
+
+import Admonition from "@theme/Admonition";
+
+本页说明管理 API 的监听方式、认证、传输安全、WebUI/CORS 和路由组织。生产部署前同时阅读[安全加固](../security.md)。
+
+## 请求约定
+
+- 管理接口统一位于 `/api/*`，插件接口使用 `/api/plugins/<plugin_tag>/<route>`。
+- 开启 Basic Auth 或 mTLS 后，客户端必须对每个受保护请求提供凭据；脚本不应把密码或 token 写入日志。
+- 普通接口按各专题记录的 HTTP method 和状态码调用；SSE 日志与 query recorder stream 使用 `Accept: text/event-stream` 并需要断线重连。
+- `/api/metrics` 返回 Prometheus exposition format，不属于 JSON API。
+- 变更类请求完成并不代表 DNS 服务已经恢复；reload、restart 或 upgrade 后继续检查对应状态和 `/api/readyz`。
+
+## 启用方式
+
+### 简写
+
+```yaml
+api:
+  http: "127.0.0.1:9088"
+```
+
+监听地址支持 `ip:port`、`[ipv6]:port` 和 `:port`。`http: ":9088"` 会绑定为双栈 `[::]:9088`；仅监听 IPv4 时请显式写 `0.0.0.0:9088`。
+
+### 详写
+
+```yaml
+api:
+  http:
+    listen: "127.0.0.1:9443"
+    ssl:
+      cert: "/etc/oxidns/api.crt"
+      key: "/etc/oxidns/api.key"
+      client_ca: "/etc/oxidns/client-ca.crt"
+      require_client_cert: true
+    auth:
+      type: basic
+      username: "admin"
+      password: "secret"
+    webui:
+      root: "/etc/oxidns/webui"
+      index: "index.html"
+```
+
+## 认证与传输
+
+### TLS
+
+当 `ssl.cert` 与 `ssl.key` 同时配置时，API 使用 HTTPS。
+
+可选增强：
+
+* `client_ca`
+  * 配置客户端 CA。
+* `require_client_cert`
+  * 强制双向认证。
+
+### Basic Auth
+
+```yaml
+auth:
+  type: basic
+  username: "admin"
+  password: "secret"
+```
+
+开启后，所有 API 请求都需要通过 Basic Auth。
+
+请求头格式如下：
+
+```http
+Authorization: Basic YWRtaW46c2VjcmV0
+```
+
+编码规则如下：
+
+* 先按 `username:password` 拼接原始字符串。
+* 再对整个字符串做 Base64 编码。
+* 请求头前缀必须为 `Basic `。
+
+以上示例中，`admin:secret` 对应的 Base64 结果为 `YWRtaW46c2VjcmV0`。
+
+<Admonition type="note" title="注意事项">
+
+* 这里使用的是标准 Base64，不是 URL-safe Base64。
+* 不需要分别对 `username` 和 `password` 单独编码。
+* 不使用百分号编码，也不应先做 URL encode。
+* 服务端按解码后的完整结果与 `username:password` 做直接比较。
+
+</Admonition>
+
+示例：
+
+```bash
+curl -u admin:secret http://127.0.0.1:9088/api/healthz
+```
+
+或：
+
+```bash
+curl -H 'Authorization: Basic YWRtaW46c2VjcmV0' \
+  http://127.0.0.1:9088/api/healthz
+```
+
+### WebUI 静态文件
+
+管理 API 可以直接服务外部 WebUI 静态目录。WebUI 挂载在根路径 `/`，管理 API 统一位于 `/api/*`：
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:9199"
+    webui:
+      root: "/etc/oxidns/webui"
+      index: "index.html"
+```
+
+启用后，访问 `http://服务器:9199/` 加载 WebUI，WebUI 使用同源 `/api` 访问后端。静态文件不受 Basic Auth 保护，但 `/api/*` 仍按管理 API 的认证与 CORS 规则处理。若 `webui.root` 使用相对路径，它以 OxiDNS 的 `-d/--working-dir` 为基准，而不是配置文件所在目录。完整配置、构建步骤和 nginx 独立部署示例见《[WebUI 部署](../webui.md)》。
+
+### CORS / WebUI 跨域
+
+默认情况下，管理 API 会根据 `api.http.listen` 自动处理 WebUI 跨域：
+
+* 监听 `0.0.0.0` 或 `[::]` 时，自动返回 `Access-Control-Allow-Origin: *`。
+* 监听具体 IP 时，自动允许同一 host 的 WebUI 访问，且不限制 WebUI 端口。例如 API 监听 `192.168.1.10:8080`，则 `http://192.168.1.10:3000`、`http://192.168.1.10:5173` 都可访问。
+* 监听 `127.0.0.1` 或 `[::1]` 时，也会允许 `localhost`。
+
+如需收紧或覆盖自动策略，可显式配置 `cors.allowed_origins`：
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:8080"
+    cors:
+      allowed_origins:
+        - "http://localhost:3000"
+        - "http://192.168.1.100:3000"
+```
+
+显式配置后，`allowed_origins` 按浏览器发送的 `Origin` 精确匹配。可使用 `"*"` 允许任意 origin，但此时浏览器不会接受带凭据的跨域请求。
+
+## 路由组织
+
+API 路由分成三类：
+
+* 全局路由
+  * 例如 `/api/healthz`、`/api/control`
+* 插件路由
+  * 统一格式：`/api/plugins/<plugin_tag>/<subpath>`
+* 观测路由
+  * 例如 `/api/metrics`
+
+## 配置参考
+
+### 最小可用管理面
+
+```yaml
+api:
+  http: "127.0.0.1:9088"
+```
+
+适用场景：
+
+* 本机运维
+* 进程自检
+* 指标抓取
+
+### 受保护控制面
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:9443"
+    ssl:
+      cert: "/etc/oxidns/api.crt"
+      key: "/etc/oxidns/api.key"
+    auth:
+      type: basic
+      username: "admin"
+      password: "secret"
+```
+
+适用场景：
+
+* 远程控制
+* 与上层运维平台集成
+
+### 双向认证控制面
+
+```yaml
+api:
+  http:
+    listen: "0.0.0.0:9443"
+    ssl:
+      cert: "/etc/oxidns/api.crt"
+      key: "/etc/oxidns/api.key"
+      client_ca: "/etc/oxidns/client-ca.crt"
+      require_client_cert: true
+```
+
+适用场景：
+
+* 严格受控的自动化系统
+* 多租户或高敏感运维环境

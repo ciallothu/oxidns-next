@@ -1,0 +1,996 @@
+[
+  {
+    "scenario": "08-domain-set",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "2mdn-cn.net",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "a1.mzstatic.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "adcdownload.apple.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "apps.mzstatic.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "build.microsoft.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "1password.drift.click",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "3dns.adobe.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "android.googlesource.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "azure.microsoft.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "sub.jsxcra.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "13mei5.buzz",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "bench-miss-01.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-02.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-03.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-04.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-05.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-06.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-07.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-08.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      }
+    ]
+  },
+  {
+    "scenario": "08-domain-set",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "2mdn-cn.net",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "a1.mzstatic.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "adcdownload.apple.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "apps.mzstatic.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "build.microsoft.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "1password.drift.click",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "3dns.adobe.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "android.googlesource.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "azure.microsoft.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "sub.jsxcra.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "13mei5.buzz",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 5,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 5
+      },
+      {
+        "name": "bench-miss-01.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-02.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-03.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-04.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-05.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-06.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-07.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-miss-08.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      }
+    ]
+  },
+  {
+    "scenario": "09-ip-set",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "ipset-01.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.1.0.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.1.0.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.1.0.10"
+      },
+      {
+        "name": "ipset-02.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.2.0.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.2.0.20",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.2.0.20"
+      },
+      {
+        "name": "ipset-03.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.3.0.30"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.3.0.30",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.3.0.30"
+      },
+      {
+        "name": "ipset-04.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.4.0.40"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.4.0.40",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.4.0.40"
+      },
+      {
+        "name": "ipset-05.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "ipset-06.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "ipset-07.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "ipset-08.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      }
+    ]
+  },
+  {
+    "scenario": "09-ip-set",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "ipset-01.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.1.0.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.1.0.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.1.0.10"
+      },
+      {
+        "name": "ipset-02.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.2.0.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.2.0.20",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.2.0.20"
+      },
+      {
+        "name": "ipset-03.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.3.0.30"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.3.0.30",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.3.0.30"
+      },
+      {
+        "name": "ipset-04.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.4.0.40"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.4.0.40",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.4.0.40"
+      },
+      {
+        "name": "ipset-05.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "ipset-06.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "ipset-07.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "ipset-08.bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      }
+    ]
+  },
+  {
+    "scenario": "42-composite-local-rewrite",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 60
+      },
+      {
+        "name": "bench-alt.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.11"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.11",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "192.0.2.11",
+        "expected_ttl": 60
+      },
+      {
+        "name": "bench-v6.test",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::10"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::10",
+            "ttl": 60
+          }
+        ],
+        "expected_aaaa": "2001:db8::10",
+        "expected_ttl": 60
+      }
+    ]
+  },
+  {
+    "scenario": "42-composite-local-rewrite",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "bench.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "192.0.2.10",
+        "expected_ttl": 60
+      },
+      {
+        "name": "bench-alt.test",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "192.0.2.11"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "192.0.2.11",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "192.0.2.11",
+        "expected_ttl": 60
+      },
+      {
+        "name": "bench-v6.test",
+        "query_type": "AAAA",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [],
+        "aaaa_records": [
+          "2001:db8::10"
+        ],
+        "records": [
+          {
+            "type": "AAAA",
+            "address": "2001:db8::10",
+            "ttl": 60
+          }
+        ],
+        "expected_aaaa": "2001:db8::10",
+        "expected_ttl": 60
+      }
+    ]
+  },
+  {
+    "scenario": "43-composite-provider-chain",
+    "engine": "mosdns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.1.0.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.1.0.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.1.0.10"
+      },
+      {
+        "name": "apps.mzstatic.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.2.0.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.2.0.20",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.2.0.20"
+      },
+      {
+        "name": "azure.microsoft.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "198.51.100.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "198.51.100.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "198.51.100.10"
+      },
+      {
+        "name": "android.googlesource.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-01.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-02.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-03.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-04.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      }
+    ]
+  },
+  {
+    "scenario": "43-composite-provider-chain",
+    "engine": "oxidns",
+    "probes": [
+      {
+        "name": "265.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.1.0.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.1.0.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.1.0.10"
+      },
+      {
+        "name": "apps.mzstatic.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "10.2.0.20"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "10.2.0.20",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "10.2.0.20"
+      },
+      {
+        "name": "azure.microsoft.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 0,
+        "a_records": [
+          "198.51.100.10"
+        ],
+        "aaaa_records": [],
+        "records": [
+          {
+            "type": "A",
+            "address": "198.51.100.10",
+            "ttl": 60
+          }
+        ],
+        "expected_a": "198.51.100.10"
+      },
+      {
+        "name": "android.googlesource.com",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-01.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-02.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-03.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      },
+      {
+        "name": "bench-provider-miss-04.example",
+        "query_type": "A",
+        "transport": "udp",
+        "rcode": 2,
+        "a_records": [],
+        "aaaa_records": [],
+        "records": [],
+        "expected_rcode": 2
+      }
+    ]
+  }
+]

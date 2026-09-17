@@ -1,0 +1,276 @@
+---
+title: Health, Control, Logs, and Upgrades
+---
+
+
+This page collects process and DNS readiness, build capabilities, runtime control, log streaming, and optional upgrade endpoints. Authenticate and network-restrict all mutating operations.
+
+## Built-In Health Endpoints
+
+### `GET /api/healthz`
+
+Purpose:
+
+* Checks only whether the API listener has been established.
+
+Responses:
+
+* `200 OK`: `ok`
+* `503 Service Unavailable`: `not_listening`
+
+### `GET /api/readyz`
+
+Purpose:
+
+* Checks whether plugin initialization and server startup are complete.
+
+Responses:
+
+* `200 OK`: `ready`
+* `503 Service Unavailable`: `not_ready`
+
+### `GET /api/health`
+
+Purpose:
+
+* Returns JSON health details.
+
+Example shape:
+
+```json
+{
+  "status": "ok",
+  "version": "x.y.z",
+  "build_bundle": "full",
+  "uptime_ms": 12345,
+  "checks": {
+    "api": "ok",
+    "plugin_init": "ok",
+    "server_startup": "ok"
+  },
+  "plugins": {
+    "total": 12,
+    "servers": 4
+ }
+}
+```
+
+`/api/health` returns `200` after plugin initialization completes, even when no server plugin is configured. In that state, the response `status` and `checks.server_startup` are `not_ready`, distinguishing management API availability from DNS service readiness.
+
+`build_bundle` is the primary build bundle of the running binary: `minimal`, `standard`, `full`, or `custom`. Use `GET /api/build` when you need the full feature and plugin capability snapshot.
+
+## Build Capability Endpoint
+
+### `GET /api/build`
+
+Purpose:
+
+* Returns the package version, compiled feature bundle, enabled public Cargo features, and plugin types compiled into the running binary.
+* The WebUI uses this endpoint to decide whether the current build supports each plugin kind and disables plugin entries that were not compiled in.
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "build": {
+    "version": "1.1.4",
+    "bundle": "standard",
+    "enabled_bundles": ["standard"],
+    "enabled_features": [
+      "standard",
+      "api",
+      "metrics",
+      "server-dot",
+      "server-doh"
+    ],
+    "supported_plugins": {
+      "servers": ["tcp_server", "udp_server"],
+      "executors": ["cache", "fallback", "forward", "sequence"],
+      "matchers": ["has_resp", "qname", "qtype"],
+      "providers": ["domain_set", "ip_set"]
+    }
+  }
+}
+```
+
+Field notes:
+
+* `version`
+  * Cargo package version.
+* `bundle`
+  * Primary bundle for this binary: `minimal`, `standard`, `full`, or `custom`.
+* `enabled_bundles`
+  * Bundle features explicitly enabled at compile time. The default `full` build usually includes both `standard` and `full`.
+* `enabled_features`
+  * Enabled public Cargo features. Internal `_` features are intentionally omitted.
+* `supported_plugins`
+  * Plugin types registered in the current binary, grouped into `servers`, `executors`, `matchers`, and `providers`.
+
+## Built-In Control Endpoints
+
+### `GET /api/control`
+
+Purpose:
+
+* Returns the current process control-plane state.
+
+The payload includes:
+
+* Running state
+* Uptime
+* Active config path
+* Whether shutdown has been requested
+* Reload status snapshots
+
+### `GET /api/system`
+
+Purpose:
+
+* Returns process, platform, config path, reload status, resource usage, and compiled capability summary for the running binary.
+
+The payload includes:
+
+* `version`
+  * Cargo package version.
+* `build`
+  * Same build capability object as the `build` field returned by `GET /api/build`.
+* `os` / `arch`
+  * Current runtime platform.
+* `uptime_ms`
+  * Process uptime.
+* `config_path`
+  * Active config file path.
+* `reload`
+  * Reload status snapshot.
+* `process_cpu_percent` / `process_memory_mb` / `system_memory_total_mb`
+  * Process and system resource usage information.
+
+### `POST /api/shutdown`
+
+Purpose:
+
+* Requests graceful shutdown.
+
+Response:
+
+* `202 Accepted`
+
+### `POST /api/restart`
+
+Purpose:
+
+* Gracefully shuts down the running instance and executes OxiDNS again with the original command-line arguments.
+* Unix replaces the current process image and keeps the PID; non-Unix platforms start a replacement process before exiting the current process.
+
+Responses:
+
+* `202 Accepted`
+  * The restart request was accepted.
+* `500 Internal Server Error`
+  * The application control channel is closed and cannot accept the restart request.
+
+### `POST /api/reload`
+
+Purpose:
+
+* Requests a config reload and reinitializes all plugins.
+
+Responses:
+
+* `202 Accepted`
+  * The request has been accepted.
+* `409 Conflict`
+  * A reload is already `pending` or `in_progress`.
+
+### `GET /api/reload/status`
+
+Purpose:
+
+* Returns the status of the most recent reload attempt.
+
+Fields include:
+
+* `status`
+  * `idle`
+  * `pending`
+  * `in_progress`
+  * `ok`
+  * `failed`
+* `pending`
+* `in_progress`
+* `last_started_ms`
+* `last_completed_ms`
+* `last_success_ms`
+* `last_error`
+
+## Runtime Log Endpoints
+
+Log routes are registered only when the process log buffer is available.
+
+### `GET /api/logs`
+
+Reads recent entries from the in-memory ring buffer.
+
+Query parameters:
+
+* `limit`
+  * Number of entries to return. Defaults to `200`; range `1..=1000`.
+* `level`
+  * Optional minimum level: `trace`, `debug`, `info`, `warn`, or `error`.
+
+The response contains `ok`, the returned count in `total`, and an `entries` array. This endpoint reads the in-memory tail and does not replace persisted log files.
+
+### `GET /api/logs/stream`
+
+Streams new log entries over SSE.
+
+Query parameters:
+
+* `tail`
+  * Number of recent entries replayed when the connection opens. Defaults to `0`; maximum `500`.
+* `level`
+  * Optional minimum log level.
+
+Each log uses `event: log` with a JSON `data` payload. The connection sends a heartbeat every 15 seconds. Clients should send `Accept: text/event-stream`, reconnect after disconnects, and tolerate gaps when a consumer falls behind.
+
+## Upgrade Endpoints
+
+These routes exist only when the binary is compiled with `plugin-upgrade`. The official `standard` and `full` bundles include that feature.
+
+`POST /api/upgrade/check` and `POST /api/upgrade/apply` accept an optional JSON body:
+
+```json
+{
+  "repository": "svenshi/oxidns",
+  "bundle": "auto",
+  "outbound": "remote",
+  "socks5": null,
+  "allow_prerelease": false,
+  "target": "latest",
+  "github_token": null
+}
+```
+
+Every field is optional. `github_token` is sensitive and must not be copied into logs, screenshots, or long-lived request records.
+
+### `POST /api/upgrade/check`
+
+Checks the target release and returns the current version, latest version, update availability, selected asset name, and release URL. It does not download or replace files.
+
+### `POST /api/upgrade/apply`
+
+Starts an asynchronous download, digest verification, backup, binary/WebUI replacement, and application restart when required.
+
+Responses:
+
+* `202 Accepted`
+  * The upgrade task started; poll `/api/upgrade/status` for progress.
+* `409 Conflict`
+  * Another upgrade task is already running.
+
+### `GET /api/upgrade/status`
+
+Returns the latest API-triggered upgrade state. `state` is one of `idle`, `running`, `restarting`, `completed`, `skipped`, or `failed`, together with start/completion timestamps, any error, the installed version, and restart requirement.
+
+An upgrade replaces runtime files and may restart the service. Before remote use, verify authentication, backups, working directory, WebUI path, and rollback procedure. Do not expose this endpoint to untrusted networks.

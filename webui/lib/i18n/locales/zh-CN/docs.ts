@@ -154,11 +154,30 @@ export const zhCNDocs = {
     short_circuit:
       "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：命中并生成本地响应后，是否立即停止后续 executor 链。\n- 说明：默认只设置 response 并继续执行；显式开启时返回 `Stop`。",
   },
+  response: {
+    rcode:
+      "- 类型：`string` 或 `number`；必填：否；默认值：`NOERROR`\n- 作用：设置基础 DNS RCODE，仅支持 `0..15`。",
+    answers:
+      "- 类型：`array`；必填：否；默认值：空数组\n- 每项必须是一条 zone 风格 RR：`<owner> <ttl> <class> <type> <rdata>`。",
+    authorities:
+      "- 类型：`array`；必填：否；默认值：空数组\n- 每项必须是一条 zone 风格 RR；SOA 应放在此区段以表达 NODATA 负缓存。",
+    additionals:
+      "- 类型：`array`；必填：否；默认值：空数组\n- 每项必须是一条 zone 风格 RR。",
+    authoritative:
+      "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：设置 AA 标志。",
+    authentic_data:
+      "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：设置 AD 标志。",
+    short_circuit:
+      "- 类型：`bool`；必填：否；默认值：`true`\n- 作用：设置响应后是否停止当前 executor 链。",
+  },
   redirect: {
     rules:
       "- 类型：`array`；必填：否；默认值：空数组\n- 作用：定义内联重定向规则。\n- 规则格式：\n  - `<域名规则> <目标域名>`\n- `<域名规则>` 支持：\n  - `full:`\n  - `domain:`\n  - `keyword:`\n  - `regexp:`\n  - 无前缀域名（按 `full:` 精确匹配处理）\n- 使用说明：`redirect` 本身不解析目标域名，通常需要在 `sequence` 中放在 `forward` 之前使用，由 `forward` 生成目标域名的真实响应。",
     files:
       "- 类型：`array`；必填：否；默认值：空数组\n- 作用：指定外部重定向规则文件列表。\n- 文件格式与 `rules` 相同，每行一条；空行和 `#` 注释会被忽略。",
+  },
+  client_ip_from_ecs: {
+    args: "- 类型：`array[string]`；必填：否；留空时运行时默认允许：`[127.0.0.1, ::1]`\n- 作用：定义允许提交 ECS 的原始客户端 IP 或 CIDR。\n- 安全：只有原始连接地址命中列表时才会采用 ECS；支持 IPv4、IPv6、单 IP 和 CIDR。",
   },
   ecs_handler: {
     forward:
@@ -213,12 +232,16 @@ export const zhCNDocs = {
       "- 类型：`integer`；必填：否；默认值：`60`\n- 单位：秒\n- 作用：定义失败探测评分的保留时间。\n- 配置要求：启用缓存时必须大于 0。\n- 运行影响：失败缓存可避免不可达地址在短时间内被反复探测，同时允许较快恢复。",
   },
   prefer_ipv4: {
+    probe_executor:
+      "- 类型：`string`；必填：否；默认值：未配置（兼容 continuation 探针模式）\n- 作用：引用一个仅用于 preferred QTYPE 内部探针的 executor；填写不带 `$` 的普通 executor tag。\n- 运行影响：可引用 `forward`、`sequence` 或其他能够独立生成 DNS response 的 executor。探针上下文与外层隔离，探针路径的 marks、extensions 和执行路径不会提交外层。\n- 缓存限制：若探针结果依赖客户端、marks、随机、限流或其他请求级状态，应关闭 `cache`。",
     cache:
       "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否缓存 preferred 类型存在状态。",
     cache_ttl:
       "- 类型：`integer`；必填：否；默认值：`3600`\n- 单位：秒\n- 作用：定义 preferred 状态缓存时长。",
   },
   prefer_ipv6: {
+    probe_executor:
+      "- 类型：`string`；必填：否；默认值：未配置（兼容 continuation 探针模式）\n- 作用：引用一个仅用于 preferred QTYPE 内部探针的 executor；填写不带 `$` 的普通 executor tag。\n- 运行影响：可引用 `forward`、`sequence` 或其他能够独立生成 DNS response 的 executor。探针上下文与外层隔离，探针路径的 marks、extensions 和执行路径不会提交外层。\n- 缓存限制：若探针结果依赖客户端、marks、随机、限流或其他请求级状态，应关闭 `cache`。",
     cache:
       "- 类型：`boolean`；必填：否；默认值：`true`\n- 作用：控制是否缓存 preferred 类型存在状态。",
     cache_ttl:
@@ -394,6 +417,59 @@ export const zhCNDocs = {
     mask6:
       "- 类型：`integer`；必填：否；默认值：由实现确定\n- 作用：兼容写法下分别定义 IPv4 / IPv6 前缀长度。",
   },
+  ros_route: {
+    address:
+      "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 RouterOS API 服务地址，通常写为 `host:port`。明文 API 通常使用 `8728`，API-SSL 通常使用 `8729`，实际端口以设备配置为准。",
+    username:
+      "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 RouterOS API 登录用户名。账户需要具备读取和维护目标路由表的权限；启用 `conntrack_guard` 时还需要读取 connection tracking。",
+    password:
+      "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 RouterOS API 登录密码。插件初始化、重连和后台同步都依赖该凭据。\n- 注意事项：不要在公开仓库、日志或共享示例中暴露真实口令。",
+    tls: "- 类型：`object`；必填：否；默认值：无（明文 API）\n- 作用：启用 RouterOS API-SSL；通常应同时把 `address` 改为设备配置的 TLS 端口。",
+    "tls.server_name":
+      "- 类型：`string`；必填：否；默认值：由 `address` 推导\n- 作用：覆盖 TLS 握手和证书校验使用的服务器名称。使用 IP 地址或推导结果不符合证书名称时需要显式配置。",
+    "tls.ca":
+      "- 类型：`string`；必填：否；默认值：系统信任库\n- 作用：指定包含自签名证书或私有 CA 的 PEM 文件。\n- 约束：不能与 `tls.insecure: true` 同时配置。",
+    "tls.insecure":
+      "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：跳过 TLS 证书验证。\n- 约束：不能与 `tls.ca` 同时配置；仅建议用于受控测试环境。",
+    connect_timeout:
+      "- 类型：`u64`；必填：否；默认值：`5`\n- 单位：秒\n- 作用：限制建立 RouterOS API 连接的等待时间，必须大于 `0`。",
+    send_timeout:
+      "- 类型：`u64`；必填：否；默认值：`5`\n- 单位：秒\n- 作用：限制发送单个 RouterOS API 命令的等待时间，必须大于 `0`。",
+    receive_timeout:
+      "- 类型：`u64`；必填：否；默认值：`5`\n- 单位：秒\n- 作用：限制等待下一段 RouterOS API 响应数据的时间，必须大于 `0`；管理面响应较慢时可按需调大。",
+    async:
+      "- 类型：`bool`；必填：否；默认值：`true`\n- 作用：启用后，DNS 回程阶段只向后台 manager 投递地址观察；关闭后等待当前观察的一次处理结果。RouterOS 写入失败不会改变 DNS 响应。",
+    wait_timeout:
+      "- 类型：`duration`；必填：否；默认值：`8s`\n- 作用：仅在 `async: false` 时限制 DNS 请求等待 manager 的时间。必须大于 `0`。\n- 运行影响：超时后 DNS 响应照常返回，已入队任务和后台重试不会被取消。",
+    queue_capacity:
+      "- 类型：`usize`；必填：否；默认值：`16384`\n- 作用：分别限制入口去重队列和重试积压中不同路由 key 的数量，必须大于 `0`。\n- 运行影响：相同 key 的观察会合并；队列满时新的 key 会被丢弃并记录指标，但不影响 DNS 响应。",
+    routing_table:
+      "- 类型：`string`；必填：是；默认值：无\n- 作用：指定受管路由写入的 RouterOS routing table。插件不会创建路由表、routing rule 或默认路由，这些对象必须提前配置。",
+    gateway4:
+      "- 类型：`string`；条件必填；默认值：无\n- 作用：指定 IPv4 动态主机路由和 IPv4 常驻路由使用的 gateway 表达式。\n- 约束：`gateway4` 与 `gateway6` 至少配置一个；未配置本项时会忽略 IPv4 DNS 地址和 IPv4 `persistent` 项。",
+    gateway6:
+      "- 类型：`string`；条件必填；默认值：无\n- 作用：指定 IPv6 动态主机路由和 IPv6 常驻路由使用的 gateway 表达式。\n- 约束：`gateway4` 与 `gateway6` 至少配置一个；未配置本项时会忽略 IPv6 DNS 地址和 IPv6 `persistent` 项。",
+    distance:
+      "- 类型：`u8`；必填：否；默认值：`100`\n- 作用：指定插件写入所有受管路由的 RouterOS route distance。",
+    comment_prefix:
+      "- 类型：`string`；必填：否；默认值：`oxi`\n- 作用：与插件 `tag` 共同构成 RouterOS comment 中的 ownership namespace，用于启动恢复、对账和安全清理。\n- 约束：该值和插件 `tag` 都不能包含 `;` 或 `=`；不要手工修改受管路由的 ownership comment。",
+    persistent:
+      "- 类型：`object`；必填：否；默认值：无\n- 作用：定义与 DNS 观察无关、需要持续存在的静态 IP/CIDR 路由。启动时同步一次；配置非空时每 180 秒对账一次。\n- 子字段：`ips`、`files`。动态 DNS 路由不参与周期对账。",
+    "persistent.ips":
+      "- 类型：`array<string>`；必填：否；默认值：空\n- 作用：以内联方式声明常驻 IPv4/IPv6 地址或 CIDR。单 IP 规范化为 `/32` 或 `/128`，CIDR 规范化到网络地址。\n- 忽略规则：对应地址族没有配置 gateway 的条目及 `/0` 默认路由会被忽略并记录警告。",
+    "persistent.files":
+      "- 类型：`array<string>`；必填：否；默认值：空\n- 作用：从文本文件加载常驻路由；每行一个 IP/CIDR，支持使用 `#` 注释。\n- 加载时机：仅在插件初始化或 reload 时读取；周期对账使用内存集合，文件变化后需要 reload。",
+    min_ttl:
+      "- 类型：`u32`；必填：否；默认值：`60`\n- 单位：秒\n- 作用：动态主机路由租约的最小 TTL；较小的 DNS TTL 会提升到该值。",
+    max_ttl:
+      "- 类型：`u32`；必填：否；默认值：`3600`\n- 单位：秒\n- 作用：动态主机路由租约的最大 TTL；较大的 DNS TTL 会截断到该值。\n- 约束：`min_ttl` 不能大于 `max_ttl`。",
+    fixed_ttl:
+      "- 类型：`u32`；必填：否；默认值：无\n- 单位：秒\n- 作用：覆盖所有动态主机路由的 DNS TTL，不再使用 `min_ttl`/`max_ttl` 的裁剪结果。设为 `0` 表示不按时间过期。\n- 刷新边界：后续响应缺少旧 IP 不会主动撤销；动态路由仅由后续 DNS 观察刷新，不参与周期对账。",
+    conntrack_guard:
+      "- 类型：`bool`；必填：否；默认值：`false`\n- 作用：删除到期动态 `/32`、`/128` 主机路由前查询 RouterOS connection tracking；目标 IP 仍有连接时延后 30 秒。\n- 边界：查询失败时保留路由；常驻路由的配置删除、关闭清理和 CIDR 路由不受该保护。",
+    cleanup_on_shutdown:
+      "- 类型：`bool`；必填：否；默认值：`true`\n- 作用：正常关闭和应用级 reload 时删除当前 ownership namespace 下的动态与常驻路由；整个关闭与清理流程共用 30 秒预算。\n- 配置建议：若重启或 reload 期间不能接受策略空窗，应设为 `false`。reload 不会移交旧实例的待处理观察。",
+  },
   ros_address_list: {
     address:
       "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 RouterOS API 服务地址，通常写为 `host:port`。插件启动后将使用该地址建立管理连接，并在运行期间维持与设备的同步关系。\n- 配置建议：使用 RouterOS API 明文端口时通常为 `8728`，如部署了加密 API，应按实际端口填写。",
@@ -401,6 +477,13 @@ export const zhCNDocs = {
       "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 RouterOS API 登录用户名。该账户需要具备读取和维护目标 `address-list` 的权限。\n- 配置建议：建议为本插件单独创建专用账号，以便隔离权限范围和审计记录。",
     password:
       "- 类型：`string`；必填：是；默认值：无\n- 作用：指定 RouterOS API 登录密码。插件初始化、重连和后台同步均依赖该凭据。\n- 注意事项：应避免在公开仓库或共享示例中直接暴露真实口令。",
+    tls: "- 类型：`object`；默认值：未启用\n- 作用：启用 RouterOS API-SSL，通常连接 8729 端口。",
+    "tls.server_name":
+      "- 类型：`string`；默认值：由连接地址推导\n- 作用：指定 TLS 握手使用的服务器名称。",
+    "tls.ca":
+      "- 类型：`string`；默认值：系统信任库\n- 作用：指定自定义 CA 证书文件路径。",
+    "tls.insecure":
+      "- 类型：`bool`；默认值：`false`\n- 作用：跳过 TLS 证书验证；仅建议用于受控测试环境。",
     connect_timeout:
       "- 类型：`u64`；必填：否；默认值：`5`\n- 作用：指定建立 RouterOS API 连接时的等待上限，单位为秒。\n- 注意事项：必须大于 `0`。网络链路较慢或 RouterOS 管理面偶发繁忙时，可按需调大。",
     send_timeout:
@@ -409,26 +492,30 @@ export const zhCNDocs = {
       "- 类型：`u64`；必填：否；默认值：`5`\n- 作用：指定等待下一段 RouterOS API 响应数据的上限，单位为秒。\n- 配置建议：建议为 OxiDNS Next 使用专用且规模可控的 `address-list`，不建议接入已有的大型共享列表。只有在存量环境无法避免慢列表查询或 RouterOS 管理面响应较慢时，才考虑将该值调大，例如 `30` 或 `60`。",
     async:
       "- 类型：`bool`；必填：否；默认值：`true`\n- 作用：控制地址写入行为是否采用异步方式。启用后，DNS 应答路径只负责投递任务，由后台管理器完成与 RouterOS 的交互。\n- 影响：异步模式有助于降低请求路径阻塞风险；关闭后会改为同步提交，更适合需要立即确认提交结果的场景。",
+    wait_timeout:
+      "- 类型：`duration`；默认值：`8s`\n- 仅在 `async: false` 时限制等待；超时后任务继续在后台执行，不改变 DNS 响应。",
+    queue_capacity:
+      "- 类型：`usize`；默认值：`16384`\n- 分别限制入口队列和重试积压中的不同 IP。",
     address_list4:
       "- 类型：`string`；必填：否；默认值：无\n- 作用：指定 IPv4 地址写入的目标 `address-list` 名称。插件从 DNS 应答中提取到 A 记录后，将写入该列表。\n- 配置建议：如果策略仅处理 IPv4，应至少配置本项。",
     address_list6:
       "- 类型：`string`；必填：否；默认值：无\n- 作用：指定 IPv6 地址写入的目标 `address-list` 名称。插件从 DNS 应答中提取到 AAAA 记录后，将写入该列表。\n- 配置建议：如果策略需要覆盖 IPv6，应同时配置本项，并在 RouterOS 侧建立对应的匹配与路由规则。",
     comment_prefix:
-      "- 类型：`string`；必填：否；默认值：`fdns`\n- 作用：指定插件写入 RouterOS 条目时使用的注释前缀。该前缀用于区分 OxiDNS Next 创建的动态项和常驻项，便于后续刷新、重载与清理。\n- 注意事项：该值及插件 `tag` 不应包含 `;` 或 `=`，以避免影响内部标记格式。",
+      "- 类型：`string`；必填：否；默认值：`oxi`\n- 作用：指定插件写入 RouterOS 条目时使用的注释前缀。该前缀用于区分 OxiDNS Next 创建的动态项和常驻项，便于后续刷新、重载与清理。\n- 注意事项：该值及插件 `tag` 不应包含 `;` 或 `=`，以避免影响内部标记格式。",
     persistent:
-      "- 类型：`object`；必填：否；默认值：无\n- 作用：定义需要长期保留的静态地址集合。该部分不依赖 DNS 应答触发，可在插件启动后直接同步到 RouterOS，并由后台 reconcile 保持一致性。\n- 子字段：\n  - `ips`\n  - `files`",
+      "- 类型：`object`；必填：否；默认值：无\n- 作用：定义需要长期保留的期望状态。启动时恢复；配置非空时每 180 秒只对账这些持久项，动态项不参与。\n- 子字段：\n  - `ips`\n  - `files`",
     "persistent.ips":
       "- 类型：`array<string>`；必填：否；默认值：空\n- 作用：以内联方式声明常驻 IP 或 CIDR 网段。适用于数量较少且变更频率不高的固定策略对象。\n- 支持格式：单个 IPv4、单个 IPv6、IPv4 CIDR、IPv6 CIDR。",
     "persistent.files":
-      "- 类型：`array<string>`；必填：否；默认值：空\n- 作用：从外部文件加载常驻地址集合。适用于需要由其他系统生成、集中维护或批量管理的地址列表。\n- 行为说明：这些文件只在插件初始化时读取一次。文件变更后如需生效，需要 reload 插件或应用。",
+      "- 类型：`array<string>`；必填：否；默认值：空\n- 作用：从外部文件加载常驻地址集合。适用于需要由其他系统生成、集中维护或批量管理的地址列表。\n- 行为说明：这些文件只在插件初始化或 reload 时读取。定时对账使用内存集合，不重复读取文件。",
     min_ttl:
       "- 类型：`u64`；必填：否；默认值：`60`\n- 作用：定义动态地址项允许使用的最小 TTL。当 DNS 应答中的 TTL 过小或为零时，插件会提升到该值后再写入 RouterOS。\n- 适用场景：用于避免高频刷新造成的管理面抖动。",
     max_ttl:
       "- 类型：`u64`；必填：否；默认值：`3600`\n- 作用：定义动态地址项允许使用的最大 TTL。当 DNS 应答中的 TTL 过大时，插件会截断到该上限。\n- 适用场景：用于限制策略项在网络设备中的滞留时间，降低地址陈旧风险。",
     fixed_ttl:
-      "- 类型：`u64`；必填：否；默认值：无\n- 作用：为所有动态写入项指定固定 TTL。配置本项后，插件不再使用 DNS 记录中的原始 TTL，也不再受 `min_ttl` 与 `max_ttl` 的区间裁剪影响。若设为 `0`，则动态项不会设置 RouterOS `timeout`。\n- 适用场景：适合需要统一刷新周期、便于运维预估和策略收敛的场景。",
+      "- 类型：`u64`；必填：否；默认值：无\n- 作用：为所有动态写入项指定固定 TTL。配置本项后，插件不再使用 DNS 记录中的原始 TTL，也不再受 `min_ttl` 与 `max_ttl` 的区间裁剪影响。若设为 `0`，则动态项不会设置 RouterOS `timeout`。\n- 刷新边界：动态项只在后续 DNS 再次观察到同一 IP 并达到阈值时刷新，没有独立定时刷新。",
     cleanup_on_shutdown:
-      "- 类型：`bool`；必填：否；默认值：`true`\n- 作用：控制插件退出时是否清理由其管理的条目。启用后，插件在正常关闭阶段会删除自身写入并可识别归属的 RouterOS 地址项。\n- 影响：关闭该选项后，已写入条目会继续保留在 RouterOS 中，适合要求策略状态跨进程重启保留的场景。",
+      "- 类型：`bool`；必填：否；默认值：`true`\n- 作用：控制插件正常关闭及应用级 reload 时是否清理由其管理的条目。reload 按 shutdown/restart 处理，不移交旧实例待处理观测。\n- 影响：关闭该选项后，已写入条目会继续保留在 RouterOS 中，适合要求策略状态跨进程重启或 reload 保留的场景。",
   },
   upgrade: {
     force:
@@ -542,6 +629,20 @@ export const zhCNDocs = {
   },
   random: {
     args: "`random` 的 `args` 只接受一个概率值。\n\n- 类型：`array`；必填：是；默认值：无\n- 取值范围：`0.0` 到 `1.0`\n- 作用：定义本次匹配返回 `true` 的概率。\n- 运行影响：\n  - `0.0` 表示始终不命中。\n  - `1.0` 表示始终命中。",
+  },
+  time: {
+    timezone:
+      "- 类型：`string`；必填：否；默认值：系统时区\n- 作用：指定匹配使用的 IANA 时区，例如 `Asia/Shanghai` 或 `UTC`。\n- 运行影响：未配置时会解析系统时区；系统时区不可用时插件初始化失败，避免静默按错误时区执行策略。",
+    periods:
+      "- 类型：`array`；必填：是；数量：`1..=64`\n- 作用：定义周期匹配窗口；任一窗口命中即返回 `true`。\n- 运行影响：单个窗口内的时间、星期和每月日期条件必须同时满足。",
+    "periods[].start":
+      "- 类型：`string`；必填：与 `end` 同时填写或同时省略\n- 格式：`HH:MM`，范围为 `00:00` 到 `23:59`。\n- 说明：与 `end` 相等无效；晚于 `end` 时表示跨午夜。",
+    "periods[].end":
+      "- 类型：`string`；必填：与 `start` 同时填写或同时省略\n- 格式：`HH:MM`，区间按 `[start, end)` 判断，结束时刻不命中。",
+    "periods[].weekdays":
+      "- 类型：`array[string]`；必填：否\n- 支持值：`mon`、`tue`、`wed`、`thu`、`fri`、`sat`、`sun`，大小写不敏感。\n- 运行影响：留空时不限制星期。",
+    "periods[].monthdays":
+      "- 类型：`array[integer]`；必填：否\n- 支持值：`1..=31`。\n- 运行影响：留空时不限制每月日期；不存在该日期的月份不会命中。",
   },
   rate_limiter: {
     qps: "- 类型：`number`；必填：否；默认值：`20`\n- 作用：定义每秒令牌补充速率。\n- 运行影响：\n  - 值越大，单位时间内允许通过的请求越多。",

@@ -15,8 +15,8 @@ paths**:
 | Approach | Best for | Needs local Rust toolchain? |
 |---|---|---|
 | [Reusable workflow + GitHub Actions](#path-1-reusable-github-actions-workflow) | Publish from your own repository manually or on your own schedule, without maintaining a fork | ❌ |
-| [Local `cargo build`](#path-2-local-cargo-build) | One-off custom binary, you already have Rust installed | ✅ |
-| [Fork the whole project](#path-3-fork-the-project) | Long-term source modifications, diverging from upstream | ✅ |
+| [Local `cargo build`](#local-build) | One-off custom binary, you already have Rust installed | ✅ |
+| [Fork the whole project](#fork-build) | Long-term source modifications, diverging from upstream | ✅ |
 
 <Admonition type="tip" title="Cargo Default Features">
 
@@ -28,7 +28,7 @@ slim-build mode.
 
 ---
 
-## Bundles
+## Bundles \{#preset-capability-matrix}
 
 | Bundle | Use case | Relative size |
 |---|---|---|
@@ -41,6 +41,11 @@ slim-build mode.
 When you mix and match features yourself, the actual capability is the one
 reported by `oxidns-next build-info` or `GET /api/build`. The list below describes
 the **official preset** contents.
+
+Binary size varies with the Rust toolchain, dependency versions, target,
+linking mode, and UPX processing. For capacity planning, measure the target
+release asset or a local artifact built with the same flags instead of treating
+historical sizes as a fixed commitment.
 
 </Admonition>
 
@@ -57,7 +62,8 @@ optional plugins are dropped. The dependency closure excludes hyper / rustls
 - Providers: `domain_set`, `ip_set`
 - Matchers: all
 - Executors: `sequence`, `forward`, `cache`, `fallback`, `hosts`, `redirect`,
-  `dual_selector`, `ecs_handler`, `ttl`, `drop_resp`, `black_hole`,
+  `prefer_ipv4`, `prefer_ipv6`, `ecs_handler`, `ttl`,
+  `drop_resp`, `black_hole`,
   `debug_print`, `reload`
 - In-process metric counters (no HTTP endpoint)
 
@@ -88,8 +94,8 @@ Adds DoH3 and platform integrations on top of `standard`.
 
 **Additional**
 
-- Inbound / upstream: DoH HTTP/3
-- Executors: `ros_address_list` (MikroTik), `ipset`, `nftset`
+- Inbound / upstream / `network.outbound` resolver: DoH HTTP/3
+- Executors: `ros_address_list` / `ros_route` (MikroTik), `ipset`, `nftset`
 
 ### Official release matrix
 
@@ -115,6 +121,10 @@ preset.
 | `server-doh` | DoH (HTTP/1.1 / HTTP/2 over TLS) inbound server, hyper server + rustls |
 | `server-doq` | DoQ (QUIC) inbound server, `quinn` |
 | `server-doh3` | HTTP/3 leg on the DoH server (requires `server-doh`), adds `h3` / `h3-quinn` / `quinn` |
+| `resolver-dot` | Allow `network.outbound.resolver.nameservers` to use DoT |
+| `resolver-doh` | Allow `network.outbound.resolver.nameservers` to use DoH (HTTP/2) |
+| `resolver-doq` | Allow `network.outbound.resolver.nameservers` to use DoQ |
+| `resolver-doh3` | Allow `network.outbound.resolver.nameservers` to use DoH HTTP/3 (requires `resolver-doh`) |
 | `upstream-dot` | DoT upstreams (`tls://` scheme) |
 | `upstream-doh` | DoH (HTTP/2) upstreams (`https://` scheme) |
 | `upstream-doq` | DoQ upstreams (`quic://` / `doq://` scheme) |
@@ -155,8 +165,12 @@ path.
 | `storage-redis` | Shared Redis connection for the `cache` L2 and `query_recorder` API short cache | `redis` |
 | `plugin-ipset` | `ipset` + `nftset` | `ripset` (Linux only) |
 | `plugin-cron` | `cron` | `cronexpr` |
+| `plugin-dynamic-domain` | `dynamic_domain_set` provider + `learn_domain` executor | — |
+| `plugin-ip-selector` | `ip_selector` | — |
 | `plugin-script` | `script` | — |
+| `plugin-client-ip-from-ecs` | `client_ip_from_ecs` | — |
 | `plugin-arbitrary` | `arbitrary` | `oxidns-next-zoneparser` |
+| `plugin-response` | `response` | `oxidns-next-zoneparser` |
 | `plugin-download` | `download` | — |
 | `plugin-http-request` | `http_request` | — |
 | `plugin-reverse-lookup` | `reverse_lookup` | — |
@@ -287,7 +301,7 @@ Identical to this project's `release.yml` — 12 targets:
 
 - `x86_64-unknown-linux-gnu` / `x86_64-unknown-linux-musl`
 - `aarch64-unknown-linux-gnu` / `aarch64-unknown-linux-musl`
-- `i686-unknown-linux-musl` / `arm-unknown-linux-musleabihf`
+- `i686-unknown-linux-musl` / `arm-unknown-linux-musleabihf` / `armv7-unknown-linux-musleabihf`
 - `x86_64-apple-darwin` / `aarch64-apple-darwin`
 - `x86_64-unknown-freebsd`
 - `x86_64-pc-windows-msvc` / `i686-pc-windows-msvc` / `aarch64-pc-windows-msvc`
@@ -296,7 +310,7 @@ Delete unneeded entries from the caller `build.yml` `targets` JSON array to shor
 
 ---
 
-## Path 2: local `cargo build`
+## Path 2: local `cargo build` \{#local-build}
 
 When you already have Rust installed and just want a one-off custom binary:
 
@@ -310,8 +324,11 @@ cargo build --release --no-default-features --features minimal
 # Home router (API, DoT/DoH/DoQ, geo, adguard, ...)
 cargo build --release --no-default-features --features standard
 
-# minimal + MikroTik integration on top
+# minimal + both MikroTik plugins on top
 cargo build --release --no-default-features --features "minimal,plugin-mikrotik"
+
+# Or add only one of the plugins
+cargo build --release --no-default-features --features "minimal,plugin-ros-address-list"
 
 # Plain forwarder + management API, no heavy plugins
 cargo build --release --no-default-features --features "minimal,api"
@@ -322,7 +339,7 @@ WebUI assets need a separate build; see [WebUI Deployment](webui.md).
 
 ---
 
-## Path 3: fork the project
+## Path 3: fork the project \{#fork-build}
 
 For long-term source modifications:
 
