@@ -1,28 +1,27 @@
-# OxiDNS Next v0.1.1
+# OxiDNS Next v0.2.0
 
 ## 🚀 发布概览
 
-- v0.1.1 是兼容性补丁版本，重点修复 WebUI 深色模式下图表提示框不可读，以及切换图表和快速悬停时动画抖动、追赶的问题。
-- 本版本同时同步 React Flow 画布主题，完善默认 PostgreSQL / Redis Compose 部署栈，并加入持续的 Rust 与 WebUI 依赖审计。
+- v0.2.0 是功能版本：同步上游至 v1.5.2，并保留 OxiDNS Next 的账户、远程存储、缓存、品牌与发布链路。
+- 查询日志和延时趋势不再局限于最近 1 小时；WebUI 默认展示 24 小时，并可切换 1 小时、7 天、30 天和 1 年。
 
 ## ✨ 主要亮点
 
-- 查询统计 Tooltip 显式使用当前主题的 popover 前景、背景与边框色，深色模式下文字恢复清晰可读。
-- 关闭查询统计 Tooltip、Bar、Pie 与 Line 的过渡动画，消除切换标签、时间范围、刷新或快速移动鼠标时的重复、反向与闪动效果。
-- 插件拓扑和 Sequence 编辑画布跟随实际深浅色主题，节点、控件与画布配色保持一致。
-- 根配置默认使用 PostgreSQL 保存查询历史，并启用 Redis DNS 二级缓存和查询 API 缓存；根 Compose 提供 PostgreSQL 17、Redis 7.4、健康检查、持久卷、内部网络与 `.env.example`。
-- 更新 Next.js、Docusaurus 及受安全公告影响的依赖解析，新增 Security Audit workflow，对完整 WebUI、文档与 Rust 依赖树持续审计。
-- TLS PEM 加载改为直接使用 `rustls-pki-types`，移除不再维护的 `rustls-pemfile` 直接依赖，现有证书与私钥配置无需修改。
+- 查询趋势 API 新增日桶与真实 UTC 日历月桶，SQLite、PostgreSQL、MySQL 都会聚合所选保留范围内的全部记录、补齐空桶，并返回精确的加权平均延时和最近秩 P95。
+- 查询统计及系统指标统一使用现代化 ECharts Canvas 渲染，支持响应式尺寸、深浅色主题、本地化 Tooltip、底部缩放、Ctrl + 滚轮缩放、拖动平移和移动端手势，修复旧图表的割裂、抖动和鼠标命中问题。
+- 同步可信 ECS 客户端 IP、双栈专用探针、sequence 多值 mark / `set_mark`、matcher/provider 运行时控制、`response` 执行器、时区感知时间匹配和更安全的大规则集流式加载。
+- RouterOS address-list 与 route 同步获得 TLS、队列合并、所有权校验、恢复与清理加固；升级下载、Windows ZIP、自升级状态和运行时生命周期也得到修复。
+- WebUI 配置编辑器迁移到 CodeMirror，补齐中英文界面、日志显示、可见性轮询、更新偏好和后端账户隔离。
 
 ## ⚠️ 升级说明
 
-- 根 crate 版本为 `0.1.1`，发布标签为 `v0.1.1`；现有运行配置可以直接升级，没有新的必填 schema 字段。
-- 仓库根 `config.yaml` 的默认部署已改为 PostgreSQL 与 Redis。使用根 Compose 时，请先复制 `.env.example` 为 `.env`，设置两个 URL-safe 密码，再启动完整栈。
-- SQLite、MySQL 和自定义单容器部署仍受支持；请保留自己的配置，不要直接用新的根配置覆盖。查询历史只持久化到 SQL 数据库，Redis 仍是可丢弃缓存。
-- RustSec 对 `RUSTSEC-2023-0071` 保留一项经过评估的例外：当前 OIDC / MySQL 依赖路径只执行 RSA 公钥操作，该公告影响私钥计时，且暂无已修复版本。
+- v0.1.1 的常规 YAML 配置通常可以直接升级；替换二进制前建议运行 `oxidns-next check -c <配置文件>`。
+- 用户定义的插件 tag 现在必须是安全的 ASCII 路径段，且 `qs.exec.*`、`qs.match.*`、`qs.cron.*` 为 quick-setup 保留前缀；不合规的旧 tag 需要先改名。
+- matcher 运行时管理 API 已由 `/enable`、`/disable` 改为 `/mode`，模式为 `normal`、`always_false` 或 `always_true`；使用旧接口的自动化需要同步调整。
+- 年度图表只能展示数据库仍保留的数据。若需要完整一年历史，请提前把 query recorder 的 `retention_days` 设置为至少 `366`；已经清理的数据无法恢复。
+- 趋势 API 的 `day` / `month` bucket 及 `since_ms` / `until_ms` 响应字段为向后兼容扩展，原有 `minute` / `hour` 客户端可以继续使用。
 
-## 📦 下载
+## 📦 下载与校验
 
-- 请根据平台和 bundle 选择 GitHub Release 中对应的 archive 或 Debian 软件包。
-- 容器用户可使用 `ghcr.io/ciallothu/oxidns-next:v0.1.1`。
-- 本版本未随附项目生成的 checksum、SBOM 或 provenance；请仅通过项目 GitHub Release 或 GHCR 官方发布渠道获取产物。
+- 请根据平台选择 `oxidns-next-<target>` 完整包，或 Linux musl 的 `standard` / `minimal` bundle；同时提供 x86_64 与 aarch64 Debian 软件包。
+- 容器镜像发布到 `ghcr.io/ciallothu/oxidns-next:v0.2.0`；GitHub Release 资产页提供每个文件的 digest，可用于替换生产二进制前的完整性核对。

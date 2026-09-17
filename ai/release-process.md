@@ -103,25 +103,19 @@ step 1. The upgrade notes must mention:
 
 ## 4. Prepare GitHub Release Notes
 
-Update `.github/release-notes.md` for the intended tag. This fixed file is
+Update `RELEASE_NOTES.md` for the intended tag. This fixed file is
 overwritten during every release preparation, while Git history retains the
 previous versions. The reviewed release description therefore becomes part of
 the tagged source instead of a manual post-publication edit. The first line
-must be `# OxiDNS vX.Y.Z`; the tag workflow rejects a missing, empty, or
+must be `# OxiDNS Next vX.Y.Z`; the tag workflow rejects a missing, empty, or
 mismatched file.
 
 Keep this file shorter than the full documentation release notes, but make it
 complete enough for operators deciding whether to upgrade. The tag workflow
-uses it in two places:
+uses it as the reviewed GitHub Release body:
 
-- `softprops/action-gh-release` prepends it to GitHub's generated release notes,
-  which remain at the end for merged pull requests, contributors, and the full
-  changelog link.
-- The Telegram notification renders the same file as Telegram-compatible HTML,
-  followed by the GitHub Release URL. Headings, lists, bold text, inline code,
-  and Markdown links are preserved. If the resulting message exceeds
-  Telegram's 4096-character limit, the workflow truncates the curated text
-  while preserving a truncation notice and the full Release link.
+- `softprops/action-gh-release` publishes it without generated release-note
+  sections, so every shipped claim must already be present in this file.
 
 Use this standard Chinese template. A small number of emoji is allowed when it
 improves scanability:
@@ -164,9 +158,8 @@ Generation rules:
 - Do not paste the full website release card verbatim; GitHub Release text
   should be concise and action-oriented.
 
-Do not include a hand-written `What's Changed`, contributor list, or full
-changelog link in this file; GitHub appends those generated sections during the
-workflow.
+Include a changelog link only when it materially helps operators; the workflow
+does not append generated sections.
 
 ## 5. Confirm The Release Artifact Contract
 
@@ -189,8 +182,8 @@ Full archives include the binary, `config.yaml`, `LICENSE`, and WebUI files.
 Full archive names remain compatible with the upgrade selector:
 
 ```text
-oxidns-<target>.tar.gz
-oxidns-<target>.zip
+oxidns-next-<target>.tar.gz
+oxidns-next-<target>.zip
 ```
 
 ### Slim bundles
@@ -203,21 +196,15 @@ oxidns-<target>.zip
 Slim names include the bundle:
 
 ```text
-oxidns-minimal-<target>.tar.gz
-oxidns-standard-<target>.tar.gz
+oxidns-next-minimal-<target>.tar.gz
+oxidns-next-standard-<target>.tar.gz
 ```
 
 ### Downstream publication
 
-- The root Rust package is published to crates.io after the GitHub Release.
 - Docker images are built from the published full musl archives for amd64 and
   arm64, then combined into multi-architecture manifests for Docker Hub and
   GHCR.
-- The Telegram release notification is sent to the `Announcements` forum topic
-  using `.github/release-notes.md`, then pinned there.
-  Configure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and the topic's numeric
-  `TELEGRAM_ANNOUNCEMENTS_THREAD_ID` as repository Actions secrets. The bot
-  must be an administrator with permission to post and pin messages.
 - The reusable custom-build workflow must keep target-to-runner, build-tool,
   archive naming, and WebUI packaging rules aligned with `release.yml`.
 
@@ -253,17 +240,14 @@ Also verify before tagging:
 - `Cargo.toml` package version equals the intended `vX.Y.Z` tag without the
   leading `v`.
 - `Cargo.lock` contains the intended root and changed workspace crate versions.
-- `.github/release-notes.md` starts with the matching version heading and
-  contains only the curated notes. Keep it concise enough to avoid unnecessary
-  truncation in the Telegram announcement.
+- `RELEASE_NOTES.md` starts with the matching version heading and contains only
+  the curated notes.
 - `oxidns build-info` reports the expected bundle/features for any locally
   built release candidate.
 - `oxidns check` accepts the packaged full and minimal example configs under
   their corresponding bundles.
-- `cargo publish --locked --dry-run --no-verify` succeeds. The temporary
-  `--no-verify` is required while the RouterOS response-channel fix is supplied
-  through `[patch.crates-io]`; remove it after upgrading to a fixed upstream
-  release.
+- `cargo package --locked` succeeds when package metadata or crate contents
+  changed.
 - No release-note claim depends on uncommitted working-tree changes.
 
 ## 7. Hand Off For Commit And Tag
@@ -274,7 +258,7 @@ complete, hand the final state to the maintainer with:
 
 - A concise summary of the release-prep changes.
 - The validation commands that were actually run.
-- The reviewed `.github/release-notes.md` content.
+- The reviewed `RELEASE_NOTES.md` content.
 - Suggested manual commit and tag commands.
 
 Suggested commit message:
@@ -292,7 +276,7 @@ git tag vX.Y.Z
 
 The GitHub release workflow is triggered by pushing tags matching `v*`.
 The maintainer should only push the tag after reviewing the release-prep commit
-and versioned release-notes file.
+and release-notes file.
 
 Before pushing, verify the tag points at the reviewed release commit:
 
@@ -308,17 +292,15 @@ these workflow stages:
 1. WebUI build.
 2. Full and slim archive matrices.
 3. GitHub Release publication.
-4. crates.io publication.
-5. amd64/arm64 Docker builds and multi-architecture manifests.
-6. Release notification.
+4. amd64/arm64 Docker builds and multi-architecture manifests.
 
 Inspect the release and download at least one representative archive:
 
 ```bash
 gh release view vX.Y.Z
 release_tmp="$(mktemp -d)"
-gh release download vX.Y.Z --pattern 'oxidns-x86_64-unknown-linux-musl.tar.gz' --dir "$release_tmp"
-tar -tzf "$release_tmp/oxidns-x86_64-unknown-linux-musl.tar.gz"
+gh release download vX.Y.Z --pattern 'oxidns-next-x86_64-unknown-linux-musl.tar.gz' --dir "$release_tmp"
+tar -tzf "$release_tmp/oxidns-next-x86_64-unknown-linux-musl.tar.gz"
 ```
 
 Verify that:
@@ -331,9 +313,9 @@ Verify that:
 - GitHub reports a digest for downloadable assets; the self-upgrade path relies
   on the release asset digest for SHA256 verification.
 - Docker Hub and GHCR expose the expected version and architecture manifests.
-- The published crate version and repository/tag metadata are correct.
-- The curated prefix of the final GitHub Release, its versioned release-notes
-  file, the Telegram announcement, and both documentation release cards agree.
+- The repository/tag metadata are correct.
+- The final GitHub Release body, `RELEASE_NOTES.md`, and both documentation
+  release cards agree.
 
 Keep a short publication record with the tag commit, workflow URL, validation
 commands, and any platform not manually smoke-tested.

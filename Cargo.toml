@@ -9,7 +9,7 @@ members = [
 
 [package]
 name = "oxidns-next"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["Sven Shi <isvenshi@gmail.com>", "ciallothu <ciallothu@users.noreply.github.com>"]
 description = "A high-performance, plugin-driven DNS server with a secure management console."
@@ -141,7 +141,7 @@ zoneparser = { package = "oxidns-next-zoneparser", version = "0.1.2", path = "cr
 service-manager = "0.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-oxidns-next-ripset = { version = "0.1.2", path = "crates/ripset", optional = true }
+oxidns-next-ripset = { version = "0.1.3", path = "crates/ripset", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 zip = { version = "8", optional = true }
