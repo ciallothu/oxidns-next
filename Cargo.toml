@@ -105,8 +105,7 @@ h2 = { version = "0.4", optional = true }
 quinn = { version = "0.11.9", default-features = false, features = ["bloom", "log", "runtime-tokio", "rustls-ring"], optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
-rustls = { version = "0.23.40", default-features = false, features = ["logging", "ring", "std", "tls12"], optional = true }
-rustls-pemfile = { version = "2.2.0", optional = true }
+rustls = { version = "0.23.45", default-features = false, features = ["logging", "ring", "std", "tls12"], optional = true }
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["logging", "ring", "tls12"], optional = true }
 webpki-roots = { version = "1.0.2", optional = true }
 
@@ -303,7 +302,6 @@ plugin-mikrotik = ["plugin-ros-address-list", "plugin-ros-route"]
 # `ros_address_list` executor (MikroTik RouterOS API integration).
 plugin-ros-address-list = [
     "dep:mikrotik-rs",
-    "dep:rustls-pemfile",
     "mikrotik-rs/tokio-tls",
     "_tls-client",
 ]
@@ -311,7 +309,6 @@ plugin-ros-address-list = [
 # `ros_route` executor (MikroTik RouterOS dynamic-route integration).
 plugin-ros-route = [
     "dep:mikrotik-rs",
-    "dep:rustls-pemfile",
     "mikrotik-rs/tokio-tls",
     "_tls-client",
 ]

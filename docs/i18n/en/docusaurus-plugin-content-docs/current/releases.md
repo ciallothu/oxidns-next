@@ -12,7 +12,7 @@ This page lists OxiDNS Next releases first. The remaining entries are retained a
 ## 2026-09
 
 <div className="release-stack">
-  <ReleaseCard version="v0.2.0" badge="Minor Release" date="2026-09-17" defaultOpen>
+  <ReleaseCard version="v0.2.0" badge="Minor Release" date="2026-09-18" defaultOpen>
       **Release Scope**
 
       - Minor Release. v0.2.0 synchronizes upstream through v1.5.2 while preserving OxiDNS Next accounts, remote SQL storage, Redis caching, branding, and its independent release channel.
@@ -25,7 +25,7 @@ This page lists OxiDNS Next releases first. The remaining entries are retained a
       - `fix(webui)`: make query trends, latency, dashboard traffic, and system metrics share consistent axes, null handling, tooltips, and resize lifecycle, fixing visual seams, animation jitter, pointer hit offsets, and stale theme rendering.
       - `feat(runtime)`: synchronize trusted ECS client-IP replacement, dedicated dual-stack probes, sequence multi-value mark / `set_mark`, matcher and provider runtime controls, the `response` executor, timezone-aware time matching, and safer streaming loaders for large rule sets.
       - `feat(routeros)` / `fix(upgrade)`: add TLS, queue coalescing, ownership validation, recovery, and cleanup hardening to RouterOS address-list and route synchronization. Downloads use self-cleaning temporary files, with fixes for Windows ZIP upgrades, upgrade status, and runtime lifecycle boundaries.
-      - `feat(webui)` / `docs`: move the configuration editor to CodeMirror; complete bilingual UI coverage, log formatting, visibility-aware polling, update preferences, and backend-account isolation; restore the upstream v1.5.x release history and align the release guide with the current artifact contract.
+      - `feat(webui)` / `deps` / `docs`: move the configuration editor to CodeMirror; complete bilingual UI coverage, log formatting, visibility-aware polling, update preferences, and backend-account isolation; update Next.js to 16.3.5 and `rustls` to a patched release, clearing the currently known npm / pnpm and RustSec vulnerabilities; restore the upstream v1.5.x release history and align the release guide with the current artifact contract.
 
       **Compatibility and Upgrade Notes**
 

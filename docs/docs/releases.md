@@ -12,7 +12,7 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
 ## 2026-09
 
 <div className="release-stack">
-  <ReleaseCard version="v0.2.0" badge="Minor Release" date="2026-09-17" defaultOpen>
+  <ReleaseCard version="v0.2.0" badge="Minor Release" date="2026-09-18" defaultOpen>
       **版本定位**
 
       - Minor Release。v0.2.0 同步上游至 v1.5.2，并保留 OxiDNS Next 的账户、远程 SQL 存储、Redis 缓存、品牌和独立发布链路。
@@ -25,7 +25,7 @@ import ReleaseCard from '@site/src/components/ReleaseCard';
       - `fix(webui)`：查询趋势、延时、仪表盘流量和系统指标共用一致的坐标、空值、Tooltip 与 resize 生命周期，修复旧图表的视觉割裂、动画抖动、鼠标命中偏移和主题切换残留。
       - `feat(runtime)`：同步可信 ECS 客户端 IP、双栈专用探针、sequence 多值 mark / `set_mark`、matcher/provider 运行时控制、`response` 执行器、时区感知时间匹配和更安全的大规则集流式加载。
       - `feat(routeros)` / `fix(upgrade)`：RouterOS address-list 与 route 同步获得 TLS、队列合并、所有权校验、恢复与清理加固；升级下载使用可清理临时文件，并修复 Windows ZIP、自升级状态与运行时生命周期问题。
-      - `feat(webui)` / `docs`：配置编辑器迁移到 CodeMirror，补齐中英文界面、日志显示、可见性轮询、更新偏好与后端账户隔离；同步恢复上游 v1.5.x 历史发布记录和当前发布契约。
+      - `feat(webui)` / `deps` / `docs`：配置编辑器迁移到 CodeMirror，补齐中英文界面、日志显示、可见性轮询、更新偏好与后端账户隔离；Next.js 升级到 16.3.5，`rustls` 升级到已修复版本，并清除当前 npm / pnpm 与 RustSec 已知漏洞；同步恢复上游 v1.5.x 历史发布记录和当前发布契约。
 
       **配置与升级说明**
 

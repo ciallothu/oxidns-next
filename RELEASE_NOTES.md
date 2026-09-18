@@ -11,7 +11,7 @@
 - 查询统计及系统指标统一使用现代化 ECharts Canvas 渲染，支持响应式尺寸、深浅色主题、本地化 Tooltip、底部缩放、Ctrl + 滚轮缩放、拖动平移和移动端手势，修复旧图表的割裂、抖动和鼠标命中问题。
 - 同步可信 ECS 客户端 IP、双栈专用探针、sequence 多值 mark / `set_mark`、matcher/provider 运行时控制、`response` 执行器、时区感知时间匹配和更安全的大规则集流式加载。
 - RouterOS address-list 与 route 同步获得 TLS、队列合并、所有权校验、恢复与清理加固；升级下载、Windows ZIP、自升级状态和运行时生命周期也得到修复。
-- WebUI 配置编辑器迁移到 CodeMirror，补齐中英文界面、日志显示、可见性轮询、更新偏好和后端账户隔离。
+- WebUI 配置编辑器迁移到 CodeMirror，补齐中英文界面、日志显示、可见性轮询、更新偏好和后端账户隔离；Next.js 升级到 16.3.5，`rustls` 升级到已修复版本，并清除当前 npm / pnpm 与 RustSec 已知漏洞。
 
 ## ⚠️ 升级说明
 

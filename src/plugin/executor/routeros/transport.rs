@@ -12,7 +12,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mikrotik_rs::{Command, Event, MikrotikDevice, TrapCategory};
-use rustls::pki_types::ServerName;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, ServerName};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
@@ -170,8 +171,8 @@ fn build_tls_mode(address: &str, args: RouterOsTlsArgs) -> Result<RouterOsTlsMod
                 "failed to open RouterOS TLS CA file '{path}': {error}"
             ))
         })?;
-        let mut reader = BufReader::new(file);
-        let certificates = rustls_pemfile::certs(&mut reader)
+        let reader = BufReader::new(file);
+        let certificates = CertificateDer::pem_reader_iter(reader)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|error| {
                 DnsError::plugin(format!(
